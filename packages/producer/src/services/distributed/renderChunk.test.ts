@@ -669,6 +669,65 @@ describe("extractDeferredVideoFramesForChunk", () => {
     }
   });
 
+  it("reads a URL source in place at the planner's version, identical to the planner's frames", async () => {
+    const source = join(planDir, range.sourcePath);
+    const bytes = readFileSync(source);
+    const ifMatch: Array<string | undefined> = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      const headers = init.headers as Record<string, string>;
+      ifMatch.push(headers["if-match"]);
+      const match = /^bytes=(\d+)-(\d*)$/.exec(headers.range ?? "");
+      const start = match ? Number(match[1]) : 0;
+      const end = Math.min(match?.[2] ? Number(match[2]) : Infinity, bytes.length - 1);
+      return new Response(bytes.subarray(start, end + 1), {
+        status: match ? 206 : 200,
+        headers: {
+          "accept-ranges": "bytes",
+          "content-length": String(end - start + 1),
+          ...(match ? { "content-range": `bytes ${start}-${end}/${bytes.length}` } : {}),
+        },
+      });
+    }) as typeof fetch;
+    const remote = planVideos(false);
+    remote.extracted = [
+      {
+        ...remote.extracted[0]!,
+        deferredRange: {
+          ...range,
+          sourceUrl: "https://media.example/take.mp4",
+          sourceEtag: '"v1"',
+        },
+      },
+    ];
+    try {
+      const full = await extractVideoFramesRange(
+        source,
+        "clip",
+        range.startTime,
+        range.durationSeconds,
+        { fps: 30, outputDir: join(root, "full-url"), format: "jpg" },
+      );
+      const [chunk] = await extractDeferredVideoFramesForChunk({
+        planDir: join(root, "plan-without-sources"),
+        planVideos: remote,
+        slice: { index: 1, startFrame: 30, endFrame: 45 },
+        fps: { num: 30, den: 1 },
+        outputRoot: join(root, "chunk-url"),
+        cfg: {},
+      });
+
+      expect(chunk!.framePaths.size).toBe(15);
+      for (const [index, path] of chunk!.framePaths) {
+        expect(readFileSync(path).equals(readFileSync(full.framePaths.get(index)!))).toBe(true);
+      }
+      expect(ifMatch.length).toBeGreaterThan(0);
+      expect(ifMatch.every((tag) => tag === '"v1"')).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("extracts nothing for a chunk past the clip, and holds no frames", async () => {
     const [chunk] = await extractDeferredVideoFramesForChunk({
       planDir,

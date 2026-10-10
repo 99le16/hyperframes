@@ -195,6 +195,12 @@ export interface CaptureOptions {
    * intrinsic media dimensions.
    */
   skipReadinessVideoIds?: readonly string[];
+  /**
+   * Remote media URLs the page must not fetch, because their frames are supplied out-of-band.
+   * Each URL is blocked exactly, query included. A blocked video errors, which readiness treats as
+   * settled.
+   */
+  blockedMediaUrls?: readonly string[];
   /** Pass one object to every session of a render; see `SubTimelineWaitMemo`. */
   subTimelineWaitMemo?: SubTimelineWaitMemo;
   /**

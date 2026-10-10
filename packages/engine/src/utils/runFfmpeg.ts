@@ -9,6 +9,7 @@
 import { spawn, type ChildProcess } from "child_process";
 import { getFfmpegBinary } from "./ffmpegBinaries.js";
 import { trackChildProcess } from "./processTracker.js";
+import { watchRelayedReads } from "./inPlaceSources.js";
 import {
   ManagedChildProcess,
   type ManagedChildProcessOutcome,
@@ -191,15 +192,22 @@ const ABORTED_BEFORE_START: RunFfmpegResult = {
   terminationReason: "abort",
 };
 
+/** A run that exited 0 fails when a source it read in place failed under it. */
+function failRelayedReads(result: RunFfmpegResult, failure: string | undefined): RunFfmpegResult {
+  if (!result.success || !failure) return result;
+  return { ...result, success: false, exitCode: 1, stderr: `${result.stderr}${failure}\n` };
+}
+
 export async function runFfmpeg(args: string[], opts?: RunFfmpegOptions): Promise<RunFfmpegResult> {
   if (opts?.signal?.aborted) return { ...ABORTED_BEFORE_START };
   const timeout = opts?.timeout ?? DEFAULT_TIMEOUT;
+  const relayedReadFailure = watchRelayedReads(args);
   const managed = new ManagedChildProcess(spawnFfmpeg(args), {
     signal: opts?.signal,
     deadlineAtMs: Date.now() + timeout,
     onStderr: opts?.onStderr,
   });
-  return toResult(await managed.wait());
+  return failRelayedReads(toResult(await managed.wait()), relayedReadFailure());
 }
 
 /**
@@ -213,6 +221,7 @@ export async function runFfmpegPipeline(
 ): Promise<RunFfmpegResult> {
   if (opts?.signal?.aborted) return { ...ABORTED_BEFORE_START };
   const deadlineAtMs = Date.now() + (opts?.timeout ?? DEFAULT_TIMEOUT);
+  const relayedReadFailure = watchRelayedReads([...producerArgs, ...consumerArgs]);
   const producer = spawnFfmpeg(producerArgs);
   const consumer = spawnFfmpeg(consumerArgs);
   // Either side ending early, or failing to start, must release the other from the pipe.
@@ -241,5 +250,5 @@ export async function runFfmpegPipeline(
   const stderr = [...outcomes.filter((outcome) => outcome !== reported), reported]
     .map((outcome) => outcome.stderr)
     .join("");
-  return toResult(reported, stderr);
+  return failRelayedReads(toResult(reported, stderr), relayedReadFailure());
 }

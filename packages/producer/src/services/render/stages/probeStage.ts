@@ -34,6 +34,7 @@ import {
   type CaptureOptions,
   type CaptureSession,
   type EngineConfig,
+  type InPlaceSources,
   type SubTimelineWaitMemo,
   closeCaptureSession,
   compositionRequiresWebGpu,
@@ -96,6 +97,8 @@ export interface ProbeStageInput {
   needsAlpha: boolean;
   deviceScaleFactor: number;
   subTimelineWaitMemo: SubTimelineWaitMemo;
+  /** See CompileForRenderOptions.inPlaceSources. The page never fetches the videos it answers for. */
+  inPlaceSources?: InPlaceSources;
 }
 
 const FRAME_BOUNDARY_EPSILON = 1e-3;
@@ -266,6 +269,15 @@ export function probeRequiresBrowser(args: {
   );
 }
 
+async function videosReadInPlace(
+  videos: CompositionMetadata["videos"],
+  inPlaceSources: InPlaceSources | undefined,
+): Promise<CompositionMetadata["videos"]> {
+  if (!inPlaceSources) return [];
+  const sources = await Promise.all(videos.map((video) => inPlaceSources(video.src)));
+  return videos.filter((_, index) => sources[index]);
+}
+
 export async function runProbeStage(input: ProbeStageInput): Promise<ProbeStageResult> {
   const {
     projectDir,
@@ -340,6 +352,7 @@ export async function runProbeStage(input: ProbeStageInput): Promise<ProbeStageR
       // re-deriving it, so the two cannot disagree about what is on disk.
       const motionBlur = job.config.motionBlur;
       const captureFormat = resolveCaptureImageFormat({ needsAlpha, motionBlur });
+      const inPlaceVideos = await videosReadInPlace(composition.videos, input.inPlaceSources);
       const captureOpts: CaptureOptions = {
         width,
         height,
@@ -351,6 +364,8 @@ export async function runProbeStage(input: ProbeStageInput): Promise<ProbeStageR
         motionBlur,
         requiresWebGpu: compositionRequiresWebGpu(compiled.html),
         subTimelineWaitMemo,
+        blockedMediaUrls: inPlaceVideos.map((video) => video.src),
+        skipReadinessVideoIds: inPlaceVideos.map((video) => video.id),
       };
 
       const PROBE_MAX_ATTEMPTS = 2;
@@ -506,6 +521,7 @@ export async function runProbeStage(input: ProbeStageInput): Promise<ProbeStageR
             resolutions,
             projectDir,
             join(workDir, "downloads"),
+            input.inPlaceSources,
           );
           assertNotAborted();
           // Update composition metadata with re-parsed media

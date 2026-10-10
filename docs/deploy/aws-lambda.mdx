@@ -225,8 +225,11 @@ The render bucket is created with CloudFormation `Retain` on delete — `hyperfr
 - The distributed AWS path is SDR-only.
 - Each render chunk extracts only the video frames it shows, so the plan step
   no longer grows with video length. On a 10,240 MB function, a 26-minute
-  576×1024 24 fps H.264 clip plans in about 20 seconds. Each chunk downloads
-  the whole source file of every video it shows. Variable-frame-rate and HDR
+  576×1024 24 fps H.264 clip plans in about 20 seconds. A `<video src>` that is
+  an MP4, MOV, Matroska or WebM file at a public HTTPS URL that serves byte
+  ranges with a strong ETag is read in place: each chunk reads only the parts it
+  shows. Any other source is downloaded
+  whole by each chunk that shows it. Variable-frame-rate and HDR
   sources are the exception: the plan step still extracts every frame of those,
   inside Lambda's 15-minute limit, in 2-minute segments, so
   `FFMPEG_PROCESS_TIMEOUT_MS` applies to each segment, not to the whole clip.

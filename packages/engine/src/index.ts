@@ -330,6 +330,13 @@ export {
 } from "./utils/notMediaPayload.js";
 
 export {
+  createInPlaceSources,
+  relayInPlaceSource,
+  type InPlaceSource,
+  type InPlaceSources,
+} from "./utils/inPlaceSources.js";
+
+export {
   assertPublicHttpsUrl,
   isBlockedNetworkHost,
   downloadToTemp,

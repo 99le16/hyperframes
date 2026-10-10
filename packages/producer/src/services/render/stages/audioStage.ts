@@ -22,6 +22,7 @@ import {
   MIXED_AUDIO_FILENAME,
   processCompositionAudio,
   type AudioProcessingFailure,
+  type InPlaceSources,
 } from "@hyperframes/engine";
 import type { CompositionMetadata } from "../shared.js";
 import type { ProducerLogger } from "../../../logger.js";
@@ -44,6 +45,8 @@ export interface AudioStageInput {
   assertNotAborted: () => void;
   /** Where a per-track failure's detail goes. Optional so tests need not pass one. */
   log?: ProducerLogger;
+  /** Read the remote sources this answers for at their URL instead of downloading them. */
+  inPlaceSources?: InPlaceSources;
 }
 
 export interface AudioStageResult {
@@ -101,6 +104,7 @@ export async function runAudioStage(input: AudioStageInput): Promise<AudioStageR
         abortSignal,
         { ffmpegProcessTimeout, audioGain },
         compiledDir,
+        { inPlaceSources: input.inPlaceSources },
       );
     } catch (err) {
       // An abort is the caller's own signal and must keep its own shape.

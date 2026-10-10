@@ -451,6 +451,29 @@ describe("runProbeStage — forceScreenshot threading", () => {
     expect(mediaPreflightComposition).toBe(input.composition);
   });
 
+  it("keeps the page off the videos the plan reads at their URL", async () => {
+    resetRetryMocks();
+    const { runProbeStage } = await import("./probeStage.js");
+    const input = makeProbeInput({});
+    const take = "https://media.example/take.mp4";
+    const clip = { start: 0, end: 5, mediaStart: 0, loop: false, hasAudio: false };
+    input.composition.videos.push(
+      { ...clip, id: "take", src: take },
+      { ...clip, id: "local", src: "local.mp4" },
+    );
+
+    await runProbeStage({
+      ...input,
+      inPlaceSources: async (url) =>
+        url === take ? { url, etag: '"v1"', readUrl: "http://127.0.0.1:9/take" } : undefined,
+    });
+
+    expect(capturedOptions.at(-1)).toMatchObject({
+      blockedMediaUrls: [take],
+      skipReadinessVideoIds: ["take"],
+    });
+  });
+
   it("uses selected intrinsic duration only when the variable-bound duration was inferred", async () => {
     resetRetryMocks();
     const media = (

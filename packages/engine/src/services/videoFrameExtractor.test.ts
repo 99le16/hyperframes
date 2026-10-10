@@ -56,6 +56,7 @@ import {
   type VideoMetadata,
 } from "../utils/ffprobe.js";
 import { runFfmpeg } from "../utils/runFfmpeg.js";
+import { relayInPlaceSource } from "../utils/inPlaceSources.js";
 import { COMPLETE_SENTINEL, GC_MARKER, SCHEMA_PREFIX } from "./extractionCache.js";
 import { resolveRuntimeMediaClipDuration } from "../../../core/src/runtime/media.js";
 import { compileTimingAttrs, sourceTimeAt } from "@hyperframes/core";
@@ -1992,6 +1993,153 @@ describe.skipIf(!HAS_FFMPEG)("frame sampling at the output frame rate", () => {
       },
       60_000,
     );
+
+    /**
+     * Serves `file` at https://media.example/gop.mp4 as version "v1", by range. Reads from
+     * `failFrom.offset` on get `failFrom.status`.
+     */
+    function stubGopSourceUrl(
+      file = gopSource,
+      failFrom?: { offset: number; status: number },
+    ): string {
+      const bytes = readFileSync(file);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (_url: string, init: RequestInit) => {
+          const headers = init.headers as Record<string, string>;
+          if (headers["if-match"] !== '"v1"') return new Response(null, { status: 412 });
+          const { start, end, ranged } = requestedBytes(headers.range, bytes.length);
+          if (failFrom && start >= failFrom.offset) {
+            return new Response(null, { status: failFrom.status });
+          }
+          return new Response(bytes.subarray(start, end + 1), {
+            status: ranged ? 206 : 200,
+            headers: {
+              "accept-ranges": "bytes",
+              "content-length": String(end - start + 1),
+              ...(ranged ? { "content-range": `bytes ${start}-${end}/${bytes.length}` } : {}),
+            },
+          });
+        }),
+      );
+      return "https://media.example/gop.mp4";
+    }
+
+    function requestedBytes(header: string | undefined, length: number) {
+      const range = /^bytes=(\d+)-(\d*)$/.exec(header ?? "");
+      const end = range?.[2] ? Number(range[2]) : Number.POSITIVE_INFINITY;
+      return {
+        start: range ? Number(range[1]) : 0,
+        end: Math.min(end, length - 1),
+        ranged: range !== null,
+      };
+    }
+
+    it("frameRanges read in place write the file's frames, and a changed source fails", async () => {
+      const url = stubGopSourceUrl();
+      const options = {
+        fps: 24,
+        outputDir: FIXTURE_DIR,
+        format: "jpg" as const,
+        frameRanges: [{ firstFrame: 97, frames: 40 }],
+      };
+      const readUrl = async (etag: string) => (await relayInPlaceSource(url, etag)).readUrl;
+      try {
+        const local = await extractVideoFramesRange(gopSource, "url-local", 1.3, 17, options);
+        const remote = await extractVideoFramesRange(
+          await readUrl('"v1"'),
+          "url-remote",
+          1.3,
+          17,
+          options,
+        );
+        expect(remote.framePaths.size).toBe(40);
+        expect(frameBytes(remote.outputDir)).toEqual(frameBytes(local.outputDir));
+        await expect(
+          extractVideoFramesRange(await readUrl('"v0"'), "url-stale", 1.3, 17, options),
+        ).rejects.toMatchObject({ diagnostic: expect.stringContaining("4XX") });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    }, 60_000);
+
+    it.each([503, 412])(
+      "a source that answers %i partway through a read fails instead of losing frames",
+      async (status) => {
+        const source = join(FIXTURE_DIR, "past-one-window.mp4");
+        if (!existsSync(source)) {
+          const synth = await runFfmpeg([
+            "-y",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=s=640x360:r=30:d=12",
+            "-c:v",
+            "libx264",
+            "-crf",
+            "10",
+            "-movflags",
+            "+faststart",
+            source,
+          ]);
+          expect(synth.success, synth.stderr).toBe(true);
+        }
+        expect(statSync(source).size).toBeGreaterThan(2 * 2 ** 20);
+        const url = stubGopSourceUrl(source, { offset: 2 ** 20, status });
+        const video: VideoElement = {
+          id: `fails-at-${status}`,
+          src: url,
+          start: 0,
+          end: Infinity,
+          mediaStart: 0,
+          loop: false,
+          hasAudio: false,
+        };
+        try {
+          const result = await extractAllVideoFrames([video], FIXTURE_DIR, {
+            fps: 24,
+            outputDir: join(FIXTURE_DIR, `fails-at-${status}`),
+            inPlaceSources: async (src) => relayInPlaceSource(src, '"v1"'),
+          }).catch((error: unknown) => error);
+          expect(result).not.toMatchObject({ errors: [] });
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      },
+      60_000,
+    );
+
+    it("a deferred source replaced since it was checked fails instead of being read", async () => {
+      const url = stubGopSourceUrl();
+      try {
+        await expect(
+          extractAllVideoFrames(
+            [
+              {
+                id: "url-replaced",
+                src: url,
+                start: 0,
+                end: Infinity,
+                mediaStart: 0,
+                loop: false,
+                hasAudio: false,
+              },
+            ],
+            FIXTURE_DIR,
+            {
+              fps: 24,
+              outputDir: join(FIXTURE_DIR, "url-replaced"),
+              deferRangeExtraction: true,
+              inPlaceSources: async (src) => relayInPlaceSource(src, '"v0"'),
+            },
+          ),
+        ).rejects.toThrow(/4XX/);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    }, 60_000);
 
     it.each([
       { fps: 24, mediaStart: 3.3 },

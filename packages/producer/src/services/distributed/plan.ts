@@ -39,8 +39,10 @@ import {
 import { extname, isAbsolute, join, relative, sep } from "node:path";
 import { type CanvasResolution, fpsToNumber } from "@hyperframes/core";
 import {
+  type DeferredFrameRange,
   type EngineConfig,
   type VideoFrameFormat,
+  createInPlaceSources,
   getEncoderPreset,
   normalizeVp9CpuUsed,
   resolveConfig,
@@ -84,6 +86,7 @@ import {
   type DistributedFormat,
   PLAN_AUDIO_RELATIVE_PATH,
   PLAN_VIDEOS_META_RELATIVE_PATH,
+  type PlanDeferredFrameRange,
   type PlanVideosJson,
   readFfmpegVersion,
   readProducerVersion,
@@ -845,6 +848,17 @@ function pathInside(root: string, path: string): string | null {
   return rel === "" || rel.startsWith("..") || isAbsolute(rel) ? null : rel;
 }
 
+/** Chunks read a source the planner read in place from its URL; any other ships with the plan. */
+function planDeferredRange(
+  { source, ...range }: DeferredFrameRange,
+  srcPath: string,
+  shipVideoSource: (srcPath: string) => string,
+): PlanDeferredFrameRange {
+  return source
+    ? { ...range, sourceUrl: source.url, sourceEtag: source.etag }
+    : { ...range, sourcePath: shipVideoSource(srcPath) };
+}
+
 /**
  * Return a planDir-relative path chunks can extract a deferred video from.
  * Sources the plan already ships under `compiled/` are reused; anything else
@@ -994,6 +1008,10 @@ export async function buildLocalExecutionPlan(
   // gets downgraded by the encoder, producing un-keyable webm output.
   const needsAlpha = outputNeedsAlpha(config.format);
 
+  const inPlaceSources = options.deferVideoExtraction
+    ? createInPlaceSources(abortSignal)
+    : undefined;
+
   // ── Compile ──
   const compileResult = await runCompileStage({
     projectDir,
@@ -1013,6 +1031,7 @@ export async function buildLocalExecutionPlan(
     // the Lambda/worker filesystem won't have the same fonts installed.
     allowSystemFontCapture: false,
     variables: config.variables,
+    inPlaceSources,
   });
   let compiled = compileResult.compiled;
   const composition = compileResult.composition;
@@ -1059,6 +1078,7 @@ export async function buildLocalExecutionPlan(
     needsAlpha,
     deviceScaleFactor,
     subTimelineWaitMemo: {},
+    inPlaceSources,
   });
   compiled = probeResult.compiled;
   job.duration = probeResult.duration;
@@ -1107,6 +1127,7 @@ export async function buildLocalExecutionPlan(
     assertNotAborted,
     materializeSymlinks: true,
     deferRangeExtraction: options.deferVideoExtraction,
+    inPlaceSources,
   });
   if (extractResult.failureToEnforce) throw extractResult.failureToEnforce;
   if (extractResult.extractionResult) {
@@ -1132,6 +1153,7 @@ export async function buildLocalExecutionPlan(
     audios: composition.audios,
     abortSignal,
     assertNotAborted,
+    inPlaceSources,
   });
   if (audioResult.audioError) {
     applyDistributedAudioWarningPolicy(job, audioResult.audioError, audioResult.audioFailures, log);
@@ -1168,18 +1190,24 @@ export async function buildLocalExecutionPlan(
     workCompiledDir: compiledDir,
     workVideoFramesDir: stagedVideoFrames,
   });
+  const pageSrcs = new Map(composition.videos.map((video) => [video.id, video.src]));
+  const extracted = extractResult.extractionResult?.extracted ?? [];
+  // A source read in place was read through this process's relay; the plan names its URL.
+  const inPlaceUrls = await Promise.all(
+    extracted.map(async (ext) => (await inPlaceSources?.(pageSrcs.get(ext.videoId) ?? ""))?.url),
+  );
   const planVideosJson: PlanVideosJson = buildPlanVideosJson({
     videos: composition.videos,
     compositionEnd: job.duration ?? Number.NaN,
-    extracted: (extractResult.extractionResult?.extracted ?? []).map((ext) => ({
+    extracted: extracted.map((ext, index) => ({
       videoId: ext.videoId,
-      srcPath: ext.srcPath,
+      srcPath: inPlaceUrls[index] ?? ext.srcPath,
       framePattern: ext.framePattern,
       fps: ext.fps,
       totalFrames: ext.totalFrames,
       metadata: ext.metadata,
       ...(ext.deferredRange
-        ? { deferredRange: { ...ext.deferredRange, sourcePath: shipVideoSource(ext.srcPath) } }
+        ? { deferredRange: planDeferredRange(ext.deferredRange, ext.srcPath, shipVideoSource) }
         : {}),
     })),
   });

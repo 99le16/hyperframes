@@ -37,6 +37,7 @@ import {
   type ExtractionResult,
   type FrameLookupTable,
   type HdrTransfer,
+  type InPlaceSources,
   type VideoExtractionFailureKind,
   type VideoExtractionFailureGroupDetails,
   type VideoColorSpace,
@@ -86,6 +87,8 @@ export interface ExtractVideosStageInput {
    */
   materializeSymlinks?: boolean;
   deferRangeExtraction?: boolean;
+  /** See `ExtractionOptions.inPlaceSources`. */
+  inPlaceSources?: InPlaceSources;
 }
 
 export interface ExtractVideosStageResult {
@@ -386,6 +389,7 @@ export async function runExtractVideosStage(
     assertNotAborted,
     materializeSymlinks,
     deferRangeExtraction,
+    inPlaceSources,
   } = input;
 
   const stage2Start = Date.now();
@@ -509,6 +513,7 @@ export async function runExtractVideosStage(
         maxTransientRetries: extractionPolicy.maxTransientRetries,
         collectProbeFailures: extractionPolicy.failureMode === "enforce",
         deferRangeExtraction,
+        inPlaceSources,
         contentKeyedDirs: [join(compiledDir, REMOTE_MEDIA_SUBDIR)],
       },
       abortSignal,

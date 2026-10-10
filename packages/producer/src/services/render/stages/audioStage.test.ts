@@ -84,6 +84,7 @@ describe("runAudioStage", () => {
       undefined,
       { ffmpegProcessTimeout: 3_600_000, audioGain: 1 },
       expect.any(String),
+      { inPlaceSources: undefined },
     );
   });
 

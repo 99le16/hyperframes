@@ -36,7 +36,7 @@
  */
 
 import { join } from "node:path";
-import type { EngineConfig } from "@hyperframes/engine";
+import type { EngineConfig, InPlaceSources } from "@hyperframes/engine";
 import { suggestMatchingPreset, type CanvasResolution } from "@hyperframes/core";
 import type { CompiledComposition } from "../../htmlCompiler.js";
 import { compileForRender } from "../../htmlCompiler.js";
@@ -89,6 +89,8 @@ export interface CompileStageInput {
   allowSystemFontCapture?: boolean;
   /** Render-time variable overrides (`--variables`); see CompileForRenderOptions.variables. */
   variables?: Record<string, unknown>;
+  /** See CompileForRenderOptions.inPlaceSources. */
+  inPlaceSources?: InPlaceSources;
 }
 
 export interface CompileStageResult {
@@ -171,6 +173,7 @@ export async function runCompileStage(input: CompileStageInput): Promise<Compile
     allowSystemFontCapture,
     abortSignal,
     variables: input.variables,
+    inPlaceSources: input.inPlaceSources,
     animatedGifCacheDir: cfg.extractCacheDir
       ? join(cfg.extractCacheDir, "animated-gif")
       : undefined,

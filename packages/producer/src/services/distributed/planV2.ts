@@ -426,7 +426,9 @@ function buildVideoChunkDependencies(
   );
   const deferredSources = new Map(
     parsedVideos.extracted.flatMap((video) =>
-      video.deferredRange ? [[video.videoId, video.deferredRange.sourcePath] as const] : [],
+      video.deferredRange && "sourcePath" in video.deferredRange
+        ? [[video.videoId, video.deferredRange.sourcePath] as const]
+        : [],
     ),
   );
   const dependencies = collectChunkVideoDependencies({

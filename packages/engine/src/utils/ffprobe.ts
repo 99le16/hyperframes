@@ -8,6 +8,7 @@ import { redactTelemetryString } from "@hyperframes/core";
 import { FFPROBE_PATH_ENV, getFfprobeBinary } from "./ffmpegBinaries.js";
 import { ManagedChildProcess } from "./managedChildProcess.js";
 import { trackChildProcess } from "./processTracker.js";
+import { watchRelayedReads } from "./inPlaceSources.js";
 
 const FFPROBE_STDERR_MAX_BYTES = 8 * 1024;
 /** Bound on collected stdout. Generous — real -show_streams JSON is well
@@ -65,6 +66,7 @@ async function runFfprobe(
   }
 
   const command = getFfprobeBinary();
+  const relayedReadFailure = watchRelayedReads([filePath]);
   const proc = spawn(command, ["-v", "error", ...argsWithoutInput, "--", filePath], {
     // Nothing is ever written to the child's stdin; leaving it as a pipe is
     // what lets a stdin-reading invocation block indefinitely.
@@ -129,6 +131,8 @@ async function runFfprobe(
       `[FFmpeg] ffprobe ${outcome.reason} with code ${outcome.exitCode}: ${diagnostic}`,
     );
   }
+  const failure = relayedReadFailure();
+  if (failure) throw new Error(`[FFmpeg] ffprobe: ${failure}`);
   return stdout;
 }
 

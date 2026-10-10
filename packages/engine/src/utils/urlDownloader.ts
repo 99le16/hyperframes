@@ -479,7 +479,7 @@ function assertAllowedDownloadUrl(url: string, redirect: boolean): void {
   }
 }
 
-async function cancelResponseBody(response: Response): Promise<void> {
+export async function cancelResponseBody(response: Response): Promise<void> {
   try {
     await response.body?.cancel();
   } catch {
@@ -506,9 +506,10 @@ function resolveRedirectUrl(response: Response, currentUrl: string, redirects: n
   }
 }
 
-async function fetchWithValidatedRedirects(
+export async function fetchWithValidatedRedirects(
   initialUrl: string,
   controller: AbortController,
+  headers: Record<string, string> = {},
 ): Promise<{ response: Response; finalUrl: string }> {
   let currentUrl = initialUrl;
   for (let redirects = 0; ; redirects += 1) {
@@ -520,7 +521,7 @@ async function fetchWithValidatedRedirects(
     const response = await fetch(currentUrl, {
       signal: controller.signal,
       redirect: "manual",
-      headers: { "accept-encoding": "identity" },
+      headers: { "accept-encoding": "identity", ...headers },
     });
     if (!REDIRECT_STATUSES.has(response.status)) return { response, finalUrl: currentUrl };
 

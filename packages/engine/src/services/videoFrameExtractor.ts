@@ -57,6 +57,7 @@ import {
   UrlDownloadError,
   writeUrlDownloadTelemetry,
 } from "../utils/urlDownloader.js";
+import type { InPlaceSource, InPlaceSources } from "../utils/inPlaceSources.js";
 import { runFfmpeg, runFfmpegPipeline, type RunFfmpegResult } from "../utils/runFfmpeg.js";
 import { isFfmpegFilterAvailable } from "../utils/psnrFilterAvailability.js";
 import { DEFAULT_CONFIG, type EngineConfig } from "../config.js";
@@ -208,6 +209,8 @@ export interface DeferredFrameRange {
   startTime: number;
   durationSeconds: number;
   format: "jpg" | "png";
+  /** Present when the source was read in place; another process reads it at the same version. */
+  source?: InPlaceSource;
 }
 
 export interface ExtractionOptions {
@@ -245,6 +248,12 @@ export interface ExtractionOptions {
    * `totalFrames` so another process can extract just the frames it needs with `frameRanges`.
    */
   deferRangeExtraction?: boolean;
+  /**
+   * Read every remote source this answers for in place instead of downloading it, so another
+   * process can read the same URL. Windows extracted here then skip the frame cache, which is keyed
+   * by local files.
+   */
+  inPlaceSources?: InPlaceSources;
   /** Directories the caller rewrites on every render (downloaded media); their sources are cached by content. */
   contentKeyedDirs?: readonly string[];
 }
@@ -1881,7 +1890,10 @@ export async function extractAllVideoFrames(
         videoPath = resolveProjectRelativeSrc(video.src, baseDir, compiledDir);
       }
 
-      if (isHttpUrl(videoPath)) {
+      const inPlace = await options.inPlaceSources?.(videoPath);
+      if (inPlace) {
+        videoPath = inPlace.readUrl;
+      } else if (isHttpUrl(videoPath)) {
         const downloadDir = join(options.outputDir, DOWNLOAD_SUBDIR);
         mkdirSync(downloadDir, { recursive: true });
         videoPath = await downloadToTemp(
@@ -1894,7 +1906,7 @@ export async function extractAllVideoFrames(
         );
       }
 
-      if (!existsSync(videoPath)) {
+      if (!inPlace && !existsSync(videoPath)) {
         // Loud: silent miss leaves the rendered video frozen at frame 0 with
         // no error in stdout — extremely confusing for authors. Dedupe by
         // src so 50 broken videos pointing at the same path don't spam.
@@ -2297,6 +2309,7 @@ export async function extractAllVideoFrames(
     );
     const tailFrames = Math.min(expectedFrames, Math.ceil(fps));
     if (expectedFrames <= tailFrames) return null;
+    const source = await options.inPlaceSources?.(work.video.src);
     const probeDir = join(options.outputDir, `${work.video.id}.tail-probe`);
     try {
       const tail = await extractVideoFramesRange(
@@ -2330,6 +2343,7 @@ export async function extractAllVideoFrames(
           startTime: work.extractionMediaStart,
           durationSeconds: work.videoDuration,
           format: work.format,
+          source,
         },
       };
     } catch {

@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { type Fps, type RateSpec } from "@hyperframes/core";
 import {
+  assertPublicHttpsUrl,
   getFfmpegBinary,
   MIXED_AUDIO_FILENAME,
   type VideoElement,
@@ -97,17 +98,27 @@ export interface PlanVideosJson {
     fps: number;
     totalFrames: number;
     metadata: VideoMetadata;
-    /** Present when chunks extract their own frames from `sourcePath` (relative to the planDir). */
+    /** Present when chunks extract their own frames from the source it names. */
     deferredRange?: PlanDeferredFrameRange;
   }>;
 }
 
-export interface PlanDeferredFrameRange {
-  sourcePath: string;
+export type PlanDeferredFrameRange = {
   startTime: number;
   durationSeconds: number;
   format: "jpg" | "png";
-}
+} & (
+  | {
+      /** Relative to the planDir. */
+      sourcePath: string;
+    }
+  | {
+      /** A public https URL chunks read in place. */
+      sourceUrl: string;
+      /** Sent as If-Match with every read, so a replaced source fails the render. */
+      sourceEtag: string;
+    }
+);
 
 export const INVALID_VIDEO_METADATA = "INVALID_VIDEO_METADATA" as const;
 
@@ -182,19 +193,40 @@ function readNonNegativeInteger(value: unknown, field: string): number {
   return value;
 }
 
+function readPlanSourcePath(value: unknown, field: string): string {
+  const sourcePath = readNonEmptyString(value, field);
+  if (sourcePath.startsWith("/") || sourcePath.split(/[\\/]/).some((part) => part === "..")) {
+    metadataError(field, "must stay inside the plan directory");
+  }
+  return sourcePath;
+}
+
+function readPublicHttpsUrl(value: unknown, field: string): string {
+  const url = readNonEmptyString(value, field);
+  try {
+    assertPublicHttpsUrl(url);
+  } catch {
+    metadataError(field, "must be a public https URL");
+  }
+  return url;
+}
+
 function readDeferredFrameRange(value: unknown, field: string): PlanDeferredFrameRange {
   const range = readRecord(value, field);
-  const sourcePath = readNonEmptyString(range.sourcePath, `${field}.sourcePath`);
-  if (sourcePath.startsWith("/") || sourcePath.split(/[\\/]/).some((part) => part === "..")) {
-    metadataError(`${field}.sourcePath`, "must stay inside the plan directory");
-  }
+  const source =
+    range.sourceUrl === undefined
+      ? { sourcePath: readPlanSourcePath(range.sourcePath, `${field}.sourcePath`) }
+      : {
+          sourceUrl: readPublicHttpsUrl(range.sourceUrl, `${field}.sourceUrl`),
+          sourceEtag: readNonEmptyString(range.sourceEtag, `${field}.sourceEtag`),
+        };
   const durationSeconds = readFiniteNumber(range.durationSeconds, `${field}.durationSeconds`);
   if (durationSeconds <= 0) metadataError(`${field}.durationSeconds`, "must be positive");
   if (range.format !== "jpg" && range.format !== "png") {
     metadataError(`${field}.format`, 'must be "jpg" or "png"');
   }
   return {
-    sourcePath,
+    ...source,
     startTime: readFiniteNumber(range.startTime, `${field}.startTime`),
     durationSeconds,
     format: range.format,

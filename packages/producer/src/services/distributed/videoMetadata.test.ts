@@ -8,6 +8,7 @@ import {
   buildPlanVideosJson,
   parsePlanVideosJson,
   PlanVideosMetadataError,
+  type PlanDeferredFrameRange,
   type PlanVideosJson,
 } from "./shared.js";
 
@@ -175,6 +176,34 @@ describe("distributed video metadata", () => {
       expect(lookup.getActiveFramePayloads(3).get("hero")?.frameIndex).toBe(expectedFrame);
     },
   );
+
+  it("accepts a deferred source URL only as public https with an entity tag", () => {
+    const deferred = (source: { sourceUrl: string; sourceEtag?: string }) =>
+      buildPlanVideosJson({
+        videos: [video()],
+        extracted: [
+          extractedMetadata({
+            deferredRange: {
+              startTime: 1,
+              durationSeconds: 2,
+              format: "jpg",
+              ...source,
+            } as PlanDeferredFrameRange,
+          }),
+        ],
+        compositionEnd: 8,
+      });
+    const url = "https://media.example/take.mp4?X-Amz-Signature=abc";
+
+    const read = parsePlanVideosJson(deferred({ sourceUrl: url, sourceEtag: '"v1"' }));
+    expect(read.extracted[0]?.deferredRange).toMatchObject({ sourceUrl: url, sourceEtag: '"v1"' });
+    expect(() => parsePlanVideosJson(deferred({ sourceUrl: url }))).toThrow(/sourceEtag/);
+    for (const sourceUrl of ["http://media.example/take.mp4", "https://169.254.169.254/take.mp4"]) {
+      expect(() => parsePlanVideosJson(deferred({ sourceUrl, sourceEtag: '"v1"' }))).toThrow(
+        /must be a public https URL/,
+      );
+    }
+  });
 
   it("rejects a malformed playback rate", () => {
     const valid = buildPlanVideosJson({

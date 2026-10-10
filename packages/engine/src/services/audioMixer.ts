@@ -19,6 +19,7 @@ import {
   UrlDownloadError,
   writeUrlDownloadTelemetry,
 } from "../utils/urlDownloader.js";
+import type { InPlaceSources } from "../utils/inPlaceSources.js";
 import { DEFAULT_CONFIG, type EngineConfig } from "../config.js";
 import { formatFfmpegError, runFfmpeg, type RunFfmpegResult } from "../utils/runFfmpeg.js";
 import { unwrapTemplate } from "../utils/htmlTemplate.js";
@@ -1118,6 +1119,7 @@ export async function processCompositionAudio(
   signal?: AbortSignal,
   config?: Partial<Pick<EngineConfig, "ffmpegProcessTimeout" | "audioGain">>,
   compiledDir?: string,
+  options?: { inPlaceSources?: InPlaceSources },
 ): Promise<MixResult> {
   const startMs = Date.now();
   const tracks: AudioTrack[] = [];
@@ -1171,7 +1173,10 @@ export async function processCompositionAudio(
           srcPath = resolveProjectRelativeSrc(element.src, baseDir, compiledDir);
         }
 
-        if (isHttpUrl(srcPath)) {
+        const inPlace = await options?.inPlaceSources?.(srcPath);
+        if (inPlace) {
+          srcPath = inPlace.readUrl;
+        } else if (isHttpUrl(srcPath)) {
           try {
             srcPath = await downloadToTemp(
               srcPath,
@@ -1189,7 +1194,7 @@ export async function processCompositionAudio(
           }
         }
 
-        if (!existsSync(srcPath)) {
+        if (!inPlace && !existsSync(srcPath)) {
           failures.push({
             stage: "source",
             reason: "source_not_found",
@@ -1207,7 +1212,7 @@ export async function processCompositionAudio(
         // authored duration or `loop`. It then fails inside ffmpeg as
         // `prepare/ffmpeg_failed` with owner "system" — an authoring bug paged
         // as a platform fault, after every frame has already been captured.
-        if (await isNotMediaPayload(srcPath)) {
+        if (!inPlace && (await isNotMediaPayload(srcPath))) {
           failures.push({
             stage: "source",
             reason: "invalid_media",

@@ -59,7 +59,7 @@ export function fingerprintElementId(elementId: string): string {
   return createHash("sha256").update(elementId).digest("hex").slice(0, 16);
 }
 
-const SNIFF_BYTES = 512;
+export const SNIFF_BYTES = 512;
 // `<` opens HTML/XML/SVG and an S3 `<Error>` body; `{` and `[` open a JSON API
 // error body, which some gateways return with a 200.
 const DOCUMENT_OPENING_BYTES = new Set([0x3c, 0x7b, 0x5b]);

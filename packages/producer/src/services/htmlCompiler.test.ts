@@ -1706,6 +1706,33 @@ describe("localizeRemoteMediaSources", () => {
     }
   });
 
+  it("keeps only the <video> URLs it reads in place, and downloads every other source", async () => {
+    const orig = globalThis.fetch;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async () => validTestMediaResponse();
+    try {
+      const dl = mkdtempSync(join(tmpdir(), "hf-dl-in-place-"));
+      const take = "https://media-ok.example.com/take.mp4";
+      const html = `<video id="v1" src="${take}"></video>
+        <video id="v2" src="https://media-ok.example.com/other.mp4"></video>
+        <audio id="a1" src="https://media-ok.example.com/music.mp4"></audio>`;
+      const inPlaceSources = async (url: string) =>
+        url.includes("take")
+          ? { url, etag: '"v1"', readUrl: "http://127.0.0.1:9/take" }
+          : undefined;
+      const { html: result, remoteMediaAssets } = await localizeRemoteMediaSources(
+        html,
+        dl,
+        inPlaceSources,
+      );
+      expect(result).toContain(`src="${take}"`);
+      expect(remoteMediaAssets.size).toBe(2);
+    } finally {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (globalThis as any).fetch = orig;
+    }
+  });
+
   it("preserves original URL on download failure without throwing", async () => {
     const dl = mkdtempSync(join(tmpdir(), "hf-dl-fail-"));
     const url = "https://example.com/will-404-localize-test.mp4";

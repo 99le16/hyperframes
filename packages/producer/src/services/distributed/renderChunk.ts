@@ -60,12 +60,18 @@ import {
   type FrameLookupTable,
   getEncoderPreset,
   initializeSession,
+  isHttpUrl,
   probeBeginFrameLiveness,
   readWebGlVendorInfoFromCanvas,
+  relayInPlaceSource,
   resolveConfig,
 } from "@hyperframes/engine";
 import { defaultLogger } from "../../logger.js";
-import { applyRenderWarningPolicy } from "../renderOrchestrator.js";
+import {
+  applyRenderWarningPolicy,
+  collectVideoMetadataHints,
+  collectVideoReadinessSkipIds,
+} from "../renderOrchestrator.js";
 import { runEncodeStage } from "../render/stages/encodeStage.js";
 import { runCaptureStage } from "../render/stages/captureStage.js";
 import { resolveVideoCaptureBeyondViewport } from "../render/captureBeyondViewport.js";
@@ -90,6 +96,7 @@ import {
   parsePlanVideosJson,
   type DistributedFormat,
   PLAN_VIDEOS_META_RELATIVE_PATH,
+  type PlanDeferredFrameRange,
   type PlanVideosJson,
   readFfmpegVersion,
 } from "./shared.js";
@@ -463,15 +470,9 @@ export async function extractDeferredVideoFramesForChunk(input: {
         return { ...video, outputDir, framePaths: new Map<number, string>(), ownedByLookup: false };
       }
       const range = video.deferredRange!;
-      const sourcePath = join(input.planDir, ...range.sourcePath.split("/"));
-      if (!existsSync(sourcePath)) {
-        throw new RenderChunkValidationError(
-          MISSING_PLAN_ARTIFACT,
-          `[renderChunk] planDir is missing the source for video ${JSON.stringify(video.videoId)}: ${range.sourcePath}`,
-        );
-      }
+      const source = await deferredVideoSource(input.planDir, video.videoId, range);
       const extracted = await extractVideoFramesRange(
-        sourcePath,
+        source.path,
         video.videoId,
         range.startTime,
         range.durationSeconds,
@@ -489,12 +490,60 @@ export async function extractDeferredVideoFramesForChunk(input: {
         throw new RenderChunkValidationError(
           INVALID_VIDEO_METADATA,
           `[renderChunk] video ${JSON.stringify(video.videoId)} has no frame ${missing}; ` +
-            `the plan expected ${video.totalFrames} frames from ${range.sourcePath}.`,
+            `the plan expected ${video.totalFrames} frames from ${source.label}.`,
         );
       }
       return { ...video, outputDir, framePaths: extracted.framePaths, ownedByLookup: false };
     }),
   );
+}
+
+/**
+ * The URL the planner read a deferred video at, pinned to the version it read, or the copy of its
+ * source shipped with the plan.
+ */
+async function deferredVideoSource(
+  planDir: string,
+  videoId: string,
+  range: PlanDeferredFrameRange,
+): Promise<{ path: string; label: string }> {
+  if ("sourceUrl" in range) {
+    const { readUrl } = await relayInPlaceSource(range.sourceUrl, range.sourceEtag);
+    return { path: readUrl, label: "its URL" };
+  }
+  const path = join(planDir, ...range.sourcePath.split("/"));
+  if (!existsSync(path)) {
+    throw new RenderChunkValidationError(
+      MISSING_PLAN_ARTIFACT,
+      `[renderChunk] planDir is missing the source for video ${JSON.stringify(videoId)}: ${range.sourcePath}`,
+    );
+  }
+  return { path, label: range.sourcePath };
+}
+
+/**
+ * The page never loads a video the planner read at its URL: the URL is blocked, and the video gets
+ * the readiness skip and size hint the in-process renderer gives every extracted video.
+ */
+function inPlaceVideoCaptureHints(
+  planVideos: PlanVideosJson | null,
+): Pick<CaptureOptions, "blockedMediaUrls" | "skipReadinessVideoIds" | "videoMetadataHints"> {
+  const extracted = planVideos?.extracted ?? [];
+  const extractedIds = new Set(extracted.map((video) => video.videoId));
+  // A URL that a video without extracted frames also plays has to stay loadable.
+  const loadedByPage = new Set(
+    (planVideos?.videos ?? [])
+      .filter((video) => !extractedIds.has(video.id))
+      .map((video) => video.src),
+  );
+  const injected = extracted.filter(
+    (video) => isHttpUrl(video.srcPath) && !loadedByPage.has(video.srcPath),
+  );
+  return {
+    blockedMediaUrls: [...new Set(injected.map((video) => video.srcPath))],
+    skipReadinessVideoIds: collectVideoReadinessSkipIds(new Set(), injected),
+    videoMetadataHints: collectVideoMetadataHints(injected),
+  };
 }
 
 /** Plan-time JSON manifest written by `freezePlan`. */
@@ -837,6 +886,7 @@ export async function renderChunk(
       requiresWebGpu: compositionRequiresWebGpu(
         readFileSync(join(compiledDir, "index.html"), "utf-8"),
       ),
+      ...inPlaceVideoCaptureHints(planVideos),
     };
 
     // Resolve worker count up-front. Sequential capture reuses the initialized

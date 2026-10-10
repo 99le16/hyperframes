@@ -80,6 +80,8 @@ import {
   assertMediaPayload,
   NotMediaPayloadError,
   probeMediaProfile,
+  type InPlaceSource,
+  type InPlaceSources,
 } from "@hyperframes/engine";
 import {
   downloadToTemp,
@@ -461,19 +463,40 @@ export function detectShaderTransitionUsage(html: string): boolean {
   return false;
 }
 
+/** Where the compiler gets remote media from: a download into `downloadDir`, or the URL itself. */
+interface RemoteMedia {
+  downloadDir: string;
+  /** See `CompileForRenderOptions.inPlaceSources`. */
+  inPlaceSources?: InPlaceSources;
+}
+
+/** Only `<video>` sources are read in place; any other remote source is downloaded. */
+async function inPlaceVideo(
+  inPlaceSources: InPlaceSources | undefined,
+  tagName: string,
+  src: string,
+): Promise<InPlaceSource | undefined> {
+  return tagName.toLowerCase() === "video" ? inPlaceSources?.(src) : undefined;
+}
+
 async function resolveMediaDuration(
   src: string,
   mediaStart: number,
   playbackRate: RateSpec,
   baseDir: string,
-  downloadDir: string,
+  remoteMedia: RemoteMedia,
   tagName: string,
   elementIdentity: string,
   log?: ProducerLogger,
 ): Promise<{ duration: number | null; resolvedPath: string }> {
-  let filePath = src;
+  let filePath: string;
+  // FFprobe reads only the header of a source it can read in place, which is already sniffed.
+  const inPlace = await inPlaceVideo(remoteMedia.inPlaceSources, tagName, src);
 
-  if (isHttpUrl(src)) {
+  if (inPlace) {
+    filePath = inPlace.readUrl;
+  } else if (isHttpUrl(src)) {
+    const { downloadDir } = remoteMedia;
     if (!existsSync(downloadDir)) mkdirSync(downloadDir, { recursive: true });
     try {
       filePath = await downloadToTemp(src, downloadDir, undefined, undefined, undefined, {
@@ -489,7 +512,7 @@ async function resolveMediaDuration(
     if (!filePath.startsWith("/")) filePath = join(baseDir, filePath);
   }
 
-  if (!existsSync(filePath)) {
+  if (!inPlace && !existsSync(filePath)) {
     return { duration: null, resolvedPath: filePath };
   }
 
@@ -528,7 +551,7 @@ async function resolveMediaDuration(
       // Deliberately inside this try: the audio/video split below is the
       // contract, so a bad audio src must still degrade to duration 0 rather
       // than take down the whole render.
-      await assertMediaPayload(filePath, elementIdentity);
+      if (!inPlace) await assertMediaPayload(filePath, elementIdentity);
       profile = await probeMediaProfile(filePath);
     } catch (error) {
       // Preserve the historical split: invalid video sources surface their
@@ -602,7 +625,7 @@ function markInferredVariableMediaDurations(
 async function compileHtmlFile(
   html: string,
   baseDir: string,
-  downloadDir: string,
+  remoteMedia: RemoteMedia,
   log?: ProducerLogger,
 ): Promise<{ html: string; unresolvedCompositions: UnresolvedElement[] }> {
   const { html: staticCompiled, unresolved } = compileTimingAttrs(html);
@@ -621,7 +644,7 @@ async function compileHtmlFile(
         el.mediaStart,
         el.playbackRate,
         baseDir,
-        downloadDir,
+        remoteMedia,
         el.tagName,
         el.id,
         log,
@@ -648,7 +671,7 @@ async function compileHtmlFile(
           el.mediaStart,
           el.playbackRate,
           baseDir,
-          downloadDir,
+          remoteMedia,
           el.tagName,
           el.id,
           log,
@@ -717,7 +740,7 @@ async function compileHtmlFile(
 async function parseSubCompositions(
   html: string,
   projectDir: string,
-  downloadDir: string,
+  remoteMedia: RemoteMedia,
   visited: Set<string> = new Set(),
 ): Promise<{ subCompositions: Map<string, string> }> {
   const subCompositions = new Map<string, string>();
@@ -762,13 +785,13 @@ async function parseSubCompositions(
       const { html: compiledSub } = await compileHtmlFile(
         item.rawSubHtml,
         dirname(item.filePath),
-        downloadDir,
+        remoteMedia,
       );
 
       const nested = await parseSubCompositions(
         compiledSub,
         projectDir,
-        downloadDir,
+        remoteMedia,
         item.nestedVisited,
       );
 
@@ -1458,13 +1481,16 @@ async function downloadAndRewriteUrls(
 export async function localizeRemoteMediaSources(
   html: string,
   downloadDir: string,
+  inPlaceSources?: InPlaceSources,
 ): Promise<{ html: string; remoteMediaAssets: Map<string, string> }> {
   const urlSet = new Set<string>();
   for (const tagRe of [REMOTE_MEDIA_TAG_RE, REMOTE_SOURCE_TAG_RE]) {
     const re = new RegExp(tagRe.source, tagRe.flags);
     let m: RegExpExecArray | null;
     while ((m = re.exec(html)) !== null) {
-      if (m[1]) urlSet.add(m[1]);
+      if (!m[1]) continue;
+      if (await inPlaceVideo(inPlaceSources, /^<(\w+)/.exec(m[0])?.[1] ?? "", m[1])) continue;
+      urlSet.add(m[1]);
     }
   }
   return downloadAndRewriteUrls(
@@ -1913,6 +1939,12 @@ export interface CompileForRenderOptions {
    * `window.__hfVariables` injection covers script reads, not var() in CSS.
    */
   variables?: Record<string, unknown>;
+  /**
+   * Leave the remote `<video src>` URLs this answers for in place instead of downloading them, and
+   * probe their duration at the URL. A distributed plan that defers extraction passes this, so each
+   * chunk reads only the frames it shows from the URL.
+   */
+  inPlaceSources?: InPlaceSources;
 }
 
 const GSAP_CDN_BASE = gsapCdnDist();
@@ -1990,15 +2022,16 @@ export async function compileForRender(
   // start.
   assertSubCompositionsUsable(rawHtml, projectDir);
 
+  const remoteMedia = { downloadDir, inPlaceSources: options.inPlaceSources };
   const { html: compiledHtml, unresolvedCompositions } = await compileHtmlFile(
     rawHtml,
     projectDir,
-    downloadDir,
+    remoteMedia,
     options.log,
   );
 
   // Compile each referenced sub-composition so the inliner can hoist it.
-  const { subCompositions } = await parseSubCompositions(compiledHtml, projectDir, downloadDir);
+  const { subCompositions } = await parseSubCompositions(compiledHtml, projectDir, remoteMedia);
 
   // Ensure the HTML is a full document before inlining sub-compositions.
   // When index.html is a fragment (no <html>/<head>/<body>), linkedom.parseHTML()
@@ -2079,6 +2112,7 @@ export async function compileForRender(
   const { html: htmlWithLocalMedia, remoteMediaAssets } = await localizeRemoteMediaSources(
     htmlWithDeferredScripts,
     downloadDir,
+    options.inPlaceSources,
   );
 
   // Download remote <img> sources. Same race shape as video/audio: the
@@ -2719,6 +2753,7 @@ export async function recompileWithResolutions(
   resolutions: ResolvedDuration[],
   projectDir: string,
   downloadDir: string,
+  inPlaceSources?: InPlaceSources,
 ): Promise<CompiledComposition> {
   if (resolutions.length === 0) return compiled;
 
@@ -2729,7 +2764,10 @@ export async function recompileWithResolutions(
   // `data-end` on its host, and re-collecting would newly clamp clips to it —
   // a retiming, not an identity fix. `compiled.videos` was already collected
   // from this same inlined document, so it is complete and correctly keyed.
-  const { subCompositions } = await parseSubCompositions(html, projectDir, downloadDir);
+  const { subCompositions } = await parseSubCompositions(html, projectDir, {
+    downloadDir,
+    inPlaceSources,
+  });
   const { videos, audios, images } = compiled;
 
   const remaining = compiled.unresolvedCompositions.filter(

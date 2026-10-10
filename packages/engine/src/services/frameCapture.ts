@@ -1384,6 +1384,13 @@ async function constructCaptureSessionWithRollback(
   }
 }
 
+/** A URLPattern string matching exactly this URL, as `Network.setBlockedURLs` takes. */
+function exactUrlPattern(url: string): string {
+  const { protocol, host, pathname, search } = new URL(url);
+  const escape = (part: string) => part.replace(/[\\:*?+(){}]/g, "\\$&");
+  return `${protocol}//${host}${escape(pathname)}\\?${escape(search.slice(1))}`;
+}
+
 async function constructCaptureSession(
   input: CaptureSessionConstructionInput & { onPageCreated(page: Page): void },
 ): Promise<CaptureSession> {
@@ -1438,6 +1445,16 @@ async function constructCaptureSession(
   // Media elements are addressed by a document-unique render id, not by the
   // per-file element id. Install the resolvers before any page script runs.
   await installMediaRenderIdBridge(page);
+  if (options.blockedMediaUrls?.length) {
+    const cdp = await getCdpSession(page);
+    await cdp.send("Network.enable");
+    await cdp.send("Network.setBlockedURLs", {
+      urlPatterns: options.blockedMediaUrls.map((url) => ({
+        urlPattern: exactUrlPattern(url),
+        block: true,
+      })),
+    });
+  }
   // Fast capture: record accelerated canvases (webgl/webgl2/webgpu) and force
   // preserveDrawingBuffer before any page script can create a context — their
   // paint records freeze at the first frame, so captureDrawElementFrame
