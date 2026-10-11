@@ -10,6 +10,7 @@ import {
   extractVideoFramesRange,
   getFrameAtTime,
   resolveFinalFrameExtractionWindow,
+  resolvePlayableVideoDuration,
   resolveVideoExtractionWindow,
 } from "./videoFrameExtractor.js";
 
@@ -91,6 +92,14 @@ describe.skipIf(!HAS_FFMPEG)(
       ffmpeg(["-i", picture, "-itsoffset", lead, "-i", steps, ...mux, join(dir, "audio-late.mp4")]);
       // MPEG-TS starts its clock at 1.4 s, so no stream starts at 0.
       ffmpeg(["-i", join(dir, "video-late.mp4"), "-c", "copy", join(dir, "video-late.ts")]);
+      // Matroska reports start_time 0 for both streams; FLV gives the video a start but no duration.
+      ffmpeg(["-i", join(dir, "video-late.mp4"), "-c", "copy", join(dir, "video-late.mkv")]);
+      ffmpeg(["-i", join(dir, "video-late.mp4"), "-c", "copy", join(dir, "video-late.flv")]);
+      ffmpeg([
+        ...["-itsoffset", lead, "-i", picture, "-i", steps, "-map", "0:v", "-map", "1:a"],
+        ...["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-c:a", "libopus"],
+        join(dir, "video-late.webm"),
+      ]);
     }, 60_000);
 
     afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -107,6 +116,8 @@ describe.skipIf(!HAS_FFMPEG)(
       { source: "video-late.mp4", audioLead: 0, type: "video", mediaStart: 3 },
       { source: "video-late.mp4", audioLead: 0, type: "audio", mediaStart: 0 },
       { source: "video-late.ts", audioLead: 0, type: "video", mediaStart: 0 },
+      { source: "video-late.webm", audioLead: 0, type: "video", mediaStart: 0 },
+      { source: "video-late.mkv", audioLead: 0, type: "video", mediaStart: 0 },
       { source: "video-late.mp4", audioLead: 0, type: "video", mediaStart: 3, rate: flatLane },
       { source: "audio-late.mp4", audioLead: LEAD_SECONDS, type: "video", mediaStart: 0 },
       { source: "audio-late.mp4", audioLead: LEAD_SECONDS, type: "video", mediaStart: 3 },
@@ -242,5 +253,23 @@ describe.skipIf(!HAS_FFMPEG)(
       );
       expect(window.extractionMediaStart).toBeGreaterThan(LEAD_SECONDS + PICTURE_SECONDS - 0.1);
     }, 30_000);
+
+    it.each(["video-late.webm", "video-late.mkv", "video-late.flv"])(
+      "%s: hides the late video's lead and ends it where the stream ends",
+      async (name) => {
+        const source = join(dir, name);
+        expect(resolvePlayableVideoDuration(await extractMediaMetadata(source))).toBeCloseTo(
+          LEAD_SECONDS + PICTURE_SECONDS,
+          0,
+        );
+        const extracted = await extractVideoFramesRange(source, name, 0, CLIP_SECONDS, {
+          fps: 10,
+          outputDir: join(dir, "frames"),
+        });
+        expect(getFrameAtTime(extracted, 1, 0)).toBeNull();
+        expect(getFrameAtTime(extracted, LEAD_SECONDS - 0.5, 0)).not.toBeNull();
+      },
+      60_000,
+    );
   },
 );

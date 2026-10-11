@@ -47,6 +47,57 @@ function sanitizeFfprobeDiagnostic(stderr: string, filePath: string): string {
   return `…${redacted.slice(-(FFPROBE_ERROR_MAX_CHARS - 1))}`;
 }
 
+/**
+ * Matroska reports start_time 0 for every stream, so a video that starts 7 s after its audio looks
+ * aligned. Its first packets say when each stream starts; the stream's end stays where it was.
+ */
+async function withMeasuredMatroskaStarts(
+  filePath: string,
+  output: FFProbeOutput,
+  signal?: AbortSignal,
+): Promise<FFProbeOutput> {
+  if (!/matroska|webm/.test(output.format.format_name ?? "")) return output;
+  const streams = await Promise.all(
+    output.streams.map(async (stream, index) => {
+      if (stream.codec_type !== "audio" && stream.codec_type !== "video") return stream;
+      const first = await firstPacketSeconds(filePath, index, signal);
+      if (first === undefined) return stream;
+      const end = parseFloat(stream.start_time ?? "0") + parseFloat(stream.duration ?? "");
+      return {
+        ...stream,
+        start_time: String(first),
+        ...(Number.isFinite(end) ? { duration: String(Math.max(0, end - first)) } : {}),
+      };
+    }),
+  );
+  return { ...output, streams };
+}
+
+/** Earliest pts of a stream's first packets (a B-frame stream's first packet is not always the earliest). */
+async function firstPacketSeconds(
+  filePath: string,
+  streamIndex: number,
+  signal?: AbortSignal,
+): Promise<number | undefined> {
+  // A failed refinement keeps the container's own start time, as before this probe existed.
+  const stdout = await runFfprobe(
+    filePath,
+    [
+      "-select_streams",
+      String(streamIndex),
+      "-show_entries",
+      "packet=pts_time",
+      "-read_intervals",
+      "%+#8",
+      "-of",
+      "csv=p=0",
+    ],
+    signal,
+  ).catch(() => "");
+  const times = stdout.split("\n").map(parseFloat).filter(Number.isFinite);
+  return times.length > 0 ? Math.min(...times) : undefined;
+}
+
 /** Spawn ffprobe with given args, return stdout. Throws on non-zero exit or missing binary. */
 async function runFfprobe(
   filePath: string,
@@ -392,7 +443,9 @@ async function probeMediaOutput(filePath: string, signal?: AbortSignal): Promise
     filePath,
     ["-print_format", "json", "-show_format", "-show_streams"],
     signal,
-  ).then(parseProbeJson);
+  )
+    .then(parseProbeJson)
+    .then((output) => withMeasuredMatroskaStarts(filePath, output, signal));
   if (identity !== null) {
     cache.set(filePath, { identity, promise });
     if (!signal && cache.size > MEDIA_PROBE_OUTPUT_CACHE_MAX_ENTRIES) {
@@ -806,25 +859,30 @@ export async function extractMediaMetadata(filePath: string): Promise<VideoMetad
     // (format.duration) includes the longest stream — often a longer audio
     // track in stock/looping clips. Cross-check with nb_frames to bound the
     // video-specific extent and avoid inflating the expected frame count.
+    // The container's span starts at media time 0, so it includes a late stream's lead.
+    const videoStreamLeadSeconds = streamLeadSeconds(output, videoStream);
+    const containerStreamSpan = Math.max(0, containerDuration - videoStreamLeadSeconds);
     let effectiveStreamDuration: number;
     if (streamDuration > 0) {
       effectiveStreamDuration = streamDuration;
-    } else if (frames !== undefined && fps > 0 && containerDuration > 0) {
+    } else if (frames !== undefined && fps > 0 && containerStreamSpan > 0) {
       const frameDerivedDuration = frames / fps;
       // Only override when the frame-derived duration is meaningfully shorter
       // (>10% gap). Within 10% the container value is close enough and may
       // account for a trailing hold frame that nb_frames does not include.
       effectiveStreamDuration =
-        frameDerivedDuration < containerDuration * 0.9 ? frameDerivedDuration : containerDuration;
+        frameDerivedDuration < containerStreamSpan * 0.9
+          ? frameDerivedDuration
+          : containerStreamSpan;
     } else {
-      effectiveStreamDuration = containerDuration;
+      effectiveStreamDuration = containerStreamSpan;
     }
 
     return {
       durationSeconds: containerDuration,
       videoStreamDurationSeconds: effectiveStreamDuration,
       videoStreamStartSeconds: streamStart,
-      videoStreamLeadSeconds: streamLeadSeconds(output, videoStream),
+      videoStreamLeadSeconds,
       width: videoStream.width || stillImage()?.width || 0,
       height: videoStream.height || stillImage()?.height || 0,
       fps,
