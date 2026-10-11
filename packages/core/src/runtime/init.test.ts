@@ -360,6 +360,96 @@ describe("initSandboxRuntimeModular", () => {
     expect(caption.getAttribute("data-start")).toBe("0");
   });
 
+  describe("visibility of runtime-stamped elements in Studio preview", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    // A 10 s film: a video clip, an untimed full-frame backdrop the composition's per-frame script
+    // shows only from 6 s to 8 s, and an untimed badge it never touches. Driven by real GSAP.
+    const mountFilm = () => {
+      const raf = createManualRaf();
+      vi.spyOn(performance, "now").mockImplementation(() => raf.now());
+      window.requestAnimationFrame =
+        raf.requestAnimationFrame as typeof window.requestAnimationFrame;
+      window.cancelAnimationFrame = raf.cancelAnimationFrame as typeof window.cancelAnimationFrame;
+      document.body.innerHTML =
+        `<div id="root" data-composition-id="main" data-root="true" data-start="0" data-duration="10" data-width="1080" data-height="1920">` +
+        `<video id="aroll" class="clip" data-start="0" data-duration="10" muted></video>` +
+        `<div id="plate" style="visibility: hidden"></div>` +
+        `<div id="badge"></div>` +
+        `</div>`;
+      const video = document.querySelector("video")!;
+      video.play = vi.fn(() => Promise.resolve());
+      video.pause = vi.fn();
+      video.load = vi.fn();
+      const plate = document.getElementById("plate")!;
+      const tl = gsap.timeline({ paused: true });
+      const frame = { t: 0 };
+      tl.to(frame, {
+        t: 10,
+        duration: 10,
+        ease: "none",
+        modifiers: {
+          t: (value: number) => {
+            plate.style.visibility = value >= 6 && value < 8 ? "visible" : "hidden";
+            return value;
+          },
+        },
+      });
+      window.__timelines = { main: tl as unknown as RuntimeTimelineLike };
+      withStudioIframe(() => initSandboxRuntimeModular());
+      return { raf, plate, badge: document.getElementById("badge")! };
+    };
+
+    it("keeps a stamped backdrop its script hides hidden on every playing tick", () => {
+      const { raf, plate } = mountFilm();
+      expect(plate.getAttribute("data-hf-autostamped")).toBe("1");
+
+      window.__player?.seek(1);
+      window.__player?.play();
+      const seen = new Set<string>();
+      for (let frame = 0; frame < 120; frame++) {
+        raf.step(16);
+        seen.add(plate.style.visibility);
+      }
+
+      expect(window.__player?.getTime()).toBeGreaterThan(2.5);
+      expect(window.__player?.getTime()).toBeLessThan(6);
+      expect([...seen]).toEqual(["hidden"]);
+    });
+
+    it("still shows a stamped element its author never hides", () => {
+      const { raf, badge } = mountFilm();
+      expect(badge.getAttribute("data-hf-autostamped")).toBe("1");
+
+      window.__player?.seek(1);
+      window.__player?.play();
+      for (let frame = 0; frame < 30; frame++) raf.step(16);
+
+      expect(badge.style.visibility).not.toBe("hidden");
+      expect(getComputedStyle(badge).visibility).toBe("visible");
+    });
+
+    it("hides an authored clip inside a hidden authored clip under a stamped wrapper", () => {
+      document.body.innerHTML =
+        `<div data-composition-id="main" data-root="true" data-start="0" data-duration="10" data-width="1080" data-height="1920">` +
+        `<div id="wall"><div id="scene" data-start="0" data-duration="2">` +
+        `<div id="card" data-start="0" data-duration="10"></div></div></div>` +
+        `</div>`;
+      window.__timelines = { main: createMockTimeline(10) };
+      withStudioIframe(() => initSandboxRuntimeModular());
+      const wall = document.getElementById("wall")!;
+      const scene = document.getElementById("scene")!;
+      const card = document.getElementById("card")!;
+      expect(wall.getAttribute("data-hf-autostamped")).toBe("1");
+
+      window.__player?.renderSeek(1);
+      expect([scene.style.visibility, card.style.visibility]).toEqual(["visible", "visible"]);
+
+      window.__player?.renderSeek(5);
+      expect([scene.style.visibility, card.style.visibility]).toEqual(["hidden", "hidden"]);
+    });
+  });
+
   /**
    * GH#4001: a root edited to portrait dims whose scaffolded `html, body` CSS
    * is left at the old landscape size renders successfully with everything

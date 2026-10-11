@@ -2818,7 +2818,8 @@ export function initSandboxRuntimeModular(): void {
       const isVisibleNow =
         visibleAt(rawNode, currentTime) &&
         clipChainVisibleAt(rawNode.parentElement, currentTime, visibleAt, rootComp);
-      rawNode.style.visibility = isVisibleNow ? "visible" : "hidden";
+      const visibilityIsTheAuthors = rawNode.hasAttribute("data-hf-autostamped");
+      if (!visibilityIsTheAuthors) rawNode.style.visibility = isVisibleNow ? "visible" : "hidden";
       const upcoming =
         hiddenImagesSkipped && !isVisibleNow && dueSoon(rawNode, visibleAt, currentTime);
       if (upcoming && !rawNode.hasAttribute(STUDIO_PREVIEW_UPCOMING_ATTR))
