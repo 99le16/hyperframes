@@ -827,6 +827,17 @@ describe("windowed rendering of a long input", () => {
     expect(segments[3]?.readTo).toBe(Math.round(3.5 * SR));
   });
 
+  it("starts every window on a render quantum, so block-level state lines up with a whole render", () => {
+    const odd = { ...limits, prerollSeconds: 0.337 };
+    const segments = planAudioFxSegments(Math.round(3.5 * SR), SR, odd);
+    for (const seg of segments) {
+      expect(seg.readFrom % 128).toBe(0);
+      expect(seg.keepFrom - seg.readFrom).toBeGreaterThanOrEqual(
+        Math.min(seg.keepFrom, Math.round(0.337 * SR)),
+      );
+    }
+  });
+
   it("reads the head of a file Node cannot read whole", () => {
     // 2.5 GiB of samples: past the 2 GiB ceiling readFileSync enforces, sparse on disk.
     const path = join(dir, "huge.wav");
@@ -960,14 +971,14 @@ describe("windowed rendering of a long input", () => {
     180_000,
   );
 
-  /** Quiet tones with a loud burst ending just ahead of each 5 s seam. */
+  /** A tone with a loud burst ending just ahead of each 5 s seam. */
   const bursts = (seconds: number): Float32Array => {
     const frames = Math.floor(SR * seconds);
     const s = new Float32Array(frames * 2);
     for (let i = 0; i < frames; i++) {
       const t = i / SR;
       const loud = t % 5 >= 3.4 && t % 5 < 3.9;
-      const amp = loud ? 0.9 : 0.03;
+      const amp = loud ? 0.9 : 0.12;
       s[i * 2] = amp * Math.sin((2 * Math.PI * 330 * i) / SR);
       s[i * 2 + 1] = amp * Math.sin((2 * Math.PI * 520 * i) / SR);
     }
@@ -992,13 +1003,19 @@ describe("windowed rendering of a long input", () => {
         type: "compressor",
         id: "k",
         enabled: true,
-        params: { ...defaultAudioFxParams("compressor"), release: 1000 },
+        params: {
+          ...defaultAudioFxParams("compressor"),
+          threshold: -30,
+          ratio: 10,
+          makeup: 20,
+          release: 700,
+        },
       },
       {
         type: "delay",
         id: "d",
         enabled: true,
-        params: { time: 300, feedback: 0.4, mix: 0.4 },
+        params: { time: 400, feedback: 0.5, mix: 0.5 },
       },
       {
         type: "reverb",
@@ -1019,7 +1036,7 @@ describe("windowed rendering of a long input", () => {
     streaming: typeof memoryLimits,
   ): Promise<{ whole: Float32Array; windowed: Float32Array }> => {
     const input = join(dir, "mem.wav");
-    writeWav(input, bursts(14), SR, 2, true);
+    writeWav(input, bursts(22), SR, 2, true);
     await applyAudioFxChain(input, memoryChain(), join(dir, "mem-whole.wav"), {
       trackId: "w",
     });
@@ -1044,8 +1061,8 @@ describe("windowed rendering of a long input", () => {
       const { whole, windowed } = await renderBoth(memoryLimits);
       // The tail of the last window is kept: dropping it would shorten the file.
       expect(windowed.length).toBe(whole.length);
-      expect(whole.length).toBeGreaterThan(14 * SR * 2);
-      expect(worstDifference(whole, windowed)).toBeLessThan(0.02);
+      expect(whole.length).toBeGreaterThan(22 * SR * 2);
+      expect(worstDifference(whole, windowed)).toBeLessThan(0.001);
     },
     240_000,
   );

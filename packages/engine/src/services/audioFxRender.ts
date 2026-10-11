@@ -363,6 +363,9 @@ export interface AudioFxSegment {
   last: boolean;
 }
 
+/** Frames the audio graph processes at a time; a window starting on one sees the same blocks a whole render does. */
+const RENDER_QUANTUM = 128;
+
 /** Tile `totalFrames` into windows that each carry their pre/post-roll. */
 export function planAudioFxSegments(
   totalFrames: number,
@@ -378,7 +381,7 @@ export function planAudioFxSegments(
     segments.push({
       keepFrom,
       keepTo,
-      readFrom: Math.max(0, keepFrom - pre),
+      readFrom: Math.max(0, Math.floor((keepFrom - pre) / RENDER_QUANTUM) * RENDER_QUANTUM),
       readTo: Math.min(totalFrames, keepTo + post),
       last: keepTo === totalFrames,
     });
