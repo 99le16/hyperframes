@@ -2,14 +2,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ensureModel, ensureWhisper } from "./manager.js";
+import * as manager from "./manager.js";
 import { transcribe } from "./transcribe.js";
-
-vi.mock("./manager.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./manager.js")>()),
-  ensureWhisper: vi.fn(),
-  ensureModel: vi.fn(),
-}));
 
 describe("whisper transcribe with a signal", () => {
   let dir: string;
@@ -18,13 +12,14 @@ describe("whisper transcribe with a signal", () => {
     dir = mkdtempSync(join(tmpdir(), "hf-whisper-signal-"));
     input = join(dir, "narration.wav");
     writeFileSync(input, "not-real-audio");
-    vi.mocked(ensureWhisper).mockResolvedValue({
+    vi.spyOn(manager, "ensureWhisper").mockResolvedValue({
       executablePath: "/no/whisper-cli",
       source: "system",
     });
+    vi.spyOn(manager, "ensureModel").mockRejectedValue(new Error("no model in this test"));
   });
   afterEach(() => {
-    vi.resetAllMocks();
+    vi.restoreAllMocks();
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -35,14 +30,14 @@ describe("whisper transcribe with a signal", () => {
       reason,
     );
 
-    expect(ensureWhisper).not.toHaveBeenCalled();
-    expect(ensureModel).not.toHaveBeenCalled();
+    expect(manager.ensureWhisper).not.toHaveBeenCalled();
+    expect(manager.ensureModel).not.toHaveBeenCalled();
   });
 
   it("hands the model download the signal and stops before audio prep when it aborts", async () => {
     const controller = new AbortController();
     const reason = new Error("stopped during the download");
-    vi.mocked(ensureModel).mockImplementation(async (_model, options) => {
+    vi.mocked(manager.ensureModel).mockImplementation(async (_model, options) => {
       expect(options?.signal).toBe(controller.signal);
       controller.abort(reason);
       return join(dir, "ggml-small.en.bin");
@@ -50,6 +45,9 @@ describe("whisper transcribe with a signal", () => {
 
     // Audio prep would fail on this fake WAV with its own error; the abort must win first.
     await expect(transcribe(input, dir, { signal: controller.signal })).rejects.toBe(reason);
-    expect(ensureModel).toHaveBeenCalledOnce();
+    expect(manager.ensureModel).toHaveBeenCalledOnce();
+    expect(manager.ensureWhisper).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal }),
+    );
   });
 });

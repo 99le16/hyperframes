@@ -78,7 +78,11 @@ export interface TranscribeOptions {
   timeoutMs?: number;
   /** Also write a caption file. With a transcript input, this is the only thing written. */
   captions?: TranscribeCaptionsOptions;
-  /** Aborting it stops the run with a "cancelled" TranscribeError. */
+  /**
+   * Aborting it stops the run with a "cancelled" TranscribeError, ending any install, download,
+   * audio preparation or transcription at once. A tool lookup already running finishes first; each
+   * is capped at 10 seconds.
+   */
   signal?: AbortSignal;
   /** Downloads, transcription start and end, and words heard so far. */
   onProgress?: (event: TranscribeProgressEvent) => void;
@@ -391,6 +395,8 @@ async function transcribeAudio(
   // Before audio prep: under --json no spinner listens for SIGINT, so Ctrl-C would kill Node.
   // A caller's own signal is live from the start, whichever runner it ends up stopping.
   let cancellation = runner === "sherpa" || !options.stopOnProcessSignals ? startScope() : null;
+  // The CLI's own handlers stop it; its setup, audio prep and parakeet-mlx stay synchronous.
+  const librarySignal = options.stopOnProcessSignals ? undefined : cancellation?.signal;
   const run = (r: TranscribeRunner) => {
     switch (r) {
       case "sherpa":
@@ -403,7 +409,7 @@ async function transcribeAudio(
         return transcribeWithParakeet(wavPath, dir, {
           onProgress: onStatus,
           onEvent: onProgress,
-          signal: cancellation?.signal,
+          signal: librarySignal,
         });
       case "whisper":
         return transcribeWithWhisper(wavPath, dir, {
@@ -413,7 +419,7 @@ async function transcribeAudio(
           onEvent: onProgress,
           timeoutMs: options.timeoutMs,
           installRuntime: options.installRuntime,
-          signal: cancellation?.signal,
+          signal: librarySignal,
           startCancellation: () => (cancellation ??= startScope()).signal,
         });
       default: {
@@ -425,7 +431,9 @@ async function transcribeAudio(
 
   try {
     // Outside the fallback: an unreadable input is not a Parakeet failure. The fallback reuses it.
-    if (runner === "sherpa") wavPath = prepareSherpaWav(inputPath, onStatus);
+    if (runner === "sherpa") {
+      wavPath = await prepareSherpaWav(inputPath, onStatus, librarySignal);
+    }
     let result: Awaited<ReturnType<typeof run>>;
     try {
       result = await run(runner);

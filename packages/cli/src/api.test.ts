@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import {
   chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -11,27 +12,17 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { WhisperUnavailableError } from "./whisper/manager.js";
-
-const { transcribeMock, renderMock } = vi.hoisted(() => ({
-  transcribeMock: vi.fn(),
-  renderMock: vi.fn(),
-}));
-vi.mock("./whisper/transcribe.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./whisper/transcribe.js")>()),
-  transcribe: transcribeMock,
-}));
-// Parakeet runs on parakeet-mlx in these tests, whatever this machine has installed.
-vi.mock("./whisper/sherpa.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./whisper/sherpa.js")>()),
-  sherpaParakeetInstalled: () => false,
-}));
-vi.mock("./background-removal/pipeline.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./background-removal/pipeline.js")>()),
-  render: renderMock,
-}));
-
-import { RemoveBackgroundError, TranscribeError, removeBackground, transcribe } from "./api.js";
+import * as pipeline from "./background-removal/pipeline.js";
+import * as manager from "./whisper/manager.js";
+import * as sherpa from "./whisper/sherpa.js";
+import * as whisper from "./whisper/transcribe.js";
+import {
+  RemoveBackgroundError,
+  TranscribeError,
+  removeBackground,
+  transcribe,
+  type TranscribeOptions,
+} from "./api.js";
 
 const SRT = `1
 00:00:01,000 --> 00:00:03,500
@@ -43,10 +34,14 @@ Render video. Built for agents.
 `;
 
 let dir: string;
+let transcribeMock: MockInstance<typeof whisper.transcribe>;
+let renderMock: MockInstance<typeof pipeline.render>;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "hf-api-test-"));
-  transcribeMock.mockReset();
-  renderMock.mockReset();
+  transcribeMock = vi.spyOn(whisper, "transcribe");
+  renderMock = vi.spyOn(pipeline, "render");
+  // Parakeet runs on parakeet-mlx in these tests, whatever this machine has installed.
+  vi.spyOn(sherpa, "sherpaParakeetInstalled").mockReturnValue(false);
   vi.spyOn(console, "log");
   vi.spyOn(console, "error");
 });
@@ -120,8 +115,8 @@ describe("transcribe", () => {
   it("transcribes with whisper and hands back the runner, status and progress", async () => {
     const input = dummyAudio();
     transcribeMock.mockImplementation(async (_input, outputDir, options) => {
-      options.onProgress?.("Checking model...");
-      options.onEvent?.({
+      options?.onProgress?.("Checking model...");
+      options?.onEvent?.({
         type: "progress",
         phase: "transcription",
         model: "small.en",
@@ -186,7 +181,7 @@ describe("transcribe", () => {
     let signal: unknown;
     transcribeMock.mockImplementation(async (_input, _outputDir, options) => {
       const before = process.listenerCount("SIGINT");
-      signal = options.startCancellation();
+      signal = options?.startCancellation?.();
       handlersAdded = process.listenerCount("SIGINT") - before;
       controller.abort();
       throw new Error("Command failed: whisper-cli");
@@ -201,7 +196,7 @@ describe("transcribe", () => {
 
   it("names a missing whisper as whisper_unavailable, with the original error as cause", async () => {
     const input = dummyAudio();
-    const missing = new WhisperUnavailableError("whisper-cpp not found");
+    const missing = new manager.WhisperUnavailableError("whisper-cpp not found");
     transcribeMock.mockRejectedValue(missing);
 
     const err = await transcribeError({ input, engine: "whisper" });
@@ -277,12 +272,113 @@ describe("transcribe", () => {
     },
   );
 
-  it("keeps every import of the API modules at module scope", () => {
+  /** A stand-in tool that starts a process of its own, writes both pids, then waits for it. */
+  function hangingTool(path: string, pidFile: string, before = ""): void {
+    writeFileSync(path, `#!/bin/sh\n${before}sleep 15 &\necho "$$ $!" > "${pidFile}"\nwait\n`);
+    chmodSync(path, 0o755);
+  }
+
+  /** Aborts once the stand-in is running; a blocked event loop never gets to. */
+  async function abortWhileRunning(pidFile: string, options: Omit<TranscribeOptions, "signal">) {
+    const controller = new AbortController();
+    const poll = setInterval(() => {
+      if (existsSync(pidFile) && readFileSync(pidFile, "utf8").includes(" ")) controller.abort();
+    }, 20);
+    const started = Date.now();
+    const err = await transcribeError({ ...options, signal: controller.signal }).finally(() =>
+      clearInterval(poll),
+    );
+    const pids = readFileSync(pidFile, "utf8").trim().split(" ").map(Number);
+    return { err, elapsed: Date.now() - started, pids };
+  }
+
+  it.skipIf(process.platform === "win32")(
+    "stops a whisper runtime install in progress when the signal aborts",
+    async (ctx) => {
+      const bin = join(dir, "bin");
+      mkdirSync(bin);
+      const pidFile = join(dir, "install.pid");
+      // Homebrew on macOS, git clone elsewhere: whichever install step runs first never ends.
+      hangingTool(join(bin, "brew"), pidFile);
+      hangingTool(join(bin, "git"), pidFile);
+      writeFileSync(join(bin, "cmake"), "#!/bin/sh\nexit 1\n");
+      chmodSync(join(bin, "cmake"), 0o755);
+      vi.stubEnv("PATH", `${bin}:/usr/bin:/bin`);
+      vi.stubEnv("HYPERFRAMES_WHISPER_PATH", "");
+      if (manager.findWhisper()) ctx.skip();
+
+      const { err, elapsed, pids } = await abortWhileRunning(pidFile, {
+        input: dummyAudio(),
+        engine: "whisper",
+      });
+
+      expect(err.code).toBe("cancelled");
+      expect(elapsed).toBeLessThan(10_000);
+      for (const pid of pids) expect(() => process.kill(pid, 0), `pid ${pid}`).toThrow();
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "stops ffmpeg preparing the audio when the signal aborts, and removes its partial WAV",
+    async () => {
+      vi.spyOn(manager, "ensureWhisper").mockResolvedValue({
+        executablePath: "/no/whisper-cli",
+        source: "system",
+      });
+      vi.spyOn(manager, "ensureModel").mockResolvedValue(join(dir, "ggml-small.en.bin"));
+      const ffmpeg = join(dir, "ffmpeg");
+      const pidFile = join(dir, "ffmpeg.pid");
+      hangingTool(ffmpeg, pidFile, 'for out; do :; done\nprintf partial > "$out"\n');
+      vi.stubEnv("HYPERFRAMES_FFMPEG_PATH", ffmpeg);
+      vi.stubEnv("HYPERFRAMES_FFPROBE_PATH", join(dir, "no-ffprobe"));
+      const input = join(dir, "narration.mp3");
+      writeFileSync(input, "not-real-audio");
+      const wavs = () =>
+        readdirSync(tmpdir()).filter((f) => f.startsWith(`hyperframes-audio-${process.pid}-`));
+
+      const { err, elapsed, pids } = await abortWhileRunning(pidFile, { input, engine: "whisper" });
+
+      expect(err.code).toBe("cancelled");
+      expect(elapsed).toBeLessThan(10_000);
+      for (const pid of pids) expect(() => process.kill(pid, 0), `pid ${pid}`).toThrow();
+      expect(wavs()).toEqual([]);
+    },
+  );
+
+  // Spelled so that this file's own source, which it also reads, does not match.
+  const localLoad = /\bimport\(|\bimport[OAM](?:riginal|ctual|ock)\b/;
+
+  it("keeps every module load at module scope, in the API, the code it runs and their tests", () => {
+    for (const sample of [
+      "await import" + "('x')",
+      "vi.import" + "Actual('x')",
+      "import" + "Original()",
+    ]) {
+      expect(sample).toMatch(localLoad);
+    }
     const here = dirname(fileURLToPath(import.meta.url));
-    const files = ["api.ts", ...readdirSync(join(here, "api")).map((f) => join("api", f))];
-    const sources = files.filter((f) => !f.endsWith(".test.ts"));
-    for (const file of sources) {
-      expect(readFileSync(join(here, file), "utf8"), file).not.toMatch(/\bimport\(/);
+    const api = readdirSync(join(here, "api")).map((f) => join("api", f));
+    const files = [
+      "api.ts",
+      ...api,
+      "api.test.ts",
+      "commands/remove-background.ts",
+      "commands/transcribe.ts",
+      "commands/transcribe.test.ts",
+      "utils/download.ts",
+      "utils/download.test.ts",
+      "utils/stoppableExecFile.ts",
+      "utils/stoppableExecFile.test.ts",
+      "whisper/manager.ts",
+      "whisper/modelForLanguage.ts",
+      "whisper/parakeet.ts",
+      "whisper/sherpa.ts",
+      "whisper/transcribe.ts",
+      "whisper/transcribe.test.ts",
+      "whisper/transcribe.signal.test.ts",
+    ];
+    for (const file of files) {
+      expect(readFileSync(join(here, file), "utf8"), file).not.toMatch(localLoad);
     }
   });
 
@@ -326,7 +422,7 @@ describe("removeBackground", () => {
       durationSeconds: 1,
       avgMsPerFrame: 10,
       provider: "cpu",
-      format: "webm",
+      format: "webm" as const,
     };
     renderMock.mockResolvedValue(rendered);
     const onProgress = vi.fn();

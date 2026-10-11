@@ -3,7 +3,15 @@ import { defineCommand } from "citty";
 import { existsSync } from "node:fs";
 import * as clack from "@clack/prompts";
 import { c } from "../ui/colors.js";
-import { isDevice, DEVICES } from "../background-removal/manager.js";
+import {
+  DEFAULT_MODEL,
+  DEVICES,
+  MODEL_MEMORY_MB,
+  isDevice,
+  listAvailableProviders,
+  modelPath,
+  selectProviders,
+} from "../background-removal/manager.js";
 import { DEFAULT_QUALITY, QUALITIES, isQuality } from "../background-removal/pipeline.js";
 import type { Example } from "./_examples.js";
 import { RemoveBackgroundError, removeBackground } from "../api/removeBackground.js";
@@ -185,9 +193,6 @@ function pipelineError(err: unknown): unknown {
 }
 
 async function showInfo(json: boolean): Promise<void> {
-  const { selectProviders, listAvailableProviders, DEFAULT_MODEL, MODEL_MEMORY_MB, modelPath } =
-    await import("../background-removal/manager.js");
-
   const providers = listAvailableProviders();
   const auto = selectProviders("auto");
   const cached = existsSync(modelPath());

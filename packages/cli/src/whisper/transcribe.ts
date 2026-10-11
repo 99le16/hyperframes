@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { findFFmpeg, findFFprobe, getFFmpegInstallHint } from "../browser/ffmpeg.js";
 import { stoppedByCancelSignal } from "../utils/renderCancellation.js";
+import { stoppableExecFile } from "../utils/stoppableExecFile.js";
 import { ensureWhisper, ensureModel, hasFFmpeg, DEFAULT_MODEL } from "./manager.js";
 import { initialModelForLanguage } from "./modelForLanguage.js";
 import { TRANSCRIPT_FILE } from "./transcriptFile.js";
@@ -303,15 +304,23 @@ function tempWavPath(): string {
   return join(tmpdir(), `hyperframes-audio-${process.pid}-${randomUUID()}.wav`);
 }
 
-function runFfmpeg(ffmpegPath: string, args: string[], output: string, timeout: number): void {
+async function runFfmpeg(
+  ffmpegPath: string,
+  args: string[],
+  output: string,
+  timeout: number,
+  signal?: AbortSignal,
+): Promise<void> {
   try {
-    execFileSync(ffmpegPath, ["-nostats", "-hide_banner", ...args, "-y", output], {
+    await stoppableExecFile(ffmpegPath, ["-nostats", "-hide_banner", ...args, "-y", output], {
       stdio: ["ignore", "ignore", "pipe"],
       maxBuffer: 64 * 1024 * 1024,
       timeout,
+      signal,
     });
   } catch (err) {
     rmSync(output, { force: true });
+    if (signal?.aborted) throw err;
     const stop = err as { code?: string; signal?: string; stderr?: Buffer };
     // A code means Node stopped it; ffmpeg traps Ctrl-C and says so (exit 255 is EPERM too on 7+).
     if (stop.code) throw err;
@@ -327,7 +336,7 @@ function runFfmpeg(ffmpegPath: string, args: string[], output: string, timeout: 
 /**
  * Extract audio from a video file as 16kHz mono WAV (whisper requirement).
  */
-function extractAudio(videoPath: string): string {
+async function extractAudio(videoPath: string, signal?: AbortSignal): Promise<string> {
   const ffmpegPath = findFFmpeg();
   if (!ffmpegPath) {
     throw new Error(
@@ -335,11 +344,12 @@ function extractAudio(videoPath: string): string {
     );
   }
   const wavPath = tempWavPath();
-  runFfmpeg(
+  await runFfmpeg(
     ffmpegPath,
     ["-i", videoPath, "-vn", "-ar", "16000", "-ac", "1", "-f", "wav"],
     wavPath,
     resolveAudioPreparationTimeoutMs(getMediaDurationSeconds(videoPath)),
+    signal,
   );
   return wavPath;
 }
@@ -380,7 +390,7 @@ function isWav16kMono(filePath: string): boolean {
 /**
  * Convert audio file to 16kHz mono WAV if not already in that format.
  */
-function prepareAudio(audioPath: string): string {
+async function prepareAudio(audioPath: string, signal?: AbortSignal): Promise<string> {
   if (extname(audioPath).toLowerCase() === ".wav" && isWav16kMono(audioPath)) {
     return audioPath;
   }
@@ -391,11 +401,12 @@ function prepareAudio(audioPath: string): string {
     throw new Error(`ffmpeg is required to prepare audio. Install: ${getFFmpegInstallHint()}`);
   }
   const wavPath = tempWavPath();
-  runFfmpeg(
+  await runFfmpeg(
     ffmpegPath,
     ["-i", audioPath, "-ar", "16000", "-ac", "1", "-f", "wav"],
     wavPath,
     resolveAudioPreparationTimeoutMs(getMediaDurationSeconds(audioPath)),
+    signal,
   );
   return wavPath;
 }
@@ -415,10 +426,15 @@ export function dtwPresetForModel(model: string): string {
   return model.replace(/-/g, ".");
 }
 
-export function prepareWav(inputPath: string, onProgress?: (message: string) => void): string {
+/** Aborting `signal` stops ffmpeg, removes its partial WAV and rejects with the reason. */
+export async function prepareWav(
+  inputPath: string,
+  onProgress?: (message: string) => void,
+  signal?: AbortSignal,
+): Promise<string> {
   if (isAudioFile(inputPath)) {
     onProgress?.("Preparing audio...");
-    return prepareAudio(inputPath);
+    return prepareAudio(inputPath, signal);
   }
   if (isVideoFile(inputPath)) {
     if (!hasFFmpeg()) {
@@ -427,7 +443,7 @@ export function prepareWav(inputPath: string, onProgress?: (message: string) => 
       );
     }
     onProgress?.("Extracting audio from video...");
-    return extractAudio(inputPath);
+    return extractAudio(inputPath, signal);
   }
   throw new Error(`Unsupported file type: ${extname(inputPath).toLowerCase()}`);
 }
@@ -450,6 +466,7 @@ export async function transcribe(
   const whisper = await ensureWhisper({
     onProgress: options?.onProgress,
     installRuntime: options?.installRuntime,
+    signal,
   });
 
   // 2. Ensure model
@@ -472,7 +489,7 @@ export async function transcribe(
 
   // 3. Prepare audio
   signal?.throwIfAborted();
-  const wavPath = prepareWav(inputPath, options?.onProgress);
+  const wavPath = await prepareWav(inputPath, options?.onProgress, signal);
   signal?.throwIfAborted();
 
   const automaticLanguage = options?.language === undefined && !model.endsWith(".en");
