@@ -213,6 +213,7 @@ export {
   extractionFrameCountForDuration,
   resolveProjectRelativeSrc,
   getFrameAtTime,
+  isVideoHiddenBeforeStreamStart,
   createFrameLookupTable,
   FrameLookupTable,
   analyzeClipMediaFit,
