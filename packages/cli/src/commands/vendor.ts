@@ -118,8 +118,9 @@ export function vendorFileName(url: string, contentType?: string): string {
  * vendor directory (defense in depth — `vendorFileName` already sanitizes).
  */
 export function resolveVendorTarget(outDir: string, fileName: string): string {
-  const target = resolve(outDir, fileName);
-  if (target !== outDir && !target.startsWith(outDir + sep)) {
+  const base = resolve(outDir);
+  const target = resolve(base, fileName);
+  if (target !== base && !target.startsWith(base + sep)) {
     throw new Error(`refusing to write outside the vendor directory: ${fileName}`);
   }
   return target;

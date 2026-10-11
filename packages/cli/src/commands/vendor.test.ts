@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { consumeCommandResult } from "../utils/commandResult.js";
 import {
@@ -57,7 +57,7 @@ describe("vendorFileName", () => {
 describe("resolveVendorTarget", () => {
   it("resolves plain filenames under the vendor directory", () => {
     const outDir = join("/tmp", "proj", "assets", "vendor");
-    expect(resolveVendorTarget(outDir, "gsap.min-abc.js")).toBe(join(outDir, "gsap.min-abc.js"));
+    expect(resolveVendorTarget(outDir, "gsap.min-abc.js")).toBe(resolve(outDir, "gsap.min-abc.js"));
   });
 
   it("refuses filenames that would escape the vendor directory", () => {
