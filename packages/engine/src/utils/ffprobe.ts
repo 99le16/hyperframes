@@ -60,9 +60,8 @@ async function withMeasuredFilledStreams(
   if (audioVideo.length < 2 || /\bmov\b/.test(format.format_name ?? "")) return output;
   const containerEnd = parseFloat(format.start_time ?? "") + parseFloat(format.duration ?? "");
   const streams = [...output.streams];
-  let unrefined = false;
   for (const [index, stream] of output.streams.entries()) {
-    if (!audioVideo.includes(stream) || !copiesContainerTiming(stream, format)) continue;
+    if (!audioVideo.includes(stream) || !sawNoPacket(stream, format, audioVideo)) continue;
     try {
       const span = await measureStreamSpan(filePath, index, containerEnd, signal);
       if (span) {
@@ -74,26 +73,26 @@ async function withMeasuredFilledStreams(
       }
     } catch (error) {
       if (signal?.aborted) throw signal.reason ?? error;
-      unrefined = true;
+      // Cached like a success, so every consumer in the process sees the same timing.
+      const reason = error instanceof Error ? error.message : String(error);
+      console.warn(
+        `[ffprobe] ${basename(filePath)}: stream ${index} kept the container's timing (${reason.slice(0, 200)})`,
+      );
     }
   }
-  const refined = { ...output, streams };
-  if (unrefined) uncacheable.add(refined);
-  return refined;
+  return { ...output, streams };
 }
 
-function copiesContainerTiming(stream: FFProbeStream, format: FFProbeFormat): boolean {
+/** The container's start and duration copied onto the stream, or no start where another stream has one. */
+function sawNoPacket(
+  stream: FFProbeStream,
+  format: FFProbeFormat,
+  audioVideo: FFProbeStream[],
+): boolean {
+  if (stream.start_time === undefined) return audioVideo.some((s) => s.start_time !== undefined);
   const same = (a?: string, b?: string) =>
     a !== undefined && b !== undefined && Math.abs(parseFloat(a) - parseFloat(b)) < 1e-3;
   return same(stream.start_time, format.start_time) && same(stream.duration, format.duration);
-}
-
-/** A probe result whose refinement failed: share it while in flight, never cache it. */
-const uncacheable = new WeakSet<object>();
-
-function carryUncacheable<T extends object>(from: FFProbeOutput | null, value: T): T {
-  if (from && uncacheable.has(from)) uncacheable.add(value);
-  return value;
 }
 
 /** First packet start and last packet end: the last 30 s of the container first, else a full scan. */
@@ -129,7 +128,9 @@ async function measureStreamSpan(
   const [first] = await packets(["-read_intervals", "%+#1"]);
   if (!first) return undefined;
   const tailFrom = Math.max(first.start, containerEnd - 30);
-  const tail = Number.isFinite(tailFrom) ? await packets(["-read_intervals", `${tailFrom}%`]) : [];
+  const tail = Number.isFinite(tailFrom)
+    ? await packets(["-read_intervals", `${tailFrom}%${FFPROBE_READ_INTERVAL_EXPLICIT_FAR_END}`])
+    : [];
   const last = tail.length > 0 ? tail : await packets([]);
   return { start: first.start, end: Math.max(first.end, ...last.map((packet) => packet.end)) };
 }
@@ -446,10 +447,9 @@ function writeMetadataCache<T>(
   const entry = { identity, promise };
   cache.set(key, entry);
   void promise.then(
-    (value) => {
-      // Without a file identity, or after a failed re-measure, share only the in-flight probe.
-      const shareOnly = identity === null || uncacheable.has(value as object);
-      if (shareOnly && cache.get(key) === entry) cache.delete(key);
+    () => {
+      // Without a file identity, share only the in-flight probe, never its result.
+      if (identity === null && cache.get(key) === entry) cache.delete(key);
     },
     () => {
       if (cache.get(key) === entry) cache.delete(key);
@@ -909,7 +909,7 @@ export async function extractMediaMetadata(filePath: string): Promise<VideoMetad
       effectiveStreamDuration = containerStreamSpan;
     }
 
-    return carryUncacheable(output, {
+    return {
       durationSeconds: containerDuration,
       videoStreamDurationSeconds: effectiveStreamDuration,
       videoStreamStartSeconds: streamStart,
@@ -925,7 +925,7 @@ export async function extractMediaMetadata(filePath: string): Promise<VideoMetad
       colorRange: videoStream.color_range,
       pixelFormat,
       frames,
-    });
+    };
   })();
 
   writeMetadataCache(videoMetadataCache, filePath, identity, probePromise);
@@ -1076,7 +1076,7 @@ export async function extractAudioMetadata(
       }
     }
 
-    return carryUncacheable(output, {
+    return {
       durationSeconds,
       streamDurationSeconds: streamDuration && streamDuration > 0 ? streamDuration : undefined,
       sampleRate,
@@ -1084,7 +1084,7 @@ export async function extractAudioMetadata(
       audioCodec,
       bitrate: output.format.bit_rate ? parseInt(output.format.bit_rate) : undefined,
       latestStreamLeadSeconds: latestStreamLeadSeconds(output),
-    });
+    };
   })();
 
   if (options?.signal) return probePromise;

@@ -1,8 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { FFPROBE_PATH_ENV, getFfmpegBinary, getFfprobeBinary } from "../utils/ffmpegBinaries.js";
 import { processCompositionAudio } from "./audioMixer.js";
 import { extractAudioMetadata, extractMediaMetadata } from "../utils/ffprobe.js";
@@ -152,6 +152,18 @@ describe.skipIf(!HAS_FFMPEG)(
       webm(lead, "0", "video-late.webm");
       webm("0", lead, "audio-late.webm");
       webm("0", "0", "aligned.webm");
+      // A recorder writes WebM as a stream: no duration or cues, and no start for the late track.
+      const piped = spawnSync(
+        FFMPEG,
+        [
+          ...["-v", "error", "-itsoffset", lead, "-i", picture, "-i", steps, ...maps],
+          ...["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-c:a", "libopus"],
+          ...["-f", "webm", "pipe:1"],
+        ],
+        { maxBuffer: 1 << 26 },
+      );
+      if (piped.status !== 0) throw new Error(piped.stderr.toString());
+      writeFileSync(join(dir, "video-late-piped.webm"), piped.stdout);
     }, 60_000);
 
     afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -173,6 +185,7 @@ describe.skipIf(!HAS_FFMPEG)(
       { source: "video-late-20.ts", audioLead: 0, type: "video", mediaStart: 0 },
       { source: "video-late-20.nut", audioLead: 0, type: "video", mediaStart: 0 },
       { source: "aligned.webm", audioLead: 0, type: "video", mediaStart: 0 },
+      { source: "video-late-piped.webm", audioLead: 0, type: "video", mediaStart: 0 },
       { source: "audio-late.webm", audioLead: LEAD_SECONDS, type: "video", mediaStart: 0 },
       { source: "audio-late.mkv", audioLead: LEAD_SECONDS, type: "video", mediaStart: 0 },
       { source: "video-late.mp4", audioLead: 0, type: "video", mediaStart: 3, rate: flatLane },
@@ -374,60 +387,129 @@ describe.skipIf(!HAS_FFMPEG)(
         else process.env[FFPROBE_PATH_ENV] = previous;
       }
     }
-    const packetProbes = (name: string) =>
-      readFileSync(join(dir, `${name}.log`), "utf8")
-        .split("\n")
-        .filter((line) => line.includes("packet=pts_time")).length;
     const freshCopy = (from: string, to: string) => {
       copyFileSync(join(dir, from), join(dir, to));
       return join(dir, to);
     };
 
-    it.skipIf(process.platform === "win32")(
-      "does not cache the timing of a probe whose packet read failed",
-      async () => {
-        const marker = join(dir, "failed-once");
-        const source = freshCopy("video-late.webm", "video-late-uncached.webm");
-        await withFakeFfprobe(
-          "ffprobe-fails-once",
-          `[ -e "${marker}" ] || { : > "${marker}"; exit 1; }`,
-          async () => {
-            expect((await extractMediaMetadata(source)).videoStreamLeadSeconds).toBe(0);
-            expect((await extractMediaMetadata(source)).videoStreamLeadSeconds).toBeCloseTo(
-              LEAD_SECONDS,
-              1,
-            );
+    type Ffprobe = typeof import("../utils/ffprobe.js");
+    /** A fresh ffprobe module whose spawns go through `rewrite`; returns the packet-probe argv seen. */
+    async function withSpawnSpy<T>(
+      rewrite: (args: string[]) => string[],
+      fn: (ffprobe: Ffprobe) => Promise<T>,
+    ): Promise<{ result: T; packetProbes: string[][] }> {
+      const real = await vi.importActual<typeof import("child_process")>("child_process");
+      const packetProbes: string[][] = [];
+      vi.resetModules();
+      vi.doMock("child_process", () => ({
+        ...real,
+        spawn: (command: string, args: string[], options: object) => {
+          if (args.includes("packet=pts_time,duration_time")) packetProbes.push(args);
+          return real.spawn(command, rewrite(args), options);
+        },
+      }));
+      try {
+        return { result: await fn(await import("../utils/ffprobe.js")), packetProbes };
+      } finally {
+        vi.doUnmock("child_process");
+        vi.resetModules();
+      }
+    }
+    const isPacketProbe = (args: string[]) => args.includes("packet=pts_time,duration_time");
+    const isTailRead = (args: string[]) => isPacketProbe(args) && !args.includes("%+#1");
+
+    it("keeps one timing per file in a process when a packet read fails, so picture and sound agree", async () => {
+      const source = join(dir, "video-late.webm");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      let failed = false;
+      try {
+        const { result } = await withSpawnSpy(
+          (args) => {
+            if (!isPacketProbe(args) || failed) return args;
+            failed = true;
+            return ["-no-such-option", ...args];
           },
+          async ({ extractMediaMetadata: video, extractAudioMetadata: audio }) => [
+            (await video(source)).videoStreamLeadSeconds,
+            (await audio(source)).latestStreamLeadSeconds,
+            (await video(source)).videoStreamLeadSeconds,
+          ],
         );
-      },
-    );
+        expect(result).toEqual([0, 0, 0]);
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining("[ffprobe] video-late.webm: stream "),
+        );
+        expect(warn.mock.calls.flat().join("\n")).not.toContain(dir);
+      } finally {
+        warn.mockRestore();
+      }
+    });
 
-    it.skipIf(process.platform === "win32")(
-      "does not re-measure an aligned stream that only shares the container's start",
-      async () => {
-        const source = freshCopy("aligned.webm", "aligned-unmeasured.webm");
-        await withFakeFfprobe("ffprobe-logs", ":", async () => {
-          await extractMediaMetadata(source);
-          await extractAudioMetadata(source);
-        });
-        expect(packetProbes("ffprobe-logs")).toBe(0);
-      },
-    );
+    it("does not re-measure an aligned stream that only shares the container's start", async () => {
+      const { packetProbes } = await withSpawnSpy(
+        (args) => args,
+        async ({ extractMediaMetadata: video, extractAudioMetadata: audio }) => {
+          await video(join(dir, "aligned.webm"));
+          await audio(join(dir, "aligned.webm"));
+        },
+      );
+      expect(packetProbes).toHaveLength(0);
+    });
 
-    it.skipIf(process.platform === "win32")(
-      "rejects an aborted probe without re-measuring further streams",
-      async () => {
-        const source = freshCopy("video-late-20.ts", "video-late-20-aborted.ts");
-        const controller = new AbortController();
-        setTimeout(() => controller.abort(new Error("stop")), 200);
-        await withFakeFfprobe("ffprobe-slow", "sleep 1", async () => {
-          await expect(extractAudioMetadata(source, { signal: controller.signal })).rejects.toThrow(
-            "stop",
-          );
-        });
-        expect(packetProbes("ffprobe-slow")).toBe(1);
-      },
-    );
+    it("starts no further stream's packet read once the probe is aborted", async () => {
+      const controller = new AbortController();
+      const { result, packetProbes } = await withSpawnSpy(
+        (args) => {
+          if (isPacketProbe(args)) controller.abort(new Error("stop"));
+          return args;
+        },
+        ({ extractAudioMetadata: audio }) =>
+          audio(join(dir, "video-late-20.ts"), { signal: controller.signal }).then(
+            () => "resolved",
+            (error: Error) => error.message,
+          ),
+      );
+      expect(result).toBe("stop");
+      expect(packetProbes).toHaveLength(1);
+    });
+
+    // ffprobe reads an open interval's end from uninitialised heap; MALLOC_PERTURB_ makes it deterministic.
+    it("reads each late stream's tail in one pass when ffprobe's heap is dirty", async () => {
+      const previous = process.env.MALLOC_PERTURB_;
+      process.env.MALLOC_PERTURB_ = "1";
+      try {
+        const { packetProbes } = await withSpawnSpy(
+          (args) => args,
+          ({ extractMediaMetadata: video }) => video(join(dir, "video-late-20.ts")),
+        );
+        // Two late streams, each: the first packet, then the tail; a third read is the full scan.
+        expect(packetProbes).toHaveLength(4);
+      } finally {
+        if (previous === undefined) delete process.env.MALLOC_PERTURB_;
+        else process.env.MALLOC_PERTURB_ = previous;
+      }
+    });
+
+    it("scans the whole stream when its tail read finds no packet", async () => {
+      const { result, packetProbes } = await withSpawnSpy(
+        (args) => {
+          if (!isTailRead(args) || !args.includes("-read_intervals")) return args;
+          const selected = args.indexOf("-select_streams") + 1;
+          return args.map((arg, i) => (i === selected ? "9" : arg));
+        },
+        ({ extractMediaMetadata: video }) => video(join(dir, "video-late.webm")),
+      );
+      expect(
+        packetProbes.filter((args) => !args.includes("-read_intervals")).length,
+      ).toBeGreaterThan(0);
+      expect(resolvePlayableVideoDuration(result)).toBeCloseTo(LEAD_SECONDS + PICTURE_SECONDS, 0);
+    });
+
+    it("finds a late video in a WebM written as a stream, with no duration or cues", async () => {
+      const metadata = await extractMediaMetadata(join(dir, "video-late-piped.webm"));
+      expect(metadata.videoStreamLeadSeconds).toBeCloseTo(LEAD_SECONDS, 1);
+      expect(resolvePlayableVideoDuration(metadata)).toBeCloseTo(LEAD_SECONDS + PICTURE_SECONDS, 0);
+    });
 
     it.skipIf(process.platform === "win32")(
       "ignores the partial first line of a packet list cut at 64 KiB",
