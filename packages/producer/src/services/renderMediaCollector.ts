@@ -15,9 +15,19 @@
  */
 
 import { parseHTML } from "linkedom";
-import { MEDIA_RENDER_ID_ATTR, resolveAuthoredTimingWindow } from "@hyperframes/core";
+import {
+  MEDIA_RENDER_ID_ATTR,
+  normalizeRateSpec,
+  resolveAuthoredTimingWindow,
+  shiftRateLane,
+  sourceTimeAt,
+} from "@hyperframes/core";
 import {
   MEDIA_START_BASIS_ATTR,
+  compositionOriginSeconds,
+  cutToHostSlots,
+  hostInPointSeconds,
+  type HostSlot,
   readMediaStartBasis,
   resolveAbsoluteMediaStartSeconds,
   type MediaStartBasis,
@@ -62,9 +72,27 @@ interface HostWindow {
   limit: number;
   /** Whether authored media time is composition-local or legacy root-global. */
   basis: MediaStartBasis;
+  /** Root-time slots of the enclosing hosts with an in-point. */
+  slots: HostSlot[];
 }
 
-const ROOT_WINDOW: HostWindow = { offset: 0, limit: Infinity, basis: "local" };
+const ROOT_WINDOW: HostWindow = { offset: 0, limit: Infinity, basis: "local", slots: [] };
+
+// Any composition host with an in-point counts, inline or anonymous, as in core's start resolver.
+const isInPointHost = (element: Element): boolean =>
+  element.matches("[data-composition-id], [data-composition-src]") &&
+  hostInPointSeconds(element) > 0;
+
+/** Composition hosts that place `element`, root first: inlined files, plus any host with an in-point. */
+function enclosingHosts(element: Element): Element[] {
+  const hosts: Element[] = [];
+  for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+    if (ancestor.hasAttribute(COMPOSITION_HOST_ATTR) || isInPointHost(ancestor)) {
+      hosts.unshift(ancestor);
+    }
+  }
+  return hosts;
+}
 
 /**
  * Fold a media element's chain of composition hosts into one window.
@@ -82,20 +110,20 @@ function resolveHostWindow(
   startCache: Map<RefResolverEl, number>,
   visiting: Set<RefResolverEl>,
 ): HostWindow {
-  const hosts: Element[] = [];
-  for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
-    if (ancestor.hasAttribute(COMPOSITION_HOST_ATTR)) hosts.push(ancestor);
-  }
+  const hosts = enclosingHosts(element);
   if (hosts.length === 0) return ROOT_WINDOW;
 
   let offset = 0;
   let limit = Infinity;
-  // parentElement walks leaf → root; the offsets accumulate root → leaf.
-  for (const host of hosts.reverse()) {
+  const slots: HostSlot[] = [];
+  for (const host of hosts) {
     const hostStart = resolveReferencedStart(document, host, startCache, visiting);
     const hostEnd = resolveHostEnd(host, hostStart);
     if (hostEnd != null) limit = Math.min(limit, offset + hostEnd);
-    offset += hostStart;
+    if (hostInPointSeconds(host) > 0) {
+      slots.push({ start: offset + hostStart, end: offset + (hostEnd ?? Infinity) });
+    }
+    offset += compositionOriginSeconds(hostStart, host);
   }
   const tag = element.tagName.toLowerCase();
   const basis =
@@ -106,6 +134,7 @@ function resolveHostWindow(
     offset,
     limit,
     basis,
+    slots,
   };
 }
 
@@ -133,13 +162,14 @@ function collectHostWindows(html: string): Map<string, HostWindow> {
 /**
  * Shift a scene-relative window onto the root timeline.
  * Returns null when the clip starts after its host has already ended, matching
- * the `start < absoluteEnd` drop the file-tree walk applied.
+ * the `start < absoluteEnd` drop the file-tree walk applied, or when in-point hosts cut all of it.
+ * `start` stays the clip's origin; `played` is the part the in-point hosts' slots keep.
  */
 function toAbsoluteWindow(
   start: number,
   end: number,
   window: HostWindow,
-): { start: number; end: number } | null {
+): { start: number; end: number; played: { start: number; end: number } } | null {
   const absoluteStart = resolveAbsoluteMediaStartSeconds({
     authoredStart: start,
     hostStart: window.offset,
@@ -151,7 +181,24 @@ function toAbsoluteWindow(
     hostStart: window.offset,
     basis: window.basis,
   });
-  return { start: absoluteStart, end: Math.min(absoluteEnd, window.limit) };
+  const absolute = { start: absoluteStart, end: Math.min(absoluteEnd, window.limit) };
+  if (window.slots.length === 0) return { ...absolute, played: absolute };
+  const played = cutToHostSlots(absolute, window.slots);
+  if (played.end === played.start && absolute.end > absolute.start) return null;
+  return { start: absolute.start, end: played.end, played };
+}
+
+/** Start audio where its in-point hosts let it play, that much further into its source. */
+function startAtPlayed<T extends AudioElement>(audio: T, played: { start: number }): T {
+  const head = played.start - audio.start;
+  if (head <= 0) return audio;
+  const rate = normalizeRateSpec(audio.playbackRate);
+  return {
+    ...audio,
+    start: played.start,
+    mediaStart: audio.mediaStart + sourceTimeAt(rate, head),
+    playbackRate: shiftRateLane(rate, head),
+  };
 }
 
 export interface RenderMedia {
@@ -172,16 +219,17 @@ export function collectRenderMedia(html: string): RenderMedia {
   const windows = collectHostWindows(html);
   const windowFor = (id: string): HostWindow => windows.get(id) ?? ROOT_WINDOW;
 
+  // Pictures keep their origin: the engine trims a negative start, and the host hides them before its own.
   const videos: VideoElement[] = [];
   for (const video of parseVideoElements(html)) {
     const absolute = toAbsoluteWindow(video.start, video.end, windowFor(video.id));
-    if (absolute) videos.push({ ...video, ...absolute });
+    if (absolute) videos.push({ ...video, start: absolute.start, end: absolute.end });
   }
 
   const images: ImageElement[] = [];
   for (const image of parseImageElements(html)) {
     const absolute = toAbsoluteWindow(image.start, image.end, windowFor(image.id));
-    if (absolute) images.push({ ...image, ...absolute });
+    if (absolute) images.push({ ...image, start: absolute.start, end: absolute.end });
   }
 
   // A <video data-has-audio> track is reported as "<renderId>-audio"; strip the
@@ -194,11 +242,12 @@ export function collectRenderMedia(html: string): RenderMedia {
     const authoredEnd = audio.end > 0 ? audio.end : Infinity;
     const absolute = toAbsoluteWindow(audio.start, authoredEnd, windowFor(elementId));
     if (!absolute) continue;
-    audios.push({
-      ...audio,
-      start: absolute.start,
-      end: Number.isFinite(absolute.end) ? absolute.end : 0,
-    });
+    audios.push(
+      startAtPlayed(
+        { ...audio, start: absolute.start, end: Number.isFinite(absolute.end) ? absolute.end : 0 },
+        absolute.played,
+      ),
+    );
   }
 
   return { videos, audios, images };
