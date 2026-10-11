@@ -9,6 +9,20 @@ Recent HyperFrames releases, including user-facing features, fixes, and migratio
 {/* New release entries are prepended by `bun run changelog:draft <version> --write`. */}
 
 <Update
+  label="HyperFrames v0.8.147"
+  description="Released - 2026-10-11"
+  tags={["Release", "Engine"]}
+>
+A render that stalls now says which step Chrome hung in. It also says what to do, such as letting another heavy GPU or CPU job finish first.
+
+## Fixes
+
+- **Engine:** A render stall names the step Chrome hung in and says what to do ([bb34e301e](https://github.com/heygen-com/hyperframes/commit/bb34e301ec3c5f7b9edad07932356bd02a9f7934), [#5450](https://github.com/heygen-com/hyperframes/pull/5450)).
+
+[View the full commit range](https://github.com/heygen-com/hyperframes/compare/v0.8.146...v0.8.147).
+</Update>
+
+<Update
   label="HyperFrames v0.8.146"
   description="Released - 2026-10-11"
   tags={["Release", "CLI", "Core", "Parsers"]}
