@@ -234,7 +234,7 @@ import os, sys
 from elevenlabs.client import ElevenLabs
 from elevenlabs import save
 client = ElevenLabs(api_key=os.environ["ELEVENLABS_API_KEY"])
-text = open(sys.argv[1]).read()
+text = open(sys.argv[1], encoding="utf-8").read()
 audio = client.text_to_speech.convert(
     text=text, voice_id=sys.argv[2],
     model_id="eleven_multilingual_v2", output_format="mp3_44100_128",
