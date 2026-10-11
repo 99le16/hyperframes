@@ -4,9 +4,7 @@ import {
   existsSync,
   mkdtempSync,
   openSync,
-  readdirSync,
   readFileSync,
-  readlinkSync,
   rmSync,
   truncateSync,
   writeFileSync,
@@ -35,13 +33,26 @@ import { resolveHeadlessShellPath } from "./browserManager.js";
 import { getFfmpegBinary } from "../utils/ffmpegBinaries.js";
 
 const wholeFileReads = vi.hoisted(() => ({ paths: [] as string[] }));
+const openedFds = vi.hoisted(() => ({
+  log: [] as { path: string; fd: number; closed: boolean }[],
+}));
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
   const readFileSync = ((path: Parameters<typeof actual.readFileSync>[0], ...rest: unknown[]) => {
     wholeFileReads.paths.push(String(path));
     return (actual.readFileSync as (...a: unknown[]) => unknown)(path, ...rest);
   }) as typeof actual.readFileSync;
-  return { ...actual, readFileSync };
+  const openSync = ((path: Parameters<typeof actual.openSync>[0], ...rest: unknown[]) => {
+    const fd = (actual.openSync as (...a: unknown[]) => number)(path, ...rest);
+    openedFds.log.push({ path: String(path), fd, closed: false });
+    return fd;
+  }) as typeof actual.openSync;
+  const closeSync = ((fd: number) => {
+    const open = openedFds.log.findLast((entry) => entry.fd === fd && !entry.closed);
+    if (open) open.closed = true;
+    return actual.closeSync(fd);
+  }) as typeof actual.closeSync;
+  return { ...actual, readFileSync, openSync, closeSync };
 });
 
 /** Same probe the ffmpeg-dependent suites use: ask the binary, don't assume it. */
@@ -888,21 +899,16 @@ describe("windowed rendering of a long input", () => {
   it.skipIf(!HAS_BROWSER)("closes the input when the output cannot be opened", async () => {
     const input = join(dir, "in.wav");
     writeWav(input, new Float32Array(SR * 2), SR, 1, true);
-    const openOn = (path: string): number =>
-      readdirSync("/proc/self/fd").filter((fd) => {
-        try {
-          return readlinkSync(join("/proc/self/fd", fd)) === path;
-        } catch {
-          return false;
-        }
-      }).length;
+    openedFds.log.length = 0;
     await expect(
       applyAudioFxChain(input, chainOf("gain"), join(dir, "no-such-dir", "out.wav"), {
         trackId: "t",
         streaming: limits,
       }),
     ).rejects.toThrow();
-    expect(openOn(input)).toBe(0);
+    const onInput = openedFds.log.filter((entry) => entry.path === input);
+    expect(onInput.length).toBeGreaterThan(0);
+    expect(onInput.every((entry) => entry.closed)).toBe(true);
   });
 
   it("names the unsupported case when automation meets a file past 2 GiB", async () => {
@@ -987,6 +993,7 @@ describe("windowed rendering of a long input", () => {
   const memoryChain = (): HfAudioFxChain => ({
     version: 1,
     nodes: [
+      { type: "bitcrush", id: "b", enabled: true, params: { bits: 6, samples: 3, mix: 0.5 } },
       {
         type: "chorus",
         id: "c",
@@ -1056,7 +1063,7 @@ describe("windowed rendering of a long input", () => {
   };
 
   it.skipIf(!HAS_BROWSER)(
-    "carries modulation, delay, reverb and compressor state across window seams",
+    "carries bitcrush, modulation, delay, reverb and compressor state across window seams",
     async () => {
       const { whole, windowed } = await renderBoth(memoryLimits);
       // The tail of the last window is kept: dropping it would shorten the file.
@@ -1077,6 +1084,23 @@ describe("windowed rendering of a long input", () => {
       expect(worstDifference(whole, windowed)).toBeGreaterThan(0.05);
     },
     240_000,
+  );
+
+  it.skipIf(!HAS_BROWSER)(
+    "a lookahead limiter keeps the last of its input and the file's length",
+    async () => {
+      const input = join(dir, "tp.wav");
+      const frames = Math.round(0.5 * SR);
+      const steady = new Float32Array(frames).fill(0.3);
+      writeWav(input, steady, SR, 1, true);
+      const out = join(dir, "tp-out.wav");
+      await applyAudioFxChain(input, chainOf("truepeak"), out, { trackId: "tp" });
+      const samples = readWav(out).samples;
+      expect(samples.length).toBe(frames);
+      // The lookahead is 7 ms by default; the final 5 ms must still carry the signal.
+      expect(sliceRms(samples, 0.495, 0.5)).toBeGreaterThan(0.25);
+    },
+    120_000,
   );
 
   it.skipIf(!HAS_BROWSER)(

@@ -103,7 +103,9 @@ async function render(
   if (chainNeedsWorklets(chain)) await ensureAudioFxWorklets(ctx);
 
   const source = ctx.createBufferSource();
-  source.buffer = toBuffer(ctx, planes, channels, frames, sampleRate);
+  // Padded with silence by the limiter's lookahead: once a source ends its worklets stop being
+  // fed, so without it the last `latency` samples of the clip never leave the lookahead line.
+  source.buffer = toBuffer(ctx, planes, channels, frames + latency, sampleRate);
 
   const fx = buildFxChain(ctx, chain, elapsed);
 

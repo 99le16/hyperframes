@@ -192,6 +192,7 @@ class HfBitcrush extends AudioWorkletProcessor {
     this.p = o.processorOptions || {};
     this.holds = [];
     this.held = [];
+    this.start = Math.round((this.p.__hfElapsed ?? 0) * sampleRate);
     this.port.onmessage = (e) => {
       if (e.data && e.data.__hfDispose) { this.dead = true; return; }
       this.p = { ...this.p, ...e.data };
@@ -208,7 +209,8 @@ class HfBitcrush extends AudioWorkletProcessor {
     for (let ch = 0; ch < i.length; ch++) {
       const inp = i[ch], out = o[ch];
       if (this.held[ch] === undefined) this.held[ch] = 0;
-      if (this.holds[ch] === undefined) this.holds[ch] = 0;
+      // The hold counter runs from the file's first sample, so a node built part-way in starts where it would be.
+      if (this.holds[ch] === undefined) this.holds[ch] = this.start % step;
       for (let n = 0; n < inp.length; n++) {
         // Per channel: advancing one shared counter only on the last channel
         // left every earlier channel either unheld or frozen for a whole
