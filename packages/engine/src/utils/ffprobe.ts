@@ -4,7 +4,7 @@ import { createReadStream, readFileSync, statSync } from "fs";
 import { chunkCrc32 } from "./crc32.js";
 import { StringDecoder } from "node:string_decoder";
 import { basename } from "path";
-import { redactTelemetryString } from "@hyperframes/core";
+import { MEDIA_DURATION_CLAMP_EPSILON_SECONDS, redactTelemetryString } from "@hyperframes/core";
 import { FFPROBE_PATH_ENV, getFfprobeBinary } from "./ffmpegBinaries.js";
 import { ManagedChildProcess } from "./managedChildProcess.js";
 import { trackChildProcess } from "./processTracker.js";
@@ -58,12 +58,48 @@ async function withMeasuredFilledStreams(
   const { format } = output;
   const audioVideo = output.streams.filter(isAudioOrVideoStream);
   if (audioVideo.length < 2 || /\bmov\b/.test(format.format_name ?? "")) return output;
-  const containerEnd = parseFloat(format.start_time ?? "") + parseFloat(format.duration ?? "");
+  const suspects = output.streams.flatMap((stream, index) =>
+    audioVideo.includes(stream) && sawNoPacket(stream, format, audioVideo) ? [index] : [],
+  );
+  if (suspects.length === 0) return output;
+  const identity = mediaFileIdentity(filePath);
+  const cached = readMetadataCache(measuredStreamTimings, filePath, identity);
+  if (cached) return { ...output, streams: await cached };
+  const measured = measureSuspects(filePath, output, suspects, signal);
+  // An aborted measure must not reach other callers, so a signal-bound one is shared only once done.
+  if (!signal) writeMetadataCache(measuredStreamTimings, filePath, identity, measured);
+  const streams = await measured;
+  if (signal) writeMetadataCache(measuredStreamTimings, filePath, identity, measured);
+  if (measuredStreamTimings.size > MEASURED_STREAM_TIMINGS_MAX_ENTRIES) {
+    measuredStreamTimings.delete(measuredStreamTimings.keys().next().value!);
+  }
+  return { ...output, streams };
+}
+
+/** Measured timings outlive the probe-output LRU, so video and audio metadata never read two generations. */
+const measuredStreamTimings = new Map<string, MediaProbeCacheEntry<FFProbeStream[]>>();
+// One small entry per skewed file; the cap only bounds a pathological process.
+const MEASURED_STREAM_TIMINGS_MAX_ENTRIES = 4096;
+
+async function measureSuspects(
+  filePath: string,
+  output: FFProbeOutput,
+  suspects: number[],
+  signal?: AbortSignal,
+): Promise<FFProbeStream[]> {
+  const containerStart = parseFloat(output.format.start_time ?? "");
+  const containerEnd = containerStart + parseFloat(output.format.duration ?? "");
   const streams = [...output.streams];
-  for (const [index, stream] of output.streams.entries()) {
-    if (!audioVideo.includes(stream) || !sawNoPacket(stream, format, audioVideo)) continue;
+  for (const index of suspects) {
+    const stream = output.streams[index]!;
     try {
-      const span = await measureStreamSpan(filePath, index, containerEnd, signal);
+      const span = await measureLateStreamSpan(
+        filePath,
+        index,
+        containerStart,
+        containerEnd,
+        signal,
+      );
       if (span) {
         streams[index] = {
           ...stream,
@@ -80,7 +116,7 @@ async function withMeasuredFilledStreams(
       );
     }
   }
-  return { ...output, streams };
+  return streams;
 }
 
 /** The container's start and duration copied onto the stream, or no start where another stream has one. */
@@ -95,10 +131,14 @@ function sawNoPacket(
   return same(stream.start_time, format.start_time) && same(stream.duration, format.duration);
 }
 
-/** First packet start and last packet end: the last 30 s of the container first, else a full scan. */
-async function measureStreamSpan(
+/**
+ * A suspect stream's span when its first packet shows it really starts late; otherwise ffprobe's
+ * own values stand (an aligned AVI's declared duration includes trailing empty frame slots).
+ */
+async function measureLateStreamSpan(
   filePath: string,
   streamIndex: number,
+  containerStart: number,
   containerEnd: number,
   signal?: AbortSignal,
 ): Promise<{ start: number; end: number } | undefined> {
@@ -126,7 +166,9 @@ async function measureStreamSpan(
   };
   // A capture cut mid-GOP may start before its first keyframe; encoder output starts on one.
   const [first] = await packets(["-read_intervals", "%+#1"]);
-  if (!first) return undefined;
+  // A probe window ffprobe misses is seconds long; within the compiler's media tolerance, it saw the stream.
+  if (!first || first.start - containerStart <= MEDIA_DURATION_CLAMP_EPSILON_SECONDS)
+    return undefined;
   const tailFrom = Math.max(first.start, containerEnd - 30);
   const tail = Number.isFinite(tailFrom)
     ? await packets(["-read_intervals", `${tailFrom}%${FFPROBE_READ_INTERVAL_EXPLICIT_FAR_END}`])

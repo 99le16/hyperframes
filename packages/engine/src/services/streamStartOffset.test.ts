@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, linkSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -152,6 +152,37 @@ describe.skipIf(!HAS_FFMPEG)(
       webm(lead, "0", "video-late.webm");
       webm("0", lead, "audio-late.webm");
       webm("0", "0", "aligned.webm");
+      // Aligned files whose longest stream spans the container, so it matches the no-packet fingerprint.
+      const tone = ["-f", "lavfi", "-i", "sine=d=10"];
+      const frames = ["-f", "lavfi", "-i", "testsrc=size=64x36:rate=25:duration=10"];
+      ffmpeg([
+        ...frames,
+        ...tone,
+        "-c:v",
+        "libtheora",
+        "-c:a",
+        "libvorbis",
+        join(dir, "aligned.ogg"),
+      ]);
+      ffmpeg([
+        ...frames,
+        ...tone,
+        "-c:v",
+        "mpeg2video",
+        "-c:a",
+        "pcm_s16le",
+        "-ar",
+        "48000",
+        join(dir, "aligned.mxf"),
+      ]);
+      ffmpeg(["-i", picture, "-i", steps45, ...mux, join(dir, "aligned-long-audio.ts")]);
+      // An AVI whose last frame lasts 0.36 s: the muxer writes empty frame slots to the declared 10 s.
+      const lastFrameLasts9 = "setts=duration=if(eq(N\\,241)\\,DURATION*9\\,DURATION)";
+      ffmpeg([
+        ...["-f", "lavfi", "-i", "testsrc=size=64x36:rate=25:duration=9.68", ...tone],
+        ...["-c:v", "mjpeg", "-bsf:v", lastFrameLasts9, "-c:a", "pcm_s16le"],
+        join(dir, "aligned-null-slots.avi"),
+      ]);
       // A recorder writes WebM as a stream: no duration or cues, and no start for the late track.
       const piped = spawnSync(
         FFMPEG,
@@ -482,8 +513,9 @@ describe.skipIf(!HAS_FFMPEG)(
           (args) => args,
           ({ extractMediaMetadata: video }) => video(join(dir, "video-late-20.ts")),
         );
-        // Two late streams, each: the first packet, then the tail; a third read is the full scan.
-        expect(packetProbes).toHaveLength(4);
+        // The audio's first packet shows it starts on time; the late video's first packet, then its
+        // tail. A fourth read is the full scan.
+        expect(packetProbes).toHaveLength(3);
       } finally {
         if (previous === undefined) delete process.env.MALLOC_PERTURB_;
         else process.env.MALLOC_PERTURB_ = previous;
@@ -537,5 +569,55 @@ describe.skipIf(!HAS_FFMPEG)(
       expect(metadata.videoStreamLeadSeconds).toBeCloseTo(LEAD_SECONDS, 1);
       expect(resolvePlayableVideoDuration(metadata)).toBeCloseTo(LEAD_SECONDS + 40, 0);
     });
+
+    it.each(["aligned-null-slots.avi", "aligned.ogg", "aligned.mxf", "aligned-long-audio.ts"])(
+      "%s: keeps ffprobe's own timing for a stream that starts on time, with no end probe",
+      async (name) => {
+        const source = join(dir, name);
+        const read = ({ extractMediaMetadata: video, extractAudioMetadata: audio }: Ffprobe) =>
+          Promise.all([video(source), audio(source)]);
+        const measured = await withSpawnSpy((args) => args, read);
+        const unmeasured = await withSpawnSpy(
+          (args) => (isPacketProbe(args) ? ["-select_streams", "9", ...args.slice(2)] : args),
+          read,
+        );
+        expect(measured.result).toEqual(unmeasured.result);
+        expect(measured.packetProbes.filter(isTailRead)).toHaveLength(0);
+      },
+      30_000,
+    );
+
+    it("keeps an aligned AVI's declared 10 s, empty trailing frame slots included", async () => {
+      const metadata = await extractMediaMetadata(join(dir, "aligned-null-slots.avi"));
+      expect(metadata.videoStreamDurationSeconds).toBe(10);
+      expect(resolvePlayableVideoDuration(metadata)).toBe(10);
+    });
+
+    it("keeps a file's measured timing past 128 other probes, so a later audio read agrees", async () => {
+      const others = join(dir, "others");
+      mkdirSync(others, { recursive: true });
+      const names = Array.from({ length: 130 }, (_, i) => join(others, `aligned-${i}.mp4`));
+      for (const name of names) linkSync(join(dir, "aligned.mp4"), name);
+      let failed = false;
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const { result } = await withSpawnSpy(
+          (args) => {
+            if (!isPacketProbe(args) || failed) return args;
+            failed = true;
+            return ["-no-such-option", ...args];
+          },
+          async ({ extractMediaMetadata: video, extractAudioMetadata: audio }) => {
+            const source = join(dir, "video-late.webm");
+            const before = (await video(source)).videoStreamLeadSeconds;
+            for (const name of names) await video(name);
+            return [before, (await audio(source)).latestStreamLeadSeconds];
+          },
+        );
+        expect(result).toEqual([0, 0]);
+      } finally {
+        warn.mockRestore();
+      }
+    }, 60_000);
   },
 );
