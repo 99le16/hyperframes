@@ -117,7 +117,13 @@ try {
     );
 
   evidence.step = "paused at the start";
-  expectAroll("paused-start", await shoot("paused-start"));
+  const start = await shoot("paused-start");
+  // The fixture guards a preview-stamped backdrop; unstamped, it no longer tests that shape.
+  if (start.after.plateStamped !== "1")
+    failures.push(
+      `paused-start: #plate is not stamped (data-hf-autostamped=${start.after.plateStamped})`,
+    );
+  expectAroll("paused-start", start);
 
   evidence.step = "playing before the plate";
   await page.click('button[aria-label="Play"]');
