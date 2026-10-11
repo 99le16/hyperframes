@@ -111,7 +111,6 @@ export interface CompiledComposition {
   videos: VideoElement[];
   audios: AudioElement[];
   images: ImageElement[];
-  /** The top-level root's `data-fx-chain`: the composition's master bus, not any clip's. */
   masterFxChain?: string;
   unresolvedCompositions: UnresolvedElement[];
   /** Assets that resolve outside projectDir. Keys are the path used in HTML, values are absolute filesystem paths. */

@@ -40,7 +40,6 @@ export interface AudioStageInput {
   audioGain: number;
   /** Read-only view of `composition.audios`. */
   audios: CompositionMetadata["audios"];
-  /** `composition.masterFxChain`: the master bus runs over the whole mix, including tracks the render added itself. */
   masterFxChain?: string;
   abortSignal: AbortSignal | undefined;
   assertNotAborted: () => void;
