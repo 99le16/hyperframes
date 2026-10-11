@@ -1229,9 +1229,10 @@ export async function extractVideoFramesRange(
   if (framePaths.size > 0 && duration > 0 && !options.finalFrameOnly && !options.frameRanges) {
     const expectedAtFps = extractionFrameCountForDuration(duration, normalizedFps, metadata.isVFR);
     if (expectedAtFps > 0 && framePaths.size <= expectedAtFps * 0.6) {
-      const correctedDuration = startTime + framePaths.size / fps;
-      if (correctedDuration < metadata.videoStreamDurationSeconds) {
-        metadata.videoStreamDurationSeconds = correctedDuration;
+      const correctedStreamDuration =
+        startTime + framePaths.size / fps - (metadata.videoStreamLeadSeconds ?? 0);
+      if (correctedStreamDuration < metadata.videoStreamDurationSeconds) {
+        metadata.videoStreamDurationSeconds = correctedStreamDuration;
       }
     }
   }
@@ -1302,7 +1303,7 @@ function resolveSegmentDuration(
 export function resolvePlayableVideoDuration(metadata: VideoMetadata): number {
   return Number.isFinite(metadata.videoStreamDurationSeconds) &&
     metadata.videoStreamDurationSeconds > 0
-    ? metadata.videoStreamDurationSeconds
+    ? (metadata.videoStreamLeadSeconds ?? 0) + metadata.videoStreamDurationSeconds
     : metadata.durationSeconds;
 }
 
@@ -1503,14 +1504,17 @@ export async function resolveFinalFrameExtractionWindow(
 ): Promise<TimelineExtractionWindow> {
   if (!window.ensureFinalFrame) return window;
   const playableDuration = resolvePlayableVideoDuration(metadata);
-  const finalFrameTimestamp = await extractFinalVideoFrameTimestamp(
-    videoPath,
-    {
-      videoStreamDurationSeconds: playableDuration,
-      videoStreamStartSeconds: metadata.videoStreamStartSeconds,
-    },
-    signal,
-  );
+  const videoStreamLead = metadata.videoStreamLeadSeconds ?? 0;
+  const finalFrameTimestamp =
+    videoStreamLead +
+    (await extractFinalVideoFrameTimestamp(
+      videoPath,
+      {
+        videoStreamDurationSeconds: playableDuration - videoStreamLead,
+        videoStreamStartSeconds: metadata.videoStreamStartSeconds,
+      },
+      signal,
+    ));
   if (window.mediaStart < finalFrameTimestamp - 1e-9) return window;
 
   const sourceRemaining = playableDuration - video.mediaStart;
@@ -2615,6 +2619,16 @@ export async function extractAllVideoFrames(
 
 const BROWSER_SHOWS_UPCOMING_FIRST_FRAME_WITHIN_SECONDS = 1;
 
+export function isVideoHiddenBeforeStreamStart(
+  videoStreamLeadSeconds: number | undefined,
+  mediaTime: number,
+): boolean {
+  return (
+    (videoStreamLeadSeconds ?? 0) - mediaTime >=
+    BROWSER_SHOWS_UPCOMING_FIRST_FRAME_WITHIN_SECONDS - 1e-6
+  );
+}
+
 function getFrameIndexAtTime(
   extracted: ExtractedFrames,
   globalTime: number,
@@ -2648,9 +2662,12 @@ function getFrameIndexAtTime(
   // e.g. 0.28 * 25 === 6.999999999999999 instead of 7.
   const frameIndex = Math.floor(sourceTime * extracted.fps + 1e-9);
   if (frameIndex < 0 || extracted.totalFrames <= 0) return null;
-  const secondsUntilFirstVideoFrame =
-    (extracted.metadata.videoStreamLeadSeconds ?? 0) - mediaStart - sourceTime;
-  if (secondsUntilFirstVideoFrame >= BROWSER_SHOWS_UPCOMING_FIRST_FRAME_WITHIN_SECONDS - 1e-6) {
+  if (
+    isVideoHiddenBeforeStreamStart(
+      extracted.metadata.videoStreamLeadSeconds,
+      mediaStart + sourceTime,
+    )
+  ) {
     return null;
   }
   if (frameIndex >= extracted.totalFrames) {

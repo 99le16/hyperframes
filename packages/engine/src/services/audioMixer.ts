@@ -1,10 +1,4 @@
 // fallow-ignore-file complexity code-duplication
-/**
- * Audio Mixer Service
- *
- * Processes and mixes audio tracks using FFmpeg.
- */
-
 import { isSelfOrAncestorHidden, memberGroupKey, isMemberGroupHidden } from "./mediaHidden.js";
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, rmSync, writeFileSync } from "fs";
 import { join, dirname, isAbsolute, relative } from "path";
@@ -61,19 +55,8 @@ import type { AudioVolumeKeyframe } from "./audioMixer.types.js";
 
 export type { AudioElement, MixResult } from "./audioMixer.types.js";
 
-/**
- * Filename every caller must use for the mixed-audio artifact.
- *
- * The extension is load-bearing, not cosmetic: FFmpeg picks the muxer from it,
- * and the mix is AAC-encoded. A raw ADTS `.aac` stream has nowhere to record
- * the encoder's priming delay, so those leading samples decode as real silence
- * and shift the whole track ~1024 samples (21.33 ms at 48 kHz) late against a
- * frame-accurate video track. An MP4-family container carries the delay as an
- * edit list, which every decoder then strips, so the mix lands on its authored
- * start. Keep the choice here rather than at each call site: the same file is
- * muxed into the video, shipped in a distributed plan, and handed to users as
- * the PNG-sequence sidecar, and all three have to agree.
- */
+/** An MP4-family container records AAC priming as an edit list; a raw .aac plays ~21 ms late.
+ * The video mux, the distributed plan and the PNG-sequence sidecar all read this one name. */
 export const MIXED_AUDIO_FILENAME = "audio.m4a";
 
 function clampVolume(volume: number): number {
@@ -638,11 +621,8 @@ export function parseAudioElements(html: string): AudioElement[] {
   return elements;
 }
 
-/**
- * Decode `duration` seconds of a file's audio from `mediaStart` in Chrome's media time. Before
- * every stream has started, an input seek snaps the audio to the video's first keyframe and the
- * WAV drops a late audio stream's offset, so that span is read by timestamp instead.
- */
+/** Decode `duration` s of audio from `mediaStart` in Chrome's media time. Until every stream has
+ * started, an input seek snaps audio to the video's first keyframe, so read by timestamp instead. */
 async function extractAudioSegment(
   srcPath: string,
   outputPath: string,
@@ -661,9 +641,10 @@ async function extractAudioSegment(
   // A failed probe keeps FFmpeg's default channel conversion and the input seek.
   const metadata = await extractAudioMetadata(srcPath).catch(() => null);
   const inputSeek = mediaStart >= (metadata?.latestStreamLeadSeconds ?? 0);
+  const start = formatFilterNumber(mediaStart);
   const timestampTrim = inputSeek
     ? null
-    : `aresample=async=1:first_pts=0,atrim=start=${formatFilterNumber(mediaStart)}:end=${formatFilterNumber(mediaStart + sourceDuration)},asetpts=PTS-STARTPTS`;
+    : `atrim=start=${start}:end=${formatFilterNumber(mediaStart + sourceDuration)},asetpts=PTS-${start}/TB,aresample=async=1:first_pts=0`;
   const outputArgs = preparedAudioOutputArgs(
     metadata,
     normalizedPlaybackRate,
