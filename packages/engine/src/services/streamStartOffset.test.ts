@@ -448,6 +448,10 @@ describe.skipIf(!HAS_FFMPEG)(
     }
     const isPacketProbe = (args: string[]) => args.includes("packet=pts_time,duration_time");
     const isTailRead = (args: string[]) => isPacketProbe(args) && !args.includes("%+#1");
+    const selectMissingStream = (args: string[]) => {
+      const selected = args.indexOf("-select_streams") + 1;
+      return args.map((arg, i) => (i === selected ? "9" : arg));
+    };
 
     it("keeps one timing per file in a process when a packet read fails, so picture and sound agree", async () => {
       const source = join(dir, "video-late.webm");
@@ -524,11 +528,8 @@ describe.skipIf(!HAS_FFMPEG)(
 
     it("scans the whole stream when its tail read finds no packet", async () => {
       const { result, packetProbes } = await withSpawnSpy(
-        (args) => {
-          if (!isTailRead(args) || !args.includes("-read_intervals")) return args;
-          const selected = args.indexOf("-select_streams") + 1;
-          return args.map((arg, i) => (i === selected ? "9" : arg));
-        },
+        (args) =>
+          isTailRead(args) && args.includes("-read_intervals") ? selectMissingStream(args) : args,
         ({ extractMediaMetadata: video }) => video(join(dir, "video-late.webm")),
       );
       expect(
@@ -578,7 +579,7 @@ describe.skipIf(!HAS_FFMPEG)(
           Promise.all([video(source), audio(source)]);
         const measured = await withSpawnSpy((args) => args, read);
         const unmeasured = await withSpawnSpy(
-          (args) => (isPacketProbe(args) ? ["-select_streams", "9", ...args.slice(2)] : args),
+          (args) => (isPacketProbe(args) ? selectMissingStream(args) : args),
           read,
         );
         expect(measured.result).toEqual(unmeasured.result);
