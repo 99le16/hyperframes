@@ -411,6 +411,45 @@ describe("runProbeStage — forceScreenshot threading", () => {
     expect(mediaPreflightComposition).toBe(input.composition);
   });
 
+  // Scene in-point 5 and clip trim 1: the collector starts picture and sound at source 6.
+  it.each([
+    { pageStart: 1, expected: 6 },
+    { pageStart: 3, expected: 8 },
+  ])(
+    "keeps a trimmed clip's picture and sound together inside a trimmed scene (page start $pageStart)",
+    async ({ pageStart, expected }) => {
+      resetRetryMocks();
+      browserMediaResults = [
+        {
+          id: "a",
+          tagName: "video",
+          src: "a.mp4",
+          start: 0,
+          end: 18,
+          duration: 18,
+          mediaStart: pageStart,
+          loop: false,
+          hasAudio: true,
+          volume: 1,
+          muted: false,
+        },
+      ];
+      const { runProbeStage } = await import("./probeStage.js");
+      const input = makeProbeInput({});
+      const window = { src: "a.mp4", start: 0, end: 6, mediaStart: 6 };
+      input.composition.videos.push({ id: "a", ...window, loop: false, hasAudio: true });
+      input.composition.audios.push({ id: "a-audio", ...window, layer: 0, type: "video" });
+      input.compiled.html = `<div data-composition-id="scene" data-start="0" data-duration="6" data-playback-start="5">
+        <video id="a" src="a.mp4" data-start="0" data-duration="18" data-playback-start="1" data-has-audio="true"></video>
+      </div>`;
+
+      await runProbeStage(input);
+
+      expect(input.composition.videos[0]?.mediaStart).toBe(expected);
+      expect(input.composition.audios[0]?.mediaStart).toBe(expected);
+    },
+  );
+
   it("reconciles a nested source's selected runtime URL before media-type preflight", async () => {
     resetRetryMocks();
     browserMediaResults = [
