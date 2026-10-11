@@ -2,6 +2,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { initSandboxRuntimeModular, installFlatGsapTransforms } from "./init";
+import {
+  hideTimedClipsUntilFirstPass,
+  revealTimedClipsAfterFirstPass,
+  SKIPPED_CLIP,
+} from "./timedClipHide";
+import { applyAuthoredTiming, STUDIO_PREVIEW_MARK_META } from "../studioPreviewMark";
 import { collectRuntimeTimelinePayload } from "./timeline";
 import { TYPEGPU_PRESENT_HEARTBEAT_MS } from "./adapters/typegpu";
 import { WebAudioTransport } from "./webAudioTransport";
@@ -447,6 +453,48 @@ describe("initSandboxRuntimeModular", () => {
 
       window.__player?.renderSeek(5);
       expect([scene.style.visibility, card.style.visibility]).toEqual(["hidden", "hidden"]);
+    });
+
+    it("hides a stamped element Studio re-times outside its new window", () => {
+      document.body.innerHTML =
+        `<div data-composition-id="main" data-root="true" data-start="0" data-duration="10" data-width="1080" data-height="1920">` +
+        `<div id="title" style="position: absolute"></div>` +
+        `</div>`;
+      window.__timelines = { main: createMockTimeline(10) };
+      withStudioIframe(() => initSandboxRuntimeModular());
+      const title = document.getElementById("title")!;
+      expect(title.getAttribute("data-hf-autostamped")).toBe("1");
+
+      applyAuthoredTiming(title, [
+        ["data-start", "4"],
+        ["data-duration", "2"],
+      ]);
+      (window as Window & { __hfForceTimelineRebind?: () => void }).__hfForceTimelineRebind?.();
+
+      const at = (time: number) => {
+        window.__player?.renderSeek(time);
+        return title.style.visibility;
+      };
+      expect([at(1), at(5), at(8)]).toEqual(["hidden", "visible", "hidden"]);
+    });
+
+    it("does not hold a paused seek on images in a stamped container its script hides", () => {
+      const mark = Object.assign(document.createElement("meta"), {
+        name: STUDIO_PREVIEW_MARK_META,
+      });
+      document.head.append(mark);
+      try {
+        hideTimedClipsUntilFirstPass();
+        const { plate } = mountFilm();
+        plate.append(Object.assign(document.createElement("img"), { src: "backdrop.png" }));
+
+        expect(plate.matches(SKIPPED_CLIP)).toBe(false);
+        expect(window.__player?.seek(1)).toBeUndefined();
+      } finally {
+        mark.remove();
+        revealTimedClipsAfterFirstPass();
+        document.head.querySelector("style[data-hf-skip-hidden-images]")?.remove();
+      }
     });
   });
 
