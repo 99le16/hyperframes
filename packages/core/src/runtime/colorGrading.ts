@@ -210,6 +210,7 @@ interface ColorGradingEntry extends ColorGradingRenderer {
   touchedParent: HTMLElement | null;
   parentInlinePosition: string | null;
   sourceHidden: boolean;
+  borderlessFrame: HTMLElement | null;
   sourceInlineOpacity: string | null;
   sourceInlineOpacityPriority: string;
   sourceOpacityForCanvas: string;
@@ -1947,7 +1948,21 @@ function replaceProgramResources(entry: ColorGradingEntry): boolean {
   return true;
 }
 
+function hideFrameBorder(entry: ColorGradingEntry, frame: HTMLElement): void {
+  if (entry.borderlessFrame !== frame) restoreFrameBorder(entry);
+  entry.borderlessFrame = frame;
+  frame.style.borderStyle = "none";
+}
+
+function restoreFrameBorder(entry: ColorGradingEntry): void {
+  const frame = entry.borderlessFrame;
+  if (!frame) return;
+  entry.borderlessFrame = null;
+  frame.style.borderStyle = window.getComputedStyle(entry.element).borderStyle;
+}
+
 function restoreSourceElement(entry: ColorGradingEntry): void {
+  restoreFrameBorder(entry);
   if (!entry.sourceHidden) return;
   entry.element.removeAttribute(COLOR_GRADING_SOURCE_HIDDEN_ATTR);
   const opacity = entry.element.style.getPropertyValue("opacity");
@@ -2646,6 +2661,7 @@ function updateCanvasLayout(
 
   const computed = window.getComputedStyle(styleSource);
   copyMediaVisualStyles(canvas.style, computed);
+  canvas.style.borderStyle = "none";
   canvas.style.pointerEvents = "none";
   canvas.style.position = "absolute";
   canvas.style.inset = "auto";
@@ -3182,6 +3198,7 @@ function drawEntry(entry: ColorGradingEntry): boolean {
     );
     drawFullscreenQuad(gl, program);
     hideSourceElement(entry);
+    if (injectedFrameSource) hideFrameBorder(entry, source);
     entry.hasDrawn = true;
     entry.drawError = null;
     return true;
@@ -3584,6 +3601,7 @@ export function createColorGradingRuntime(pausedMediaLease?: {
       touchedParent: null,
       parentInlinePosition: null,
       sourceHidden: false,
+      borderlessFrame: null,
       sourceInlineOpacity: null,
       sourceInlineOpacityPriority: "",
       sourceOpacityForCanvas: window.getComputedStyle(element).opacity || "1",

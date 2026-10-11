@@ -5214,6 +5214,37 @@ describe("initSandboxRuntimeModular", () => {
         player?.renderSeek(2);
       }).not.toThrow();
     });
+
+    const throwingDurationGetter = Object.defineProperty({ seek() {} }, "duration", {
+      get() {
+        throw new Error("getter");
+      },
+    });
+    it.each([
+      ["a number", { duration: 4, seek() {} }],
+      [
+        "a method that throws",
+        {
+          duration() {
+            throw new Error("boom");
+          },
+          seek() {},
+        },
+      ],
+      ["a getter that throws", throwingDurationGetter],
+    ])("starts and seeks when a sub-composition's registered duration is %s", (_, extra) => {
+      document.body.innerHTML = `
+        <div data-composition-id="main" data-root="true" data-start="0" data-duration="10" data-width="1920" data-height="1080">
+          <div data-composition-id="extra" data-start="0"></div>
+        </div>`;
+      window.__timelines = {
+        main: createMockTimeline(10),
+        extra: extra as unknown as RuntimeTimelineLike,
+      };
+
+      expect(() => initSandboxRuntimeModular()).not.toThrow();
+      expect(() => window.__player?.renderSeek(1)).not.toThrow();
+    });
   });
 
   // jsdom has no AudioContext; without one `WebAudioTransport.init()` fails, Web Audio scheduling
@@ -5314,6 +5345,92 @@ describe("initSandboxRuntimeModular", () => {
 
       expect(captureSpy).not.toHaveBeenCalled();
       expect(decodeSpy).toHaveBeenCalledWith(audio);
+    });
+
+    it("holds a decoded clip a split half cut until that half starts, timed from the clip's own start", async () => {
+      const audio = mountAudio("https://cdn.example.com/track.mp3", {
+        "data-start": "2",
+        "data-duration": "4",
+      });
+      // A half at 2 s with in-point 3 puts the clip's own t=0 at 1 s; the half cuts it to 2-5 s.
+      const half = document.createElement("div");
+      for (const [name, value] of Object.entries({
+        "data-composition-id": "half",
+        "data-composition-file": "half.html",
+        "data-start": "2",
+        "data-duration": "4",
+        "data-playback-start": "3",
+      }))
+        half.setAttribute(name, value);
+      audio.replaceWith(half);
+      half.appendChild(audio);
+      vi.spyOn(console, "info").mockImplementation(() => {});
+      const buffer = {} as AudioBuffer;
+      vi.spyOn(WebAudioTransport.prototype, "decodeAudioElement").mockResolvedValue(buffer);
+      const schedule = vi
+        .spyOn(WebAudioTransport.prototype, "schedulePlayback")
+        .mockResolvedValue(null);
+
+      await startPlayback();
+
+      await vi.waitFor(() => expect(schedule).toHaveBeenCalled());
+      const [el, decoded, clipStart, mediaStart, , , , , clipDuration, windowStart] =
+        schedule.mock.calls[0]!;
+      expect([el, decoded, clipStart, mediaStart, clipDuration, windowStart]).toEqual([
+        audio,
+        buffer,
+        1,
+        0,
+        4,
+        2,
+      ]);
+    });
+
+    it("stops a decoded clip at the end of a scene whose length comes from its animation", async () => {
+      const audio = mountAudio("https://cdn.example.com/track.mp3", { "data-start": "1" });
+      audio.removeAttribute("data-duration");
+      const scene = document.createElement("div");
+      scene.setAttribute("data-composition-id", "scene");
+      scene.setAttribute("data-composition-file", "scene.html");
+      scene.setAttribute("data-start", "0");
+      audio.replaceWith(scene);
+      scene.appendChild(audio);
+      window.__timelines = { main: createMockTimeline(10), scene: createMockTimeline(3) };
+      vi.spyOn(console, "info").mockImplementation(() => {});
+      vi.spyOn(WebAudioTransport.prototype, "decodeAudioElement").mockResolvedValue(
+        {} as AudioBuffer,
+      );
+      const schedule = vi
+        .spyOn(WebAudioTransport.prototype, "schedulePlayback")
+        .mockResolvedValue(null);
+
+      await startPlayback();
+
+      await vi.waitFor(() => expect(schedule).toHaveBeenCalled());
+      expect(schedule.mock.calls[0]![8]).toBe(2);
+    });
+
+    it("never routes a clip that an in-point host cuts away entirely", async () => {
+      const audio = mountAudio("/assets/early.mp3", { "data-start": "0", "data-duration": "3" });
+      // A half at 5 s with in-point 5: the clip's own 0-3 s plays at 0-3 s, before the half starts.
+      const half = document.createElement("div");
+      for (const [name, value] of Object.entries({
+        "data-composition-id": "half",
+        "data-composition-file": "half.html",
+        "data-start": "5",
+        "data-duration": "5",
+        "data-playback-start": "5",
+      }))
+        half.setAttribute(name, value);
+      audio.replaceWith(half);
+      half.appendChild(audio);
+      const capture = vi
+        .spyOn(WebAudioTransport.prototype, "scheduleMediaElementPlayback")
+        .mockResolvedValue(null);
+
+      await startPlayback();
+
+      expect(capture).not.toHaveBeenCalled();
     });
 
     it("leaves the element audible on native output when decode also fails", async () => {

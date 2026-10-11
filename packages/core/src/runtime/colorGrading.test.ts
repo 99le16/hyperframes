@@ -237,6 +237,18 @@ describe("createColorGradingRuntime", () => {
     },
   );
 
+  it("draws a bordered source's grading canvas without a border over its whole box", () => {
+    vi.stubGlobal("devicePixelRatio", 1);
+    const video = makeDrawableVideo();
+    video.style.border = "16px solid rgb(255, 0, 0)";
+
+    const { canvas } = startRuntimeWithVideo(video);
+
+    expect(canvas.style.borderStyle).toBe("none");
+    expect(canvas.width).toBe(640);
+    expect(canvas.height).toBe(360);
+  });
+
   it("says an element is graded only while it draws through a grading canvas", () => {
     const { video } = startRuntimeWithVideo();
     const plain = document.createElement("video");
@@ -873,6 +885,40 @@ describe("createColorGradingRuntime", () => {
     expect(canvas.style.display).toBe("block");
     expect(canvas.style.visibility).toBe("visible");
     expect(canvas.style.opacity).toBe("0.75");
+  });
+
+  it("drops the injected render frame's border while grading draws over it", () => {
+    const video = makeDrawableVideo();
+    Object.defineProperty(video, "readyState", {
+      value: HTMLMediaElement.HAVE_METADATA,
+      configurable: true,
+    });
+    Object.defineProperty(video, "videoWidth", { value: 0, configurable: true });
+    Object.defineProperty(video, "videoHeight", { value: 0, configurable: true });
+    document.body.appendChild(video);
+    runtime = createColorGradingRuntime();
+    const canvas = document.querySelector<HTMLCanvasElement>("[data-hf-color-grading-canvas]");
+    if (!canvas) throw new Error("Expected color grading canvas");
+
+    const frame = document.createElement("img");
+    frame.id = "__render_frame_hero-video__";
+    frame.className = "__render_frame__";
+    frame.style.border = "16px solid rgb(255, 0, 0)";
+    Object.defineProperty(frame, "complete", { value: true, configurable: true });
+    Object.defineProperty(frame, "naturalWidth", { value: 640, configurable: true });
+    Object.defineProperty(frame, "naturalHeight", { value: 360, configurable: true });
+    video.parentNode?.insertBefore(frame, canvas);
+    video.style.setProperty("visibility", "hidden", "important");
+
+    runtime.redraw();
+
+    expect(canvas.style.display).toBe("block");
+    expect(frame.style.borderStyle).toBe("none");
+
+    video.style.border = "16px dashed rgb(255, 0, 0)";
+    video.removeAttribute(HF_COLOR_GRADING_ATTR);
+    runtime.refresh();
+    expect(frame.style.borderStyle).toBe("dashed");
   });
 
   it("keeps a staged scene copy's canvas on its own render frame (#3994)", async () => {
