@@ -2613,6 +2613,8 @@ export async function extractAllVideoFrames(
   };
 }
 
+const BROWSER_SHOWS_UPCOMING_FIRST_FRAME_WITHIN_SECONDS = 1;
+
 function getFrameIndexAtTime(
   extracted: ExtractedFrames,
   globalTime: number,
@@ -2646,6 +2648,11 @@ function getFrameIndexAtTime(
   // e.g. 0.28 * 25 === 6.999999999999999 instead of 7.
   const frameIndex = Math.floor(sourceTime * extracted.fps + 1e-9);
   if (frameIndex < 0 || extracted.totalFrames <= 0) return null;
+  const secondsUntilFirstVideoFrame =
+    (extracted.metadata.videoStreamLeadSeconds ?? 0) - mediaStart - sourceTime;
+  if (secondsUntilFirstVideoFrame >= BROWSER_SHOWS_UPCOMING_FIRST_FRAME_WITHIN_SECONDS - 1e-6) {
+    return null;
+  }
   if (frameIndex >= extracted.totalFrames) {
     return loop || holdLastFrame ? extracted.totalFrames - 1 : null;
   }

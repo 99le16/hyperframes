@@ -181,7 +181,7 @@ export function writeWav(
  *
  * The graph used to fold everything to mono, which collapsed a stereo bed's
  * width for the render only — and cost ~3 dB through the very mono-to-stereo
- * rematrix that `prepareAudioTrack`'s pan filter exists to avoid. Preview kept
+ * rematrix that `extractAudioSegment`'s pan filter exists to avoid. Preview kept
  * the track stereo, so the two diverged the moment any effect was enabled.
  */
 function deinterleave(samples: Float32Array, channels: number): Float32Array[] {
