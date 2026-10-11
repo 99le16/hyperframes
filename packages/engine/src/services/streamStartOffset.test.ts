@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -121,6 +121,28 @@ describe.skipIf(!HAS_FFMPEG)(
       remux("video-late-20.mp4", "video-late-20.nut");
       // FLV gives a late video a start but no duration.
       remux("video-late.mp4", "video-late.flv");
+      const fast = join(dir, "picture-120fps.mp4");
+      ffmpeg([
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc=size=64x36:rate=120:duration=40",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        fast,
+      ]);
+      ffmpeg([
+        "-itsoffset",
+        lead,
+        "-i",
+        fast,
+        "-i",
+        steps45,
+        ...mux,
+        join(dir, "video-late-120fps.mkv"),
+      ]);
       const webm = (videoOffset: string, audioOffset: string, to: string) =>
         ffmpeg([
           ...["-itsoffset", videoOffset, "-i", picture, "-itsoffset", audioOffset, "-i", steps],
@@ -334,32 +356,104 @@ describe.skipIf(!HAS_FFMPEG)(
       expect((await extractAudioMetadata(source)).latestStreamLeadSeconds).toBe(0);
     });
 
+    /** Runs `fn` with ffprobe replaced by a shell script that runs `onPacketProbe` before a packet read. */
+    async function withFakeFfprobe<T>(name: string, onPacketProbe: string, fn: () => Promise<T>) {
+      const fake = join(dir, name);
+      const log = `${fake}.log`;
+      writeFileSync(
+        fake,
+        `#!/bin/sh\necho "$*" >> "${log}"\ncase "$*" in *packet=pts_time*) ${onPacketProbe} ;; esac\nexec "${getFfprobeBinary()}" "$@"\n`,
+        { mode: 0o755 },
+      );
+      const previous = process.env[FFPROBE_PATH_ENV];
+      process.env[FFPROBE_PATH_ENV] = fake;
+      try {
+        return await fn();
+      } finally {
+        if (previous === undefined) delete process.env[FFPROBE_PATH_ENV];
+        else process.env[FFPROBE_PATH_ENV] = previous;
+      }
+    }
+    const packetProbes = (name: string) =>
+      readFileSync(join(dir, `${name}.log`), "utf8")
+        .split("\n")
+        .filter((line) => line.includes("packet=pts_time")).length;
+    const freshCopy = (from: string, to: string) => {
+      copyFileSync(join(dir, from), join(dir, to));
+      return join(dir, to);
+    };
+
     it.skipIf(process.platform === "win32")(
       "does not cache the timing of a probe whose packet read failed",
       async () => {
         const marker = join(dir, "failed-once");
-        const fake = join(dir, "ffprobe-fails-once");
-        const real = getFfprobeBinary();
-        writeFileSync(
-          fake,
-          `#!/bin/sh\ncase "$*" in *"%+#1"*) [ -e "${marker}" ] || { : > "${marker}"; exit 1; } ;; esac\nexec "${real}" "$@"\n`,
-          { mode: 0o755 },
+        const source = freshCopy("video-late.webm", "video-late-uncached.webm");
+        await withFakeFfprobe(
+          "ffprobe-fails-once",
+          `[ -e "${marker}" ] || { : > "${marker}"; exit 1; }`,
+          async () => {
+            expect((await extractMediaMetadata(source)).videoStreamLeadSeconds).toBe(0);
+            expect((await extractMediaMetadata(source)).videoStreamLeadSeconds).toBeCloseTo(
+              LEAD_SECONDS,
+              1,
+            );
+          },
         );
-        const source = join(dir, "video-late-uncached.webm");
-        copyFileSync(join(dir, "video-late.webm"), source);
-        const previous = process.env[FFPROBE_PATH_ENV];
-        process.env[FFPROBE_PATH_ENV] = fake;
-        try {
-          expect((await extractMediaMetadata(source)).videoStreamLeadSeconds).toBe(0);
-          expect((await extractMediaMetadata(source)).videoStreamLeadSeconds).toBeCloseTo(
-            LEAD_SECONDS,
-            1,
-          );
-        } finally {
-          if (previous === undefined) delete process.env[FFPROBE_PATH_ENV];
-          else process.env[FFPROBE_PATH_ENV] = previous;
-        }
       },
     );
+
+    it.skipIf(process.platform === "win32")(
+      "does not re-measure an aligned stream that only shares the container's start",
+      async () => {
+        const source = freshCopy("aligned.webm", "aligned-unmeasured.webm");
+        await withFakeFfprobe("ffprobe-logs", ":", async () => {
+          await extractMediaMetadata(source);
+          await extractAudioMetadata(source);
+        });
+        expect(packetProbes("ffprobe-logs")).toBe(0);
+      },
+    );
+
+    it.skipIf(process.platform === "win32")(
+      "rejects an aborted probe without re-measuring further streams",
+      async () => {
+        const source = freshCopy("video-late-20.ts", "video-late-20-aborted.ts");
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(new Error("stop")), 200);
+        await withFakeFfprobe("ffprobe-slow", "sleep 1", async () => {
+          await expect(extractAudioMetadata(source, { signal: controller.signal })).rejects.toThrow(
+            "stop",
+          );
+        });
+        expect(packetProbes("ffprobe-slow")).toBe(1);
+      },
+    );
+
+    it.skipIf(process.platform === "win32")(
+      "ignores the partial first line of a packet list cut at 64 KiB",
+      async () => {
+        const max = 64 * 1024;
+        const decoy = "199999.000000,0.010000\n";
+        const fill = max + 2 - decoy.length;
+        const line = "7.000000,0.010000\n";
+        const count = Math.floor(fill / line.length);
+        const last = `7.${"0".repeat(6 + fill - count * line.length)},0.010000\n`;
+        const listing = join(dir, "cut-listing.csv");
+        writeFileSync(listing, decoy + line.repeat(count - 1) + last);
+        const source = freshCopy("video-late.webm", "video-late-cut-listing.webm");
+        const metadata = await withFakeFfprobe(
+          "ffprobe-cut-listing",
+          `case "$*" in *"%+#1"*) echo "${line.trim()}" ;; *) cat "${listing}" ;; esac; exit 0`,
+          () => extractMediaMetadata(source),
+        );
+        expect(metadata.videoStreamDurationSeconds).toBeLessThan(1);
+      },
+    );
+
+    it("ends a late 120 fps stream where its packets end, past a 64 KiB packet list", async () => {
+      const metadata = await extractMediaMetadata(join(dir, "video-late-120fps.mkv"));
+      expect(metadata.videoStreamLeadSeconds).toBeCloseTo(LEAD_SECONDS, 1);
+      expect(resolvePlayableVideoDuration(metadata)).toBeCloseTo(LEAD_SECONDS + 40, 0);
+    });
   },
 );

@@ -103,26 +103,29 @@ async function measureStreamSpan(
   containerEnd: number,
   signal?: AbortSignal,
 ): Promise<{ start: number; end: number } | undefined> {
-  const packets = async (readIntervals: string[]) =>
-    (
-      await runFfprobe(
-        filePath,
-        [
-          ...["-select_streams", String(streamIndex), "-show_entries"],
-          ...["packet=pts_time,duration_time", ...readIntervals, "-of", "csv=p=0"],
-        ],
-        signal,
-        { retainTail: true, maxChars: 64 * 1024 },
-      )
-    )
-      .split("\n")
-      .map((line) => line.split(",").map(parseFloat))
+  const maxChars = 64 * 1024;
+  const packets = async (readIntervals: string[]) => {
+    const stdout = await runFfprobe(
+      filePath,
+      [
+        ...["-select_streams", String(streamIndex), "-show_entries"],
+        ...["packet=pts_time,duration_time", ...readIntervals, "-of", "csv=p=0"],
+      ],
+      signal,
+      { retainTail: true, maxChars },
+    );
+    const lines = stdout.split("\n");
+    // A cut tail starts mid-line: "7.008333,0.0083" can survive as "8333,0.0083".
+    if (stdout.length >= maxChars) lines.shift();
+    return lines
+      .map((line) => line.split(",").map(parseFloat) as [number, number])
       .filter(([pts]) => Number.isFinite(pts))
       .map(([pts, duration]) => ({
-        start: pts!,
-        end: pts! + (Number.isFinite(duration) ? duration! : 0),
+        start: pts,
+        end: pts + (Number.isFinite(duration) ? duration : 0),
       }));
-  // In encoder output a stream's first packet is its first keyframe, the earliest frame shown.
+  };
+  // A capture cut mid-GOP may start before its first keyframe; encoder output starts on one.
   const [first] = await packets(["-read_intervals", "%+#1"]);
   if (!first) return undefined;
   const tailFrom = Math.max(first.start, containerEnd - 30);
@@ -444,7 +447,7 @@ function writeMetadataCache<T>(
   cache.set(key, entry);
   void promise.then(
     (value) => {
-      // Without a file identity, share only the in-flight probe, never its result.
+      // Without a file identity, or after a failed re-measure, share only the in-flight probe.
       const shareOnly = identity === null || uncacheable.has(value as object);
       if (shareOnly && cache.get(key) === entry) cache.delete(key);
     },
