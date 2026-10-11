@@ -44,6 +44,7 @@ interface PopoverProps extends Omit<ComponentPropsWithoutRef<typeof BasePopover.
   container?: PortalContainer;
   /** Names the popup for assistive tech. */
   "aria-label"?: string;
+  "aria-describedby"?: string;
   /**
    * What to focus on open. Defaults to Base UI's behaviour (the first tabbable
    * element), which is what a rename field wants.
@@ -65,13 +66,14 @@ export function Popover({
   className,
   initialFocus,
   "aria-label": ariaLabel,
+  "aria-describedby": describedBy,
   "data-preview-state": previewState,
   ...root
 }: PopoverProps) {
   const inline = useInlinePortal(container);
   return (
     <BasePopover.Root {...root}>
-      <BasePopover.Trigger render={trigger} />
+      <BasePopover.Trigger render={trigger} aria-describedby={describedBy} />
       {inline.host}
       <BasePopover.Portal {...inline.portal}>
         <BasePopover.Positioner

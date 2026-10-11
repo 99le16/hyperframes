@@ -235,6 +235,26 @@ describe("ShortcutsPanel", () => {
     errors.mockRestore();
   });
 
+  it("ties the shortcuts button to its tooltip for screen readers", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    act(() => {
+      mount(host).render(<ShortcutsButton sections={[{ title: "Host", hints: [] }]} />);
+    });
+    const button = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Shortcuts and tools"]',
+    )!;
+
+    act(() => button.focus());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const tip = document.querySelector<HTMLElement>('[role="tooltip"]');
+    expect(tip?.textContent).toBe("Shortcuts and tools");
+    expect(button.getAttribute("aria-describedby")).toBe(tip?.id);
+  });
+
   it("renders standalone for a host toolbar, reading the player store", () => {
     const { duration, inPoint, requestSeek: storeSeek } = usePlayerStore.getState();
     const requestSeek = vi.fn();
