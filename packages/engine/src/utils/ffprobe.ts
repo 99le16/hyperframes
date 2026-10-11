@@ -47,55 +47,88 @@ function sanitizeFfprobeDiagnostic(stderr: string, filePath: string): string {
   return `…${redacted.slice(-(FFPROBE_ERROR_MAX_CHARS - 1))}`;
 }
 
-/**
- * Matroska reports start_time 0 for every stream, so a video that starts 7 s after its audio looks
- * aligned. Its first packets say when each stream starts; the stream's end stays where it was.
- */
-async function withMeasuredMatroskaStarts(
+/** ffprobe gives a stream it saw no packet of in its probe window the container's start and duration,
+ * so a video 20 s late in TS, NUT or WebM looks aligned; its packets say where it starts and ends.
+ * Indexed MP4/MOV never fill, and their packet times include AAC priming, so they are left alone. */
+async function withMeasuredFilledStreams(
   filePath: string,
   output: FFProbeOutput,
   signal?: AbortSignal,
 ): Promise<FFProbeOutput> {
-  if (!/matroska|webm/.test(output.format.format_name ?? "")) return output;
-  const streams = await Promise.all(
-    output.streams.map(async (stream, index) => {
-      if (stream.codec_type !== "audio" && stream.codec_type !== "video") return stream;
-      const first = await firstPacketSeconds(filePath, index, signal);
-      if (first === undefined) return stream;
-      const end = parseFloat(stream.start_time ?? "0") + parseFloat(stream.duration ?? "");
-      return {
-        ...stream,
-        start_time: String(first),
-        ...(Number.isFinite(end) ? { duration: String(Math.max(0, end - first)) } : {}),
-      };
-    }),
-  );
-  return { ...output, streams };
+  const { format } = output;
+  const audioVideo = output.streams.filter(isAudioOrVideoStream);
+  if (audioVideo.length < 2 || /\bmov\b/.test(format.format_name ?? "")) return output;
+  const containerEnd = parseFloat(format.start_time ?? "") + parseFloat(format.duration ?? "");
+  const streams = [...output.streams];
+  let unrefined = false;
+  for (const [index, stream] of output.streams.entries()) {
+    if (!audioVideo.includes(stream) || !copiesContainerTiming(stream, format)) continue;
+    try {
+      const span = await measureStreamSpan(filePath, index, containerEnd, signal);
+      if (span) {
+        streams[index] = {
+          ...stream,
+          start_time: String(span.start),
+          duration: String(span.end - span.start),
+        };
+      }
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason ?? error;
+      unrefined = true;
+    }
+  }
+  const refined = { ...output, streams };
+  if (unrefined) uncacheable.add(refined);
+  return refined;
 }
 
-/** Earliest pts of a stream's first packets (a B-frame stream's first packet is not always the earliest). */
-async function firstPacketSeconds(
+function copiesContainerTiming(stream: FFProbeStream, format: FFProbeFormat): boolean {
+  const same = (a?: string, b?: string) =>
+    a !== undefined && b !== undefined && Math.abs(parseFloat(a) - parseFloat(b)) < 1e-3;
+  return same(stream.start_time, format.start_time) && same(stream.duration, format.duration);
+}
+
+/** A probe result whose refinement failed: share it while in flight, never cache it. */
+const uncacheable = new WeakSet<object>();
+
+function carryUncacheable<T extends object>(from: FFProbeOutput | null, value: T): T {
+  if (from && uncacheable.has(from)) uncacheable.add(value);
+  return value;
+}
+
+/** First packet start and last packet end: the last 30 s of the container first, else a full scan. */
+async function measureStreamSpan(
   filePath: string,
   streamIndex: number,
+  containerEnd: number,
   signal?: AbortSignal,
-): Promise<number | undefined> {
-  // A failed refinement keeps the container's own start time, as before this probe existed.
-  const stdout = await runFfprobe(
-    filePath,
-    [
-      "-select_streams",
-      String(streamIndex),
-      "-show_entries",
-      "packet=pts_time",
-      "-read_intervals",
-      "%+#8",
-      "-of",
-      "csv=p=0",
-    ],
-    signal,
-  ).catch(() => "");
-  const times = stdout.split("\n").map(parseFloat).filter(Number.isFinite);
-  return times.length > 0 ? Math.min(...times) : undefined;
+): Promise<{ start: number; end: number } | undefined> {
+  const packets = async (readIntervals: string[]) =>
+    (
+      await runFfprobe(
+        filePath,
+        [
+          ...["-select_streams", String(streamIndex), "-show_entries"],
+          ...["packet=pts_time,duration_time", ...readIntervals, "-of", "csv=p=0"],
+        ],
+        signal,
+        { retainTail: true, maxChars: 64 * 1024 },
+      )
+    )
+      .split("\n")
+      .map((line) => line.split(",").map(parseFloat))
+      .filter(([pts]) => Number.isFinite(pts))
+      .map(([pts, duration]) => ({
+        start: pts!,
+        end: pts! + (Number.isFinite(duration) ? duration! : 0),
+      }));
+  // In encoder output a stream's first packet is its first keyframe, the earliest frame shown.
+  const [first] = await packets(["-read_intervals", "%+#1"]);
+  if (!first) return undefined;
+  const tailFrom = Math.max(first.start, containerEnd - 30);
+  const tail = Number.isFinite(tailFrom) ? await packets(["-read_intervals", `${tailFrom}%`]) : [];
+  const last = tail.length > 0 ? tail : await packets([]);
+  return { start: first.start, end: Math.max(first.end, ...last.map((packet) => packet.end)) };
 }
 
 /** Spawn ffprobe with given args, return stdout. Throws on non-zero exit or missing binary. */
@@ -410,9 +443,10 @@ function writeMetadataCache<T>(
   const entry = { identity, promise };
   cache.set(key, entry);
   void promise.then(
-    () => {
+    (value) => {
       // Without a file identity, share only the in-flight probe, never its result.
-      if (identity === null && cache.get(key) === entry) cache.delete(key);
+      const shareOnly = identity === null || uncacheable.has(value as object);
+      if (shareOnly && cache.get(key) === entry) cache.delete(key);
     },
     () => {
       if (cache.get(key) === entry) cache.delete(key);
@@ -445,19 +479,14 @@ async function probeMediaOutput(filePath: string, signal?: AbortSignal): Promise
     signal,
   )
     .then(parseProbeJson)
-    .then((output) => withMeasuredMatroskaStarts(filePath, output, signal));
+    .then((output) => withMeasuredFilledStreams(filePath, output, signal));
   if (identity !== null) {
-    cache.set(filePath, { identity, promise });
+    writeMetadataCache(cache, filePath, identity, promise);
     if (!signal && cache.size > MEDIA_PROBE_OUTPUT_CACHE_MAX_ENTRIES) {
       const oldestPath = cache.keys().next().value;
       if (oldestPath !== undefined) cache.delete(oldestPath);
     }
   }
-  promise.catch(() => {
-    if (cache.get(filePath)?.promise === promise) {
-      cache.delete(filePath);
-    }
-  });
   return promise;
 }
 
@@ -859,7 +888,6 @@ export async function extractMediaMetadata(filePath: string): Promise<VideoMetad
     // (format.duration) includes the longest stream — often a longer audio
     // track in stock/looping clips. Cross-check with nb_frames to bound the
     // video-specific extent and avoid inflating the expected frame count.
-    // The container's span starts at media time 0, so it includes a late stream's lead.
     const videoStreamLeadSeconds = streamLeadSeconds(output, videoStream);
     const containerStreamSpan = Math.max(0, containerDuration - videoStreamLeadSeconds);
     let effectiveStreamDuration: number;
@@ -878,7 +906,7 @@ export async function extractMediaMetadata(filePath: string): Promise<VideoMetad
       effectiveStreamDuration = containerStreamSpan;
     }
 
-    return {
+    return carryUncacheable(output, {
       durationSeconds: containerDuration,
       videoStreamDurationSeconds: effectiveStreamDuration,
       videoStreamStartSeconds: streamStart,
@@ -894,7 +922,7 @@ export async function extractMediaMetadata(filePath: string): Promise<VideoMetad
       colorRange: videoStream.color_range,
       pixelFormat,
       frames,
-    };
+    });
   })();
 
   writeMetadataCache(videoMetadataCache, filePath, identity, probePromise);
@@ -1045,7 +1073,7 @@ export async function extractAudioMetadata(
       }
     }
 
-    return {
+    return carryUncacheable(output, {
       durationSeconds,
       streamDurationSeconds: streamDuration && streamDuration > 0 ? streamDuration : undefined,
       sampleRate,
@@ -1053,7 +1081,7 @@ export async function extractAudioMetadata(
       audioCodec,
       bitrate: output.format.bit_rate ? parseInt(output.format.bit_rate) : undefined,
       latestStreamLeadSeconds: latestStreamLeadSeconds(output),
-    };
+    });
   })();
 
   if (options?.signal) return probePromise;
@@ -1064,12 +1092,16 @@ export async function extractAudioMetadata(
 /** Chrome's media time 0 is the earliest of these; a stream starting later plays that much in. */
 function audioVideoStreamStarts(output: FFProbeOutput | null): number[] {
   return (output?.streams ?? [])
-    .filter(
-      (s) =>
-        (s.codec_type === "audio" || s.codec_type === "video") && s.disposition?.attached_pic !== 1,
-    )
+    .filter(isAudioOrVideoStream)
     .map((s) => parseFloat(s.start_time ?? ""))
     .filter(Number.isFinite);
+}
+
+function isAudioOrVideoStream(stream: FFProbeStream): boolean {
+  return (
+    (stream.codec_type === "audio" || stream.codec_type === "video") &&
+    stream.disposition?.attached_pic !== 1
+  );
 }
 
 function streamLeadSeconds(output: FFProbeOutput | null, stream: FFProbeStream): number {
