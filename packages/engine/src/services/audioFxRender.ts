@@ -33,7 +33,7 @@ import { serializeAutomation, type HfAutomation } from "@hyperframes/core/audio-
 import { acquireBrowser } from "./browserManager.js";
 import { createEnvelopeWalker } from "./audioVolumeEnvelope.js";
 import { riffChunks, wavFormatTag } from "./wavChunks.js";
-import { chainWarmupSeconds } from "./audioFxWarmup.js";
+import { windowPrerollSeconds } from "./audioFxWarmup.js";
 import type { AudioVolumeKeyframe } from "./audioMixer.types.js";
 
 export class AudioFxRenderError extends Error {
@@ -80,7 +80,7 @@ function readWavChunks(buf: Buffer): {
       head.sampleRate = buf.readUInt32LE(body + 4);
       head.bits = buf.readUInt16LE(body + 14);
     } else if (id === "data") {
-      data = buf.subarray(body, Math.min(buf.length, body + size));
+      data = buf.subarray(body, body + resolveDataBytes(size, buf.length - body));
       dataBody = body;
       dataSize = size;
       // The payload is the rest of the file for anything the mixer writes, and
@@ -109,7 +109,7 @@ const MAX_WHOLE_FILE_BYTES = 2 ** 31 - 1;
 
 const HEADER_PROBE_BYTES = 64 * 1024;
 
-/** A declared size of 0 or 0xFFFFFFFF (live-written, or past 4 GiB), or one past the end of the file, means "to the end". */
+/** A declared size of 0 or 0xFFFFFFFF (live-written, or past 4 GiB), or one past the end, means "to the end"; both WAV readers use it. */
 export function resolveDataBytes(declared: number, availableBytes: number): number {
   return declared === 0 || declared === 0xffffffff
     ? availableBytes
@@ -406,6 +406,25 @@ function readFrames(fd: number, header: WavHeader, from: number, to: number): Fl
   return decodeSamples(data, header.format, header.bits, "streamed input");
 }
 
+/** A chain remembers longer than the floor: size the pre-roll to its slowest state, up to the cap. */
+function chainPrerollSeconds(
+  chain: HfAudioFxChain,
+  limits: AudioFxStreamingLimits,
+  trackId: string,
+): number {
+  const { seconds, capped } = windowPrerollSeconds(
+    chain,
+    limits.prerollSeconds,
+    limits.maxPrerollSeconds,
+  );
+  if (capped) {
+    console.warn(
+      `Audio FX for track ${trackId}: the chain remembers longer than the ${limits.maxPrerollSeconds}s pre-roll cap, so its oldest repeats are cut at window seams`,
+    );
+  }
+  return seconds;
+}
+
 async function renderInSegments(
   openPage: () => Promise<FxPage>,
   inputWav: string,
@@ -422,11 +441,7 @@ async function renderInSegments(
   const { sampleRate, channels, float } = header;
   const totalFrames = Math.floor(header.dataBytes / ((channels * header.bits) / 8));
   const gainAt = envelopeWalkerFor(options.envelope);
-  // A chain remembers longer than the floor: size the pre-roll to its slowest state, up to the cap.
-  const prerollSeconds = Math.min(
-    limits.maxPrerollSeconds,
-    Math.max(limits.prerollSeconds, chainWarmupSeconds(chain)),
-  );
+  const prerollSeconds = chainPrerollSeconds(chain, limits, options.trackId);
   const inFd = openSync(inputWav, "r");
   let outFd: number | undefined;
   try {

@@ -896,6 +896,41 @@ describe("windowed rendering of a long input", () => {
     ).rejects.toThrow(/WAV header of an input over 2 GiB could not be read/);
   });
 
+  it("reads a data size of 0 or 0xFFFFFFFF as the rest of the file in both readers", () => {
+    for (const declared of [0, 0xffffffff]) {
+      const path = join(dir, `declared-${declared}.wav`);
+      writeWav(path, new Float32Array(200), SR, 2, true);
+      const bytes = readFileSync(path);
+      bytes.writeUInt32LE(declared, 40);
+      writeFileSync(path, bytes);
+      expect(readWav(path).samples.length).toBe(200);
+      expect(readWavHeader(path)?.dataBytes).toBe(800);
+    }
+  });
+
+  it.skipIf(!HAS_BROWSER)("warns when a chain remembers longer than the pre-roll cap", async () => {
+    const input = join(dir, "warn.wav");
+    writeWav(input, new Float32Array(SR), SR, 1, true);
+    const delay = (feedback: number): HfAudioFxChain => ({
+      version: 1,
+      nodes: [{ type: "delay", id: "d", enabled: true, params: { time: 400, feedback, mix: 0.5 } }],
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const streaming = { ...limits, prerollSeconds: 0.5, maxPrerollSeconds: 2 };
+      await applyAudioFxChain(input, delay(0.95), join(dir, "w1.wav"), {
+        trackId: "t1",
+        streaming,
+      });
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]?.[0])).toContain("track t1");
+      await applyAudioFxChain(input, delay(0.1), join(dir, "w2.wav"), { trackId: "t2", streaming });
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it.skipIf(!HAS_BROWSER)("closes the input when the output cannot be opened", async () => {
     const input = join(dir, "in.wav");
     writeWav(input, new Float32Array(SR * 2), SR, 1, true);

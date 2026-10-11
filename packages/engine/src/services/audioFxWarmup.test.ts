@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HfAudioFxChain } from "@hyperframes/core/audio-fx";
-import { chainWarmupSeconds } from "./audioFxWarmup.js";
+import { chainWarmupSeconds, windowPrerollSeconds } from "./audioFxWarmup.js";
 
 const chainOf = (...nodes: HfAudioFxChain["nodes"]): HfAudioFxChain => ({ version: 1, nodes });
 
@@ -35,5 +35,25 @@ describe("chainWarmupSeconds", () => {
       params: { time: 5000, feedback: 0.9, mix: 0 },
     };
     expect(chainWarmupSeconds(chainOf(off, dry, mixedOut))).toBe(0);
+  });
+});
+
+describe("windowPrerollSeconds", () => {
+  const delay = (time: number, feedback: number): HfAudioFxChain =>
+    chainOf({ type: "delay", enabled: true, params: { time, feedback, mix: 0.5 } });
+
+  it("never goes below the floor", () => {
+    expect(windowPrerollSeconds(delay(100, 0.1), 10, 300)).toEqual({ seconds: 10, capped: false });
+  });
+
+  it("follows the chain between the floor and the cap", () => {
+    expect(windowPrerollSeconds(delay(400, 0.5), 1, 300)).toEqual({ seconds: 4, capped: false });
+  });
+
+  it("stops at the cap and says so", () => {
+    expect(windowPrerollSeconds(delay(5000, 0.95), 10, 300)).toEqual({
+      seconds: 300,
+      capped: true,
+    });
   });
 });

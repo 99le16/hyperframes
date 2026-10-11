@@ -1,3 +1,4 @@
+import { delayTailSeconds, reverbRoomSeconds } from "@hyperframes/core/audio-fx-tail";
 import {
   enabledAudioFxNodes,
   normalizeAudioFxParams,
@@ -12,14 +13,10 @@ const param = (node: HfAudioFxNode, key: string): number =>
   Number(normalizeAudioFxParams(node.type, node.params)[key] ?? 0);
 
 const reverbMemory = (node: HfAudioFxNode): number =>
-  param(node, "wet") > 0 ? 0.6 + param(node, "size") * 2.6 : 0;
+  param(node, "wet") > 0 ? reverbRoomSeconds(param(node, "size")) : 0;
 
-function delayMemory(node: HfAudioFxNode): number {
-  if (param(node, "mix") <= 0) return 0;
-  const gap = param(node, "time") / 1000;
-  const feedback = Math.min(0.999, param(node, "feedback"));
-  return feedback > 0 ? Math.ceil(Math.log(0.001) / Math.log(feedback)) * gap : gap;
-}
+const delayMemory = (node: HfAudioFxNode): number =>
+  param(node, "mix") > 0 ? delayTailSeconds(param(node, "time"), param(node, "feedback")) : 0;
 
 const releaseMemory = (node: HfAudioFxNode): number =>
   (DECAY_TO_FLOOR * param(node, "release")) / 1000;
@@ -45,4 +42,17 @@ export function chainWarmupSeconds(chain: HfAudioFxChain): number {
     (sum, node) => sum + (MEMORY[node.type]?.(node) ?? 0),
     0,
   );
+}
+
+/** The pre-roll a chain gets: its own memory, between `floorSeconds` and `capSeconds`. */
+export function windowPrerollSeconds(
+  chain: HfAudioFxChain,
+  floorSeconds: number,
+  capSeconds: number,
+): { seconds: number; capped: boolean } {
+  const needed = chainWarmupSeconds(chain);
+  return {
+    seconds: Math.min(capSeconds, Math.max(floorSeconds, needed)),
+    capped: needed > capSeconds,
+  };
 }
