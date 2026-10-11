@@ -1,4 +1,5 @@
 import { parseHTML } from "linkedom";
+import { HF_AUDIO_FX_ATTR } from "../audioFx";
 
 export function isTemplateEntry(html: string): boolean {
   return html.trimStart().startsWith("<template");
@@ -9,19 +10,19 @@ function normalizeCompositionSrcPath(srcPath: string): string {
 }
 
 // linkedom has no inert <template> content, so the template's innerHTML is re-parsed.
-function readSceneRootDuration(entryHtml: string | undefined): string | null {
+function readSceneRoot(entryHtml: string | undefined): Element | null {
   if (!entryHtml) return null;
   const { document } = parseHTML(entryHtml);
   const template = document.querySelector("template");
   const scope = template ? parseHTML(template.innerHTML).document : document;
-  const root = scope.querySelector("[data-composition-id]") as Element | null;
-  return root?.getAttribute("data-duration") ?? null;
+  return scope.querySelector("[data-composition-id]") as Element | null;
 }
 
 function createStandaloneEntryRenderClone(
   root: Element,
   host: Element,
   sceneDuration: string | null,
+  sceneFxChain: string | null,
 ): Element {
   const hostClone = host.cloneNode(true) as Element;
   hostClone.setAttribute("data-start", "0");
@@ -35,6 +36,11 @@ function createStandaloneEntryRenderClone(
     rootClone.setAttribute("data-duration", sceneDuration);
   } else {
     rootClone.removeAttribute("data-duration");
+  }
+  if (sceneFxChain) {
+    rootClone.setAttribute(HF_AUDIO_FX_ATTR, sceneFxChain);
+  } else {
+    rootClone.removeAttribute(HF_AUDIO_FX_ATTR);
   }
   rootClone.appendChild(hostClone);
   return rootClone;
@@ -78,9 +84,12 @@ export function extractStandaloneEntryFromIndex(
   if (!root) return null;
 
   // The scene file owns its duration; the mount's window is the fallback.
-  const sceneDuration = readSceneRootDuration(entryHtml) ?? host.getAttribute("data-duration");
+  const sceneRoot = readSceneRoot(entryHtml);
+  const sceneDuration =
+    sceneRoot?.getAttribute("data-duration") ?? host.getAttribute("data-duration");
+  const sceneFxChain = sceneRoot?.getAttribute(HF_AUDIO_FX_ATTR) || null;
 
-  const renderClone = createStandaloneEntryRenderClone(root, host, sceneDuration);
+  const renderClone = createStandaloneEntryRenderClone(root, host, sceneDuration, sceneFxChain);
   replaceBodyWithRenderClone(body, renderClone);
 
   return document.toString();
