@@ -4,6 +4,9 @@ import {
   existsSync,
   mkdtempSync,
   openSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
   rmSync,
   truncateSync,
   writeFileSync,
@@ -19,6 +22,7 @@ import {
   planAudioFxSegments,
   readWav,
   readWavHeader,
+  resolveDataBytes,
   writeWav,
 } from "./audioFxRender.js";
 import {
@@ -79,7 +83,11 @@ const SR = 48000;
 
 const chainOf = (...types: string[]): HfAudioFxChain => ({
   version: 1,
-  nodes: types.map((t) => ({ type: t, enabled: true, params: defaultAudioFxParams(t) })),
+  nodes: types.map((t) => ({
+    type: t,
+    enabled: true,
+    params: defaultAudioFxParams(t),
+  })),
 });
 
 let dir: string;
@@ -257,7 +265,13 @@ describe.skipIf(!HAS_BROWSER)("browser render", () => {
       input,
       {
         version: 1,
-        nodes: [{ type: "peaking", enabled: true, params: { frequency: 440, gain: -30, q: 1 } }],
+        nodes: [
+          {
+            type: "peaking",
+            enabled: true,
+            params: { frequency: 440, gain: -30, q: 1 },
+          },
+        ],
       },
       outPath,
       { trackId: "t" },
@@ -283,7 +297,11 @@ describe.skipIf(!HAS_BROWSER)("browser render", () => {
           {
             type: "compressor",
             enabled: true,
-            params: { ...defaultAudioFxParams("compressor"), threshold: -40, ratio: 20 },
+            params: {
+              ...defaultAudioFxParams("compressor"),
+              threshold: -40,
+              ratio: 20,
+            },
           },
         ],
       },
@@ -305,7 +323,11 @@ describe.skipIf(!HAS_BROWSER)("browser render", () => {
           {
             type: "pitchshift",
             enabled: true,
-            params: { ...defaultAudioFxParams("pitchshift"), semitones: 12, mix: 1 },
+            params: {
+              ...defaultAudioFxParams("pitchshift"),
+              semitones: 12,
+              mix: 1,
+            },
           },
         ],
       },
@@ -369,7 +391,14 @@ describe.skipIf(!HAS_BROWSER)("browser render", () => {
       input,
       {
         version: 1,
-        nodes: [{ type: "lowpass", id: "n1", enabled: true, params: { frequency: 300, q: 0.707 } }],
+        nodes: [
+          {
+            type: "lowpass",
+            id: "n1",
+            enabled: true,
+            params: { frequency: 300, q: 0.707 },
+          },
+        ],
       },
       outPath,
       {
@@ -423,7 +452,13 @@ describe.skipIf(!HAS_BROWSER)("browser render", () => {
       input,
       {
         version: 1,
-        nodes: [{ type: "peaking", enabled: true, params: { frequency: 440, gain: 6, q: 1 } }],
+        nodes: [
+          {
+            type: "peaking",
+            enabled: true,
+            params: { frequency: 440, gain: 6, q: 1 },
+          },
+        ],
       },
       outPath,
       {
@@ -495,7 +530,13 @@ describe.skipIf(!HAS_BROWSER)("browser render", () => {
       // input and any difference is the transfer's doing.
       {
         version: 1,
-        nodes: [{ type: "peaking", enabled: true, params: { frequency: 1000, gain: 0, q: 1 } }],
+        nodes: [
+          {
+            type: "peaking",
+            enabled: true,
+            params: { frequency: 1000, gain: 0, q: 1 },
+          },
+        ],
       },
       outPath,
       { trackId: "t" },
@@ -577,7 +618,11 @@ function maxVolumeDb(path: string): number {
 const chainJson = (...nodes: Record<string, unknown>[]): string =>
   JSON.stringify({
     version: 1,
-    nodes: nodes.map((node, i) => ({ id: `n${i + 1}`, enabled: true, ...node })),
+    nodes: nodes.map((node, i) => ({
+      id: `n${i + 1}`,
+      enabled: true,
+      ...node,
+    })),
   });
 
 describe("master bus: reading it", () => {
@@ -757,7 +802,13 @@ describe.skipIf(!HAS_BROWSER || !HAS_FFMPEG)("master bus: rendering it", () => {
 });
 
 describe("windowed rendering of a long input", () => {
-  const limits = { aboveBytes: 0, segmentSeconds: 1, prerollSeconds: 1, postrollSeconds: 0.1 };
+  const limits = {
+    aboveBytes: 0,
+    segmentSeconds: 1,
+    prerollSeconds: 1,
+    maxPrerollSeconds: 1,
+    postrollSeconds: 0.1,
+  };
 
   it("tiles the input exactly, each window carrying its pre- and post-roll", () => {
     const segments = planAudioFxSegments(Math.round(3.5 * SR), SR, limits);
@@ -769,7 +820,10 @@ describe("windowed rendering of a long input", () => {
     ]);
     expect(segments.map((s) => s.last)).toEqual([false, false, false, true]);
     expect(segments[0]).toMatchObject({ readFrom: 0, readTo: SR + SR / 10 });
-    expect(segments[2]).toMatchObject({ readFrom: SR, readTo: 3 * SR + SR / 10 });
+    expect(segments[2]).toMatchObject({
+      readFrom: SR,
+      readTo: 3 * SR + SR / 10,
+    });
     expect(segments[3]?.readTo).toBe(Math.round(3.5 * SR));
   });
 
@@ -782,7 +836,62 @@ describe("windowed rendering of a long input", () => {
     closeSync(fd);
     expect(() => readWav(path)).toThrow(/greater than 2 GiB/);
     const header = readWavHeader(path);
-    expect(header).toMatchObject({ channels: 2, sampleRate: SR, float: true, dataOffset: 44 });
+    expect(header).toMatchObject({
+      channels: 2,
+      sampleRate: SR,
+      float: true,
+      dataOffset: 44,
+    });
+  });
+
+  it("reads a data size of 0xFFFFFFFF, or 0, as running to the end of the file", () => {
+    const FIVE_GIB = 5 * 1024 ** 3;
+    expect(resolveDataBytes(0xffffffff, FIVE_GIB)).toBe(FIVE_GIB);
+    expect(resolveDataBytes(0, FIVE_GIB)).toBe(FIVE_GIB);
+    expect(resolveDataBytes(1000, FIVE_GIB)).toBe(1000);
+    expect(resolveDataBytes(2000, 1500)).toBe(1500);
+
+    // The same header as ffmpeg leaves on a stream, on a file small enough to write.
+    const path = join(dir, "stream.wav");
+    writeWav(path, new Float32Array(100), SR, 2, true);
+    const bytes = readFileSync(path);
+    bytes.writeUInt32LE(0xffffffff, 40);
+    writeFileSync(path, bytes);
+    expect(readWavHeader(path)).toMatchObject({
+      dataOffset: 44,
+      dataBytes: 400,
+    });
+  });
+
+  it("names the cause when a file past 2 GiB cannot be streamed", async () => {
+    const path = join(dir, "huge-bad-header.wav");
+    writeFileSync(path, "not a wav");
+    truncateSync(path, 2.5 * 1024 ** 3);
+    await expect(
+      applyAudioFxChain(path, chainOf("gain"), join(dir, "out.wav"), {
+        trackId: "t",
+      }),
+    ).rejects.toThrow(/WAV header of an input over 2 GiB could not be read/);
+  });
+
+  it.skipIf(!HAS_BROWSER)("closes the input when the output cannot be opened", async () => {
+    const input = join(dir, "in.wav");
+    writeWav(input, new Float32Array(SR * 2), SR, 1, true);
+    const openOn = (path: string): number =>
+      readdirSync("/proc/self/fd").filter((fd) => {
+        try {
+          return readlinkSync(join("/proc/self/fd", fd)) === path;
+        } catch {
+          return false;
+        }
+      }).length;
+    await expect(
+      applyAudioFxChain(input, chainOf("gain"), join(dir, "no-such-dir", "out.wav"), {
+        trackId: "t",
+        streaming: limits,
+      }),
+    ).rejects.toThrow();
+    expect(openOn(input)).toBe(0);
   });
 
   it("names the unsupported case when automation meets a file past 2 GiB", async () => {
@@ -849,6 +958,108 @@ describe("windowed rendering of a long input", () => {
       expect(worst).toBeLessThan(0.01);
     },
     180_000,
+  );
+
+  /** Quiet tones with a loud burst ending just ahead of each 5 s seam. */
+  const bursts = (seconds: number): Float32Array => {
+    const frames = Math.floor(SR * seconds);
+    const s = new Float32Array(frames * 2);
+    for (let i = 0; i < frames; i++) {
+      const t = i / SR;
+      const loud = t % 5 >= 3.4 && t % 5 < 3.9;
+      const amp = loud ? 0.9 : 0.03;
+      s[i * 2] = amp * Math.sin((2 * Math.PI * 330 * i) / SR);
+      s[i * 2 + 1] = amp * Math.sin((2 * Math.PI * 520 * i) / SR);
+    }
+    return s;
+  };
+  const memoryChain = (): HfAudioFxChain => ({
+    version: 1,
+    nodes: [
+      {
+        type: "chorus",
+        id: "c",
+        enabled: true,
+        params: { ...defaultAudioFxParams("chorus"), speed: 0.25 },
+      },
+      {
+        type: "pitchshift",
+        id: "p",
+        enabled: true,
+        params: { semitones: 3, mix: 1 },
+      },
+      {
+        type: "compressor",
+        id: "k",
+        enabled: true,
+        params: { ...defaultAudioFxParams("compressor"), release: 1000 },
+      },
+      {
+        type: "delay",
+        id: "d",
+        enabled: true,
+        params: { time: 300, feedback: 0.4, mix: 0.4 },
+      },
+      {
+        type: "reverb",
+        id: "r",
+        enabled: true,
+        params: { size: 0.5, wet: 0.3 },
+      },
+    ],
+  });
+  const memoryLimits = {
+    ...limits,
+    segmentSeconds: 5,
+    prerollSeconds: 0.5,
+    maxPrerollSeconds: 12,
+  };
+
+  const renderBoth = async (
+    streaming: typeof memoryLimits,
+  ): Promise<{ whole: Float32Array; windowed: Float32Array }> => {
+    const input = join(dir, "mem.wav");
+    writeWav(input, bursts(14), SR, 2, true);
+    await applyAudioFxChain(input, memoryChain(), join(dir, "mem-whole.wav"), {
+      trackId: "w",
+    });
+    await applyAudioFxChain(input, memoryChain(), join(dir, "mem-windowed.wav"), {
+      trackId: "s",
+      streaming,
+    });
+    return {
+      whole: readWav(join(dir, "mem-whole.wav")).samples,
+      windowed: readWav(join(dir, "mem-windowed.wav")).samples,
+    };
+  };
+  const worstDifference = (a: Float32Array, b: Float32Array): number => {
+    let worst = 0;
+    for (let i = 0; i < a.length; i++) worst = Math.max(worst, Math.abs((a[i] ?? 0) - (b[i] ?? 0)));
+    return worst;
+  };
+
+  it.skipIf(!HAS_BROWSER)(
+    "carries modulation, delay, reverb and compressor state across window seams",
+    async () => {
+      const { whole, windowed } = await renderBoth(memoryLimits);
+      // The tail of the last window is kept: dropping it would shorten the file.
+      expect(windowed.length).toBe(whole.length);
+      expect(whole.length).toBeGreaterThan(14 * SR * 2);
+      expect(worstDifference(whole, windowed)).toBeLessThan(0.02);
+    },
+    240_000,
+  );
+
+  it.skipIf(!HAS_BROWSER)(
+    "cannot match the whole render without the pre-roll the chain asks for",
+    async () => {
+      const { whole, windowed } = await renderBoth({
+        ...memoryLimits,
+        maxPrerollSeconds: 0.5,
+      });
+      expect(worstDifference(whole, windowed)).toBeGreaterThan(0.05);
+    },
+    240_000,
   );
 
   it.skipIf(!HAS_BROWSER)(

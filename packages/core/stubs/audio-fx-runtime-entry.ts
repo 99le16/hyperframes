@@ -7,7 +7,7 @@
  * ends share a single implementation rather than two that have to be kept in
  * agreement.
  *
- * Exposes `window.__HF_AUDIO_FX.render(pcm, sampleRate, chain, automation)`,
+ * Exposes `window.__HF_AUDIO_FX.render(pcm, sampleRate, chain, automation, elapsed)`,
  * which returns the processed samples.
  */
 
@@ -29,6 +29,7 @@ declare global {
         sampleRate: number,
         chainJson: string,
         automationJson?: string,
+        elapsed?: number,
       ): Promise<Float32Array[]>;
     };
   }
@@ -45,6 +46,9 @@ declare global {
  * comes from the settings (`chainTailSeconds`), capped, and the returned planes
  * are correspondingly longer than what came in — the mixer decides how much of
  * that it lets through past the clip's end.
+ *
+ * `elapsed` is where in the file `planes` begins, for a window cut from a longer
+ * input: modulated effects follow the file's clock, not the window's.
  */
 
 /** The clip's audio as an AudioBuffer, a plane per channel. */
@@ -77,6 +81,7 @@ async function render(
   sampleRate: number,
   chainJson: string,
   automationJson?: string,
+  elapsed = 0,
 ): Promise<Float32Array[]> {
   const chain: HfAudioFxChain = parseAudioFxChain(chainJson);
   const channels = Math.max(1, planes.length);
@@ -100,7 +105,7 @@ async function render(
   const source = ctx.createBufferSource();
   source.buffer = toBuffer(ctx, planes, channels, frames, sampleRate);
 
-  const fx = buildFxChain(ctx, chain);
+  const fx = buildFxChain(ctx, chain, elapsed);
 
   // The input WAV is the clip's own audio from its first sample, so clip-local
   // time is offline time — the envelope needs no offset here. Same scheduler as

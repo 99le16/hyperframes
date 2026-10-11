@@ -33,6 +33,7 @@ import { serializeAutomation, type HfAutomation } from "@hyperframes/core/audio-
 import { acquireBrowser } from "./browserManager.js";
 import { createEnvelopeWalker } from "./audioVolumeEnvelope.js";
 import { riffChunks, wavFormatTag } from "./wavChunks.js";
+import { chainWarmupSeconds } from "./audioFxWarmup.js";
 import type { AudioVolumeKeyframe } from "./audioMixer.types.js";
 
 export class AudioFxRenderError extends Error {
@@ -108,6 +109,13 @@ const MAX_WHOLE_FILE_BYTES = 2 ** 31 - 1;
 
 const HEADER_PROBE_BYTES = 64 * 1024;
 
+/** A declared size of 0 or 0xFFFFFFFF (live-written, or past 4 GiB), or one past the end of the file, means "to the end". */
+export function resolveDataBytes(declared: number, availableBytes: number): number {
+  return declared === 0 || declared === 0xffffffff
+    ? availableBytes
+    : Math.min(declared, availableBytes);
+}
+
 /** The header of `path`, or null when the head holds no readable `fmt `/`data` pair. */
 export function readWavHeader(path: string): WavHeader | null {
   const fd = openSync(path, "r");
@@ -118,8 +126,7 @@ export function readWavHeader(path: string): WavHeader | null {
     if (buf.length < 44 || buf.toString("ascii", 0, 4) !== "RIFF") return null;
     const { format, channels, sampleRate, bits, dataBody, dataSize } = readWavChunks(buf);
     if (dataBody === undefined || dataSize === undefined) return null;
-    // A declared size past the end of the file (a live-written or >4 GiB WAV) means "to the end".
-    const dataBytes = Math.min(dataSize, statSync(path).size - dataBody);
+    const dataBytes = resolveDataBytes(dataSize, statSync(path).size - dataBody);
     return {
       format,
       channels,
@@ -295,7 +302,13 @@ interface AudioFxPageIo {
 
 interface AudioFxWindow {
   __HF_AUDIO_FX?: {
-    render(p: Float32Array[], r: number, c: string, a?: string): Promise<Float32Array[]>;
+    render(
+      p: Float32Array[],
+      r: number,
+      c: string,
+      a?: string,
+      elapsed?: number,
+    ): Promise<Float32Array[]>;
   };
   __HF_FX_IO?: AudioFxPageIo;
 }
@@ -320,16 +333,14 @@ function applyEnvelopeToPlanes(
   }
 }
 
-/**
- * Inputs whose samples exceed `aboveBytes` are processed in windows rather than whole: Node
- * cannot read a file past 2 GiB in one call (a stereo float mix past ~93 min), and the page
- * would hold the whole track twice besides.
- */
+/** Inputs over `aboveBytes` render in windows: Node reads no file past 2 GiB whole, and the page would hold it twice. */
 export interface AudioFxStreamingLimits {
   aboveBytes: number;
   segmentSeconds: number;
-  /** Audio rendered ahead of each window and discarded, so stateful effects arrive warm. */
+  /** Audio rendered ahead of each window and discarded; the least, when the chain needs more. */
   prerollSeconds: number;
+  /** The most pre-roll a chain's own memory can ask for. */
+  maxPrerollSeconds: number;
   /** Audio rendered after each window and discarded, for look-ahead. */
   postrollSeconds: number;
 }
@@ -338,6 +349,7 @@ const DEFAULT_STREAMING_LIMITS: AudioFxStreamingLimits = {
   aboveBytes: 512 * 1024 * 1024,
   segmentSeconds: 300,
   prerollSeconds: 10,
+  maxPrerollSeconds: 300,
   postrollSeconds: 1,
 };
 
@@ -397,19 +409,32 @@ async function renderInSegments(
   header: WavHeader,
   chain: HfAudioFxChain,
   outputWav: string,
-  options: { trackId: string; signal?: AbortSignal; envelope?: AudioFxEnvelope },
+  options: {
+    trackId: string;
+    signal?: AbortSignal;
+    envelope?: AudioFxEnvelope;
+  },
   limits: AudioFxStreamingLimits,
 ): Promise<boolean> {
   const { sampleRate, channels, float } = header;
   const totalFrames = Math.floor(header.dataBytes / ((channels * header.bits) / 8));
   const gainAt = envelopeWalkerFor(options.envelope);
+  // A chain remembers longer than the floor: size the pre-roll to its slowest state, up to the cap.
+  const prerollSeconds = Math.min(
+    limits.maxPrerollSeconds,
+    Math.max(limits.prerollSeconds, chainWarmupSeconds(chain)),
+  );
   const inFd = openSync(inputWav, "r");
-  // Same directory rule as writeWav: the caller's mkdtemp work dir.
-  const outFd = openSync(outputWav, "w");
+  let outFd: number | undefined;
   try {
+    // Same directory rule as writeWav: the caller's mkdtemp work dir.
+    outFd = openSync(outputWav, "w");
     writeSync(outFd, wavHeader(0, sampleRate, channels, float));
     let written = 0;
-    for (const seg of planAudioFxSegments(totalFrames, sampleRate, limits)) {
+    for (const seg of planAudioFxSegments(totalFrames, sampleRate, {
+      ...limits,
+      prerollSeconds,
+    })) {
       if (options.signal?.aborted) {
         throw new AudioFxRenderError(`Audio FX cancelled for track ${options.trackId}`);
       }
@@ -421,7 +446,7 @@ async function renderInSegments(
         await sendPlanesToPage(page, planes);
         outPlanes = await readPlanesFromPage(
           page,
-          await renderPlanesInPage(page, sampleRate, chain, ""),
+          await renderPlanesInPage(page, sampleRate, chain, "", seg.readFrom / sampleRate),
         );
       } finally {
         await page.close().catch(() => undefined);
@@ -443,12 +468,16 @@ async function renderInSegments(
     writeSync(outFd, wavHeader(written, sampleRate, channels, float), 0, 44, 0);
   } finally {
     closeSync(inFd);
-    closeSync(outFd);
+    if (outFd !== undefined) closeSync(outFd);
   }
   return gainAt !== null;
 }
 
-type AudioFxEnvelope = { keyframes: AudioVolumeKeyframe[]; trackStart: number; baseVolume: number };
+type AudioFxEnvelope = {
+  keyframes: AudioVolumeKeyframe[];
+  trackStart: number;
+  baseVolume: number;
+};
 
 /**
  * Run a chain over `inputWav`, writing `outputWav`. Resolves to the path to use
@@ -505,9 +534,10 @@ export async function applyAudioFxChain(
   }
 
   if (statSync(inputWav).size > MAX_WHOLE_FILE_BYTES) {
-    throw new AudioFxRenderError(
-      `Audio FX for track ${options.trackId}: parameter automation is not supported on inputs over 2 GiB (${inputWav})`,
-    );
+    const why = options.automation
+      ? "parameter automation is not supported on inputs over 2 GiB"
+      : "the WAV header of an input over 2 GiB could not be read";
+    throw new AudioFxRenderError(`Audio FX for track ${options.trackId}: ${why} (${inputWav})`);
   }
   const input = readWav(inputWav);
   const planes = deinterleave(input.samples, input.channels);
@@ -549,11 +579,7 @@ export async function applyAudioFxChain(
   });
 }
 
-/**
- * Run `body` with a leased browser and a way to open pages on the runtime. The lease and
- * the temp dir are taken inside the try that releases them, so a failure between them
- * cannot leak a pooled browser.
- */
+/** Run `body` with a leased browser and a way to open pages on the runtime; both are released in the same try that takes them. */
 async function withFxBrowser<T>(
   options: { trackId: string; signal?: AbortSignal },
   body: (openPage: () => Promise<FxPage>) => Promise<T>,
@@ -596,7 +622,9 @@ async function openFxPage(
     // qualifies and needs no listening socket.
     const hostPage = join(hostDir, "audio-fx.html");
     writeFileSync(hostPage, "<!doctype html><meta charset=utf-8><title>audio fx</title>");
-    await page.goto(pathToFileURL(hostPage).href, { waitUntil: "domcontentloaded" });
+    await page.goto(pathToFileURL(hostPage).href, {
+      waitUntil: "domcontentloaded",
+    });
     await page.addScriptTag({ content: getAudioFxRuntimeScript() });
     return page;
   } catch (err) {
@@ -645,9 +673,10 @@ async function renderPlanesInPage(
   sampleRate: number,
   chain: HfAudioFxChain,
   automationJson: string,
+  elapsed = 0,
 ): Promise<number[]> {
   return (await page.evaluate(
-    async ([rate, chainJson, automation]: [number, string, string]) => {
+    async ([rate, chainJson, automation, at]: [number, string, string, number]) => {
       const w = window as unknown as AudioFxWindow;
       const io = w.__HF_FX_IO;
       if (!w.__HF_AUDIO_FX || !io) throw new Error("audio FX runtime failed to load");
@@ -663,10 +692,15 @@ async function renderPlanesInPage(
       // Dropped before the render allocates its own buffers, so the page does
       // not hold two copies of the track at once.
       io.in = [];
-      io.out = await w.__HF_AUDIO_FX.render(inPlanes, rate, chainJson, automation || undefined);
+      io.out = await w.__HF_AUDIO_FX.render(inPlanes, rate, chainJson, automation || undefined, at);
       return io.out.map((plane) => plane.length);
     },
-    [sampleRate, JSON.stringify(chain), automationJson] as [number, string, string],
+    [sampleRate, JSON.stringify(chain), automationJson, elapsed] as [
+      number,
+      string,
+      string,
+      number,
+    ],
   )) as number[];
 }
 
@@ -718,7 +752,11 @@ async function readPlanesFromPage(page: FxPage, outLengths: number[]): Promise<F
 /** The envelope walker for a track that has keyframes, or null when it has none. */
 function envelopeWalkerFor(
   envelope:
-    | { keyframes: AudioVolumeKeyframe[]; trackStart: number; baseVolume: number }
+    | {
+        keyframes: AudioVolumeKeyframe[];
+        trackStart: number;
+        baseVolume: number;
+      }
     | undefined,
 ): ReturnType<typeof createEnvelopeWalker> | null {
   if (!envelope) return null;

@@ -255,7 +255,11 @@ class HfPitchshift extends AudioWorkletProcessor {
     this.grain = Math.round(sampleRate * 0.1);
     this.buf = [];
     this.write = 0;
-    this.phase = 0;
+    // The taps sweep at a constant rate from the start of the file, so a node built
+    // part-way in joins the sweep where it would already be.
+    const ratio0 = Math.pow(2, Math.max(-12, Math.min(12, this.p.semitones ?? 0)) / 12);
+    const turns = (this.p.__hfElapsed ?? 0) * sampleRate * ((1 - ratio0) / this.grain);
+    this.phase = turns - Math.floor(turns);
     // Samples written so far, capped at one grain. The taps read up to a grain
     // behind the write head, so until this fills they would read the ring's
     // zeros, so the head of every clip came out attenuated or silent.
