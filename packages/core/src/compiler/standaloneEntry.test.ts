@@ -114,6 +114,12 @@ describe("extractStandaloneEntryFromIndex", () => {
     expect(extracted).not.toContain('data-duration="12"');
   });
   describe("master bus chain", () => {
+    const hostIndexHtml = `<!DOCTYPE html>
+<html>
+<body>
+  <div id="scene1" data-composition-id="scene1" data-composition-src="compositions/scene1.html" data-width="640" data-height="360" data-fx-chain="{&quot;version&quot;:1,&quot;nodes&quot;:[{&quot;type&quot;:&quot;truepeak&quot;,&quot;id&quot;:&quot;index&quot;}]}"></div>
+</body>
+</html>`;
     const indexHtml = `<!DOCTYPE html>
 <html>
 <body>
@@ -151,6 +157,32 @@ describe("extractStandaloneEntryFromIndex", () => {
         sceneHtml,
       );
 
+      expect(chainOf(extracted ?? "")).toBeNull();
+    });
+
+    it("carries the scene's chain when the index's top-level root is the mount itself", () => {
+      const chain = '{"version":1,"nodes":[{"type":"truepeak","id":"scene"}]}';
+      const sceneHtml = `<template id="t"><div data-composition-id="scene1" data-width="640" data-height="360" data-fx-chain='${chain}'></div></template>`;
+
+      const extracted = extractStandaloneEntryFromIndex(
+        hostIndexHtml,
+        "compositions/scene1.html",
+        sceneHtml,
+      );
+
+      expect(chainOf(extracted ?? "")).toBe(chain);
+    });
+
+    it("drops the index's chain from a top-level mount when the scene declares none", () => {
+      const sceneHtml = `<template id="t"><div data-composition-id="scene1" data-width="640" data-height="360"></div></template>`;
+
+      const extracted = extractStandaloneEntryFromIndex(
+        hostIndexHtml,
+        "compositions/scene1.html",
+        sceneHtml,
+      );
+
+      expect(extracted).not.toBeNull();
       expect(chainOf(extracted ?? "")).toBeNull();
     });
   });

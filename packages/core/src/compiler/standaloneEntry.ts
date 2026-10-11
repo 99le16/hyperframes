@@ -18,6 +18,15 @@ function readSceneRoot(entryHtml: string | undefined): Element | null {
   return scope.querySelector("[data-composition-id]") as Element | null;
 }
 
+// The scene's own chain replaces the index's, which belongs to the whole project.
+function setSceneFxChain(el: Element, sceneFxChain: string | null): void {
+  if (sceneFxChain) {
+    el.setAttribute(HF_AUDIO_FX_ATTR, sceneFxChain);
+  } else {
+    el.removeAttribute(HF_AUDIO_FX_ATTR);
+  }
+}
+
 function createStandaloneEntryRenderClone(
   root: Element,
   host: Element,
@@ -27,7 +36,10 @@ function createStandaloneEntryRenderClone(
   const hostClone = host.cloneNode(true) as Element;
   hostClone.setAttribute("data-start", "0");
 
-  if (root === host) return hostClone;
+  if (root === host) {
+    setSceneFxChain(hostClone, sceneFxChain);
+    return hostClone;
+  }
 
   const rootClone = root.cloneNode(false) as Element;
   // The wrapper takes the scene's length, not the whole project's; with none declared
@@ -37,11 +49,7 @@ function createStandaloneEntryRenderClone(
   } else {
     rootClone.removeAttribute("data-duration");
   }
-  if (sceneFxChain) {
-    rootClone.setAttribute(HF_AUDIO_FX_ATTR, sceneFxChain);
-  } else {
-    rootClone.removeAttribute(HF_AUDIO_FX_ATTR);
-  }
+  setSceneFxChain(rootClone, sceneFxChain);
   rootClone.appendChild(hostClone);
   return rootClone;
 }
