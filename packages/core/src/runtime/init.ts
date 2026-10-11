@@ -410,6 +410,7 @@ function loadPreviewImagesIn(root: Element): void {
 
 export function initSandboxRuntimeModular(): void {
   const state = createRuntimeState();
+  const stampsForStudio = window.parent !== window;
   authoredMediaObserver?.disconnect();
   authoredMediaObserver = null;
   if (readSceneParts(document)) recordAuthoredMedia(document.documentElement);
@@ -2013,7 +2014,7 @@ export function initSandboxRuntimeModular(): void {
     // them so the Studio timeline can discover individual animated elements.
     // Only when embedded in an iframe (Studio preview) — production renders
     // run as the top-level page and must not mutate element timing.
-    if (window.parent !== window) {
+    if (stampsForStudio) {
       const rootComp = resolveRootCompositionElement();
       const rootDuration = boundDuration > 0 ? boundDuration : 0;
       const dur = String(rootDuration > 0 ? rootDuration : 1);
@@ -2819,7 +2820,7 @@ export function initSandboxRuntimeModular(): void {
       const isVisibleNow =
         visibleAt(rawNode, currentTime) &&
         clipChainVisibleAt(rawNode.parentElement, currentTime, visibleAt, rootComp);
-      const isRuntimeStamped = rawNode.hasAttribute(RUNTIME_STAMPED_ATTR);
+      const isRuntimeStamped = stampsForStudio && rawNode.hasAttribute(RUNTIME_STAMPED_ATTR);
       if (!isRuntimeStamped) rawNode.style.visibility = isVisibleNow ? "visible" : "hidden";
       const upcoming =
         hiddenImagesSkipped && !isVisibleNow && dueSoon(rawNode, visibleAt, currentTime);

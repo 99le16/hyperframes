@@ -219,7 +219,7 @@ describe("patchIframeDomTiming", () => {
     expect([...cards!].map((card) => card.dataset.start)).toEqual(["1", "9"]);
   });
 
-  it("makes a runtime-stamped element authored once its timing is edited", () => {
+  it("makes a runtime-stamped element authored on any timing edit, a lane move included", () => {
     const iframe = makeIframeWith(`
       <div data-composition-id="root">
         <div id="title" data-start="0" data-duration="10" data-hf-autostamped="1"></div>
@@ -236,7 +236,7 @@ describe("patchIframeDomTiming", () => {
     patchIframeDomTiming(iframe, at("badge"), [["data-track-index", "3"]]);
 
     expect(doc.getElementById("title")?.hasAttribute("data-hf-autostamped")).toBe(false);
-    expect(doc.getElementById("badge")?.getAttribute("data-hf-autostamped")).toBe("1");
+    expect(doc.getElementById("badge")?.hasAttribute("data-hf-autostamped")).toBe(false);
   });
 });
 

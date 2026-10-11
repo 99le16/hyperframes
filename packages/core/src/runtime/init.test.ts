@@ -478,6 +478,22 @@ describe("initSandboxRuntimeModular", () => {
       expect([at(1), at(5), at(8)]).toEqual(["hidden", "visible", "hidden"]);
     });
 
+    it("times a clip by its window in a render even when its source carries the stamp", () => {
+      document.body.innerHTML =
+        `<div data-composition-id="main" data-root="true" data-start="0" data-duration="10" data-width="1080" data-height="1920">` +
+        `<div id="title" style="position: absolute" data-start="5" data-duration="2" data-hf-autostamped="1"></div>` +
+        `</div>`;
+      window.__timelines = { main: createMockTimeline(10) };
+      initSandboxRuntimeModular();
+      const title = document.getElementById("title")!;
+
+      const at = (time: number) => {
+        window.__player?.renderSeek(time);
+        return title.style.visibility;
+      };
+      expect([at(1), at(6), at(9)]).toEqual(["hidden", "visible", "hidden"]);
+    });
+
     it("does not hold a paused seek on images in a stamped container its script hides", () => {
       const mark = Object.assign(document.createElement("meta"), {
         name: STUDIO_PREVIEW_MARK_META,

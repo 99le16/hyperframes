@@ -8,6 +8,7 @@ export const PREVIEW_ONLY_ATTRS = [
   STUDIO_PREVIEW_UPCOMING_ATTR,
   STUDIO_PREVIEW_LAZY_ATTR,
   PREVIEW_RASTER_ATTR,
+  RUNTIME_STAMPED_ATTR,
 ] as const;
 
 export function applyAuthoredTiming(
@@ -15,6 +16,5 @@ export function applyAuthoredTiming(
   attrs: ReadonlyArray<readonly [name: string, value: string]>,
 ): void {
   for (const [name, value] of attrs) el.setAttribute(name, value);
-  if (attrs.some(([name]) => name === "data-start" || name === "data-duration"))
-    el.removeAttribute(RUNTIME_STAMPED_ATTR);
+  el.removeAttribute(RUNTIME_STAMPED_ATTR);
 }
