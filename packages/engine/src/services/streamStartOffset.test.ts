@@ -9,6 +9,7 @@ import { extractMediaMetadata } from "../utils/ffprobe.js";
 import {
   extractVideoFramesRange,
   getFrameAtTime,
+  resolveFinalFrameExtractionWindow,
   resolveVideoExtractionWindow,
 } from "./videoFrameExtractor.js";
 
@@ -207,6 +208,39 @@ describe.skipIf(!HAS_FFMPEG)(
       });
       expect(getFrameAtTime(extracted, PICTURE_SECONDS + 1.5, 0, true)).not.toBeNull();
       expect(getFrameAtTime(extracted, mediaSeconds + 1.5, 0, true)).toBeNull();
+    }, 30_000);
+
+    it.each([6.5, 10])(
+      "shows a late video stream from a trim at %s s on the media timeline",
+      async (mediaStart) => {
+        const extracted = await extractVideoFramesRange(
+          join(dir, "video-late.mp4"),
+          `video-late-from-${mediaStart}`,
+          mediaStart,
+          5,
+          { fps: 10, outputDir: join(dir, "frames") },
+        );
+        expect(getFrameAtTime(extracted, 0.05, 0, false, mediaStart)).not.toBeNull();
+      },
+      30_000,
+    );
+
+    it("holds a late video stream's last frame past its end", async () => {
+      const source = join(dir, "video-late.mp4");
+      const metadata = await extractMediaMetadata(source);
+      const video = {
+        start: 0,
+        end: 5,
+        mediaStart: LEAD_SECONDS + PICTURE_SECONDS + 0.5,
+        loop: false,
+      };
+      const window = await resolveFinalFrameExtractionWindow(
+        source,
+        video,
+        metadata,
+        resolveVideoExtractionWindow(video, metadata, 5),
+      );
+      expect(window.extractionMediaStart).toBeGreaterThan(LEAD_SECONDS + PICTURE_SECONDS - 0.1);
     }, 30_000);
   },
 );

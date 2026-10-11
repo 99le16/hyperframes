@@ -68,34 +68,44 @@ describe("selectDomLayerShowIds", () => {
 
 describe("blitHdrVideoLayer", () => {
   it.each([
-    { lead: undefined, painted: true },
-    { lead: 7, painted: false },
-  ])("paints at 1 s of a video whose stream starts $lead s in: $painted", ({ lead, painted }) => {
-    const dir = mkdtempSync(join(tmpdir(), "hf-hdr-lead-"));
-    const rawPath = join(dir, "frames.rgb48le");
-    const frameSize = 2 * 2 * 6;
-    writeFileSync(rawPath, Buffer.alloc(frameSize * 2, 0x80));
-    const fd = openSync(rawPath, "r");
-    try {
-      const canvas = Buffer.alloc(frameSize);
-      const el = makeEl("v", { width: 2, height: 2, layoutWidth: 2, layoutHeight: 2, isHdr: true });
-      const source = {
-        dir,
-        rawPath,
-        fd,
-        width: 2,
-        height: 2,
-        frameSize,
-        frameCount: 2,
-        scratch: Buffer.alloc(frameSize),
-        mediaStart: 0,
-        videoStreamLeadSeconds: lead,
-      };
-      blitHdrVideoLayer(canvas, el, 1, 1, new Map([["v", source]]), new Map([["v", 0]]), 2, 2);
-      expect(canvas.some((byte) => byte !== 0)).toBe(painted);
-    } finally {
-      closeSync(fd);
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
+    { lead: undefined, mediaStart: 0, painted: true },
+    { lead: 7, mediaStart: 0, painted: false },
+    { lead: 7, mediaStart: 6.5, painted: true },
+  ])(
+    "paints at 1 s of a clip from $mediaStart s whose stream starts $lead s in: $painted",
+    ({ lead, mediaStart, painted }) => {
+      const dir = mkdtempSync(join(tmpdir(), "hf-hdr-lead-"));
+      const rawPath = join(dir, "frames.rgb48le");
+      const frameSize = 2 * 2 * 6;
+      writeFileSync(rawPath, Buffer.alloc(frameSize * 2, 0x80));
+      const fd = openSync(rawPath, "r");
+      try {
+        const canvas = Buffer.alloc(frameSize);
+        const el = makeEl("v", {
+          width: 2,
+          height: 2,
+          layoutWidth: 2,
+          layoutHeight: 2,
+          isHdr: true,
+        });
+        const source = {
+          dir,
+          rawPath,
+          fd,
+          width: 2,
+          height: 2,
+          frameSize,
+          frameCount: 2,
+          scratch: Buffer.alloc(frameSize),
+          mediaStart,
+          videoStreamLeadSeconds: lead,
+        };
+        blitHdrVideoLayer(canvas, el, 1, 1, new Map([["v", source]]), new Map([["v", 0]]), 2, 2);
+        expect(canvas.some((byte) => byte !== 0)).toBe(painted);
+      } finally {
+        closeSync(fd);
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 });
