@@ -313,6 +313,13 @@ function pickRunner(
 /** When Parakeet fails, only auto falls back; an explicit parakeet engine fails with the error. */
 const parakeetFallsBack = (engine: string) => engine === "auto";
 
+/** `.replace(/\.+$/, "")` in linear time; that regex is quadratic on a long run of dots. */
+function withoutTrailingDots(text: string): string {
+  let end = text.length;
+  while (end > 0 && text[end - 1] === ".") end--;
+  return text.slice(0, end);
+}
+
 const engineOf = (runner: TranscribeRunner) => (runner === "whisper" ? "whisper" : "parakeet");
 
 /** The ASR subprocess's last stderr lines, which execFileSync captures but otherwise drops. */
@@ -413,7 +420,7 @@ async function transcribeAudio(
       result = await run(runner);
     } catch (err) {
       if (runner !== "sherpa" || err instanceof DecodeCancelled) throw err;
-      const reason = normalizeErrorMessage(err).replace(/\.+$/, "");
+      const reason = withoutTrailingDots(normalizeErrorMessage(err));
       const parakeetError = `Parakeet failed: ${reason}. To repair it, run: ${PARAKEET_INSTALL_COMMAND}`;
       if (!parakeetFallsBack(engine)) throw new Error(parakeetError);
       runner = pickRunner(
