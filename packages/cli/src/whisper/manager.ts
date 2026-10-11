@@ -230,6 +230,7 @@ export async function ensureWhisper(options?: {
 export async function ensureModel(
   model: string = DEFAULT_MODEL,
   options?: {
+    signal?: AbortSignal;
     onProgress?: (message: string) => void;
     onDownloadProgress?: (receivedBytes: number, totalBytes: number | null) => void;
   },
@@ -240,7 +241,10 @@ export async function ensureModel(
   mkdirSync(MODELS_DIR, { recursive: true });
 
   options?.onProgress?.(`Downloading model ${model}...`);
-  await downloadFile(getModelUrl(model), modelPath, { onProgress: options?.onDownloadProgress });
+  await downloadFile(getModelUrl(model), modelPath, {
+    signal: options?.signal,
+    onProgress: options?.onDownloadProgress,
+  });
 
   if (!existsSync(modelPath)) {
     throw new Error(`Model download failed: ${model}`);

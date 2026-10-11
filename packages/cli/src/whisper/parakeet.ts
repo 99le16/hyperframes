@@ -13,13 +13,13 @@
  * pipeline consumes.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import { TRANSCRIPT_FILE } from "./transcriptFile.js";
 import type { Word } from "./normalize.js";
-import type { TranscribeProgress, TranscribeResult } from "./transcribe.js";
+import type { TranscribeProgress, RunnerResult } from "./transcribe.js";
 
 /** The model name `transcribe --json` reports for every Parakeet runner. */
 export const PARAKEET_MODEL_LABEL = "parakeet-tdt-0.6b-v3";
@@ -276,14 +276,56 @@ interface ParakeetOptions {
   model?: string;
   onProgress?: (message: string) => void;
   onEvent?: (event: TranscribeProgress) => void;
+  /** Aborting it kills parakeet-mlx and rejects with the signal's reason. */
+  signal?: AbortSignal;
+}
+
+const PARAKEET_MLX_TIMEOUT_MS = 1_800_000;
+
+/** Runs parakeet-mlx off the event loop so a signal can stop it; failures read as execFileSync's did. */
+function runParakeetMlx(file: string, args: string[], signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(file, args, { stdio: ["ignore", "pipe", "pipe"], signal });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
+    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+    }, PARAKEET_MLX_TIMEOUT_MS);
+    child.on("error", (err) => {
+      // A child that started still ends with "close"; wait for it, so a stop means it is gone.
+      if (child.pid !== undefined) return;
+      clearTimeout(timer);
+      reject(Object.assign(err, { message: err.message.replace(/^spawn /, "spawnSync ") }));
+    });
+    child.on("close", (status, exitSignal) => {
+      clearTimeout(timer);
+      if (signal?.aborted) return reject(signal.reason);
+      const output = { status, signal: exitSignal, stdout: Buffer.concat(stdout) };
+      const errText = Buffer.concat(stderr);
+      if (timedOut) {
+        const message = `spawnSync ${file} ETIMEDOUT`;
+        return reject(
+          Object.assign(new Error(message), output, { code: "ETIMEDOUT", stderr: errText }),
+        );
+      }
+      if (status === 0) return resolve();
+      const command = `Command failed: ${[file, ...args].join(" ")}`;
+      const message = errText.length > 0 ? `${command}\n${errText.toString()}` : command;
+      reject(Object.assign(new Error(message), output, { stderr: errText }));
+    });
+  });
 }
 
 /** Transcribe with Parakeet and write `transcript.json` (Word[]) into `dir`. */
-export function transcribeWithParakeet(
+export async function transcribeWithParakeet(
   inputPath: string,
   dir: string,
   options?: ParakeetOptions,
-): TranscribeResult {
+): Promise<RunnerResult> {
   const runner = findParakeet();
   if (!runner) {
     throw new Error(
@@ -309,7 +351,7 @@ export function transcribeWithParakeet(
       model: PARAKEET_MODEL_LABEL,
       status: "started",
     });
-    execFileSync(runner, argv, { stdio: ["ignore", "pipe", "pipe"], timeout: 1_800_000 });
+    await runParakeetMlx(runner, argv, options?.signal);
 
     const produced = join(workDir, `${basename(inputPath, extname(inputPath))}.json`);
     if (!existsSync(produced)) throw new Error("Parakeet did not produce output.");
@@ -329,7 +371,7 @@ export function transcribeWithParakeet(
   }
 }
 
-export function writeParakeetTranscript(dir: string, words: Word[]): TranscribeResult {
+export function writeParakeetTranscript(dir: string, words: Word[]): RunnerResult {
   mkdirSync(dir, { recursive: true });
   const transcriptPath = join(dir, TRANSCRIPT_FILE);
   writeFileSync(transcriptPath, JSON.stringify(words, null, 2));

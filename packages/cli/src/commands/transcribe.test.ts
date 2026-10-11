@@ -20,7 +20,8 @@ import { formatVtt, loadTranscript } from "../whisper/normalize.js";
 import { CliRuntimeError, consumeCommandResult } from "../utils/commandResult.js";
 
 // Make the whisper core report "unavailable" so we exercise the soft-skip path.
-const transcribeMock = vi.fn();
+// Hoisted: the transcribe API imports whisper/transcribe.js statically, so this mock's factory runs during imports.
+const transcribeMock = vi.hoisted(() => vi.fn());
 const prepareWavMock = vi.fn((input: string) => input);
 let audioSeconds = 1;
 vi.mock("node:fs", async (importOriginal) => {

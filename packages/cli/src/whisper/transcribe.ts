@@ -10,10 +10,13 @@ import { randomUUID } from "node:crypto";
 import { findFFmpeg, findFFprobe, getFFmpegInstallHint } from "../browser/ffmpeg.js";
 import { stoppedByCancelSignal } from "../utils/renderCancellation.js";
 import { ensureWhisper, ensureModel, hasFFmpeg, DEFAULT_MODEL } from "./manager.js";
+import { initialModelForLanguage } from "./modelForLanguage.js";
 import { TRANSCRIPT_FILE } from "./transcriptFile.js";
 import { findWavChunk } from "./wav.js";
 import type { Word } from "./normalize.js";
 import { emitWords } from "./progress.js";
+
+export { initialModelForLanguage };
 
 const WHISPER_TIMEOUT_FLOOR_MS = 300_000;
 const WHISPER_TIMEOUT_PER_AUDIO_SECOND_MS = 10_000;
@@ -252,7 +255,7 @@ export type TranscribeProgress =
   /** Words heard so far, before the final transcript replaces them; `through` is audio seconds done. */
   | { type: "words"; model: string; words: Word[]; through: number };
 
-export interface TranscribeOptions {
+export interface WhisperOptions {
   installRuntime?: boolean;
   model?: string;
   language?: string;
@@ -260,6 +263,7 @@ export interface TranscribeOptions {
   onEvent?: (event: TranscribeProgress) => void;
   /** Called as whisper starts, so a stop during install or download still ends the CLI at once. */
   startCancellation?: () => AbortSignal;
+  signal?: AbortSignal;
   /**
    * Explicit whisper spawn timeout in ms. Overrides the duration+model auto-
    * scaled default. Callers that leave this undefined get the auto-scaled
@@ -268,7 +272,7 @@ export interface TranscribeOptions {
   timeoutMs?: number;
 }
 
-export interface TranscribeResult {
+export interface RunnerResult {
   model: string;
   detectedLanguage: string | null;
   transcriptPath: string;
@@ -411,14 +415,6 @@ export function dtwPresetForModel(model: string): string {
   return model.replace(/-/g, ".");
 }
 
-export function initialModelForLanguage(model: string, language?: string): string {
-  const baseLanguage = language?.trim().toLowerCase().split(/[-_]/, 1)[0];
-  if (baseLanguage && baseLanguage !== "en" && model.endsWith(".en")) {
-    return model.slice(0, -3);
-  }
-  return model;
-}
-
 export function prepareWav(inputPath: string, onProgress?: (message: string) => void): string {
   if (isAudioFile(inputPath)) {
     onProgress?.("Preparing audio...");
@@ -443,11 +439,13 @@ export function prepareWav(inputPath: string, onProgress?: (message: string) => 
 export async function transcribe(
   inputPath: string,
   outputDir: string,
-  options?: TranscribeOptions,
-): Promise<TranscribeResult> {
+  options?: WhisperOptions,
+): Promise<RunnerResult> {
   const model = initialModelForLanguage(options?.model ?? DEFAULT_MODEL, options?.language);
 
+  const signal = options?.signal;
   // 1. Ensure whisper binary
+  signal?.throwIfAborted();
   options?.onProgress?.("Checking whisper...");
   const whisper = await ensureWhisper({
     onProgress: options?.onProgress,
@@ -455,8 +453,10 @@ export async function transcribe(
   });
 
   // 2. Ensure model
+  signal?.throwIfAborted();
   options?.onProgress?.("Checking model...");
   const modelPath = await ensureModel(model, {
+    signal,
     onProgress: options?.onProgress,
     onDownloadProgress: options?.onEvent
       ? (receivedBytes, totalBytes) =>
@@ -471,7 +471,9 @@ export async function transcribe(
   });
 
   // 3. Prepare audio
+  signal?.throwIfAborted();
   const wavPath = prepareWav(inputPath, options?.onProgress);
+  signal?.throwIfAborted();
 
   const automaticLanguage = options?.language === undefined && !model.endsWith(".en");
   const language = options?.language ?? (automaticLanguage ? "auto" : "en");

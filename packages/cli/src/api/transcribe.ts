@@ -1,22 +1,41 @@
 import { existsSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { normalizeErrorMessage } from "../utils/errorMessage.js";
+import {
+  createRenderCancellationScope,
+  stoppedByCancelSignal,
+} from "../utils/renderCancellation.js";
 import { DEFAULT_MODEL, isWhisperUnavailable } from "../whisper/manager.js";
+import { initialModelForLanguage } from "../whisper/modelForLanguage.js";
+import {
+  formatSrt,
+  formatVtt,
+  loadTranscript,
+  patchCaptionHtml,
+  type TranscriptFormat,
+  type Word,
+} from "../whisper/normalize.js";
 import {
   PARAKEET_INSTALL_COMMAND,
   PARAKEET_LANGUAGES,
   parakeetSpeaks,
   transcribeWithParakeet,
 } from "../whisper/parakeet.js";
+import { parakeetRunner, type ParakeetRunner } from "../whisper/parakeetRunner.js";
+import {
+  DecodeCancelled,
+  prepareSherpaWav,
+  sherpaUnsupportedReason,
+  transcribeWithSherpa,
+} from "../whisper/sherpa.js";
 import { TRANSCRIPT_FILE } from "../whisper/transcriptFile.js";
-import type { TranscriptFormat, Word } from "../whisper/normalize.js";
-import type { ParakeetRunner } from "../whisper/parakeetRunner.js";
-import type { TranscribeProgress } from "../whisper/transcribe.js";
+import {
+  transcribe as transcribeWithWhisper,
+  type TranscribeProgress,
+} from "../whisper/transcribe.js";
 
 // Smallest accepted whisper timeout. Below it the whisper spawn has no realistic chance of
-// finishing even on the fastest hardware for the shortest clip. This module never imports
-// `whisper/transcribe.ts` at the top level, so the command test can hoist its
-// `vi.mock("../whisper/transcribe.js")` factory without that module entering the sync-import graph.
+// finishing even on the fastest hardware for the shortest clip.
 export const MIN_TIMEOUT_MS = 5000;
 
 export type TranscribeEngine = "auto" | "parakeet" | "whisper";
@@ -37,7 +56,7 @@ export interface TranscribeCaptionsOptions {
 export interface TranscribeEngineEvent {
   runner: TranscribeRunner;
   engine: "parakeet" | "whisper";
-  /** The whisper model; meaningful only when `engine` is "whisper". */
+  /** The model whisper runs, after `language` picks the multilingual twin; whisper engine only. */
   model: string;
   /** Set when auto mode gave up on Parakeet and this runner takes over. */
   fallbackReason?: string;
@@ -140,6 +159,11 @@ interface CancellationScope {
 }
 
 export async function runTranscribe(options: TranscribeRequest): Promise<TranscribeResult> {
+  if (options.signal?.aborted) {
+    throw new TranscribeError("cancelled", "Transcription cancelled", {
+      cause: options.signal.reason,
+    });
+  }
   const inputPath = resolve(options.input);
   if (!existsSync(inputPath)) {
     throw new TranscribeError("input_not_found", `File not found: ${options.input}`);
@@ -229,10 +253,7 @@ function sameFile(out: string, file: string): boolean {
 // Import and export existing transcripts
 // ---------------------------------------------------------------------------
 
-async function readTranscript(
-  inputPath: string,
-): Promise<{ words: Word[]; format: TranscriptFormat }> {
-  const { loadTranscript } = await import("../whisper/normalize.js");
+function readTranscript(inputPath: string): { words: Word[]; format: TranscriptFormat } {
   let transcript: { words: Word[]; format: TranscriptFormat };
   try {
     transcript = loadTranscript(inputPath);
@@ -245,9 +266,8 @@ async function readTranscript(
   return transcript;
 }
 
-async function importTranscript(inputPath: string, dir: string): Promise<TranscribeResult> {
-  const { patchCaptionHtml } = await import("../whisper/normalize.js");
-  const { words, format } = await readTranscript(inputPath);
+function importTranscript(inputPath: string, dir: string): TranscribeResult {
+  const { words, format } = readTranscript(inputPath);
 
   const transcriptPath = join(dir, TRANSCRIPT_FILE);
   writeFileSync(transcriptPath, JSON.stringify(words, null, 2));
@@ -255,13 +275,10 @@ async function importTranscript(inputPath: string, dir: string): Promise<Transcr
   return { kind: "imported", format, wordCount: words.length, transcriptPath };
 }
 
-async function exportTranscript(
-  inputPath: string,
-  sidecar: CaptionSidecar,
-): Promise<TranscribeResult> {
-  const { words, format } = await readTranscript(inputPath);
+function exportTranscript(inputPath: string, sidecar: CaptionSidecar): TranscribeResult {
+  const { words, format } = readTranscript(inputPath);
   try {
-    await writeCaptionSidecar(words, sidecar, format === "srt" || format === "vtt" || undefined);
+    writeCaptionSidecar(words, sidecar, format === "srt" || format === "vtt" || undefined);
   } catch (err) {
     throw new TranscribeError(
       "caption_write_failed",
@@ -277,15 +294,14 @@ async function exportTranscript(
   };
 }
 
-async function writeCaptionSidecar(
+function writeCaptionSidecar(
   words: Word[],
   { to, outPath, preserveCues, keep }: CaptionSidecar,
   phraseLevelSource: boolean | undefined,
-): Promise<void> {
+): void {
   // Checked at write time, when the transcript exists, so the OS resolves every link and alias.
   const hit = keep.find((file) => sameFile(outPath, file));
   if (hit) throw new Error(`it is the same file as ${hit}`);
-  const { formatSrt, formatVtt } = await import("../whisper/normalize.js");
   // A .srt/.vtt source is already phrase-level; keep its cue boundaries 1:1.
   // preserveCues forces the same for an already-cued transcript.json whose
   // entries have no internal whitespace (single-word or CJK captions), which
@@ -344,15 +360,6 @@ async function transcribeAudio(
   sidecar: CaptionSidecar | undefined,
   options: TranscribeRequest,
 ): Promise<TranscribeResult> {
-  const { transcribe } = await import("../whisper/transcribe.js");
-  const { loadTranscript, patchCaptionHtml } = await import("../whisper/normalize.js");
-
-  const { DecodeCancelled, prepareSherpaWav, sherpaUnsupportedReason, transcribeWithSherpa } =
-    await import("../whisper/sherpa.js");
-  const { parakeetRunner } = await import("../whisper/parakeetRunner.js");
-  const { createRenderCancellationScope, stoppedByCancelSignal } =
-    await import("../utils/renderCancellation.js");
-
   const engine = (options.engine ?? "auto").toLowerCase();
   if (engine !== "auto" && engine !== "parakeet" && engine !== "whisper") {
     throw new TranscribeError(
@@ -373,7 +380,8 @@ async function transcribeAudio(
   }
 
   const model = options.model ?? DEFAULT_MODEL;
-  options.onEngine?.({ runner, engine: engineOf(runner), model });
+  const whisperModel = initialModelForLanguage(model, options.language);
+  options.onEngine?.({ runner, engine: engineOf(runner), model: whisperModel });
   const { onStatus, onProgress } = options;
   const startScope = (): CancellationScope =>
     options.stopOnProcessSignals
@@ -381,7 +389,8 @@ async function transcribeAudio(
       : { signal: options.signal ?? new AbortController().signal, dispose: () => {} };
   let wavPath = inputPath;
   // Before audio prep: under --json no spinner listens for SIGINT, so Ctrl-C would kill Node.
-  let cancellation = runner === "sherpa" ? startScope() : null;
+  // A caller's own signal is live from the start, whichever runner it ends up stopping.
+  let cancellation = runner === "sherpa" || !options.stopOnProcessSignals ? startScope() : null;
   const run = (r: TranscribeRunner) => {
     switch (r) {
       case "sherpa":
@@ -394,15 +403,17 @@ async function transcribeAudio(
         return transcribeWithParakeet(wavPath, dir, {
           onProgress: onStatus,
           onEvent: onProgress,
+          signal: cancellation?.signal,
         });
       case "whisper":
-        return transcribe(wavPath, dir, {
+        return transcribeWithWhisper(wavPath, dir, {
           model,
           language: options.language,
           onProgress: onStatus,
           onEvent: onProgress,
           timeoutMs: options.timeoutMs,
           installRuntime: options.installRuntime,
+          signal: cancellation?.signal,
           startCancellation: () => (cancellation ??= startScope()).signal,
         });
       default: {
@@ -431,7 +442,7 @@ async function transcribeAudio(
       options.onEngine?.({
         runner,
         engine: engineOf(runner),
-        model,
+        model: whisperModel,
         fallbackReason: parakeetError,
       });
       try {
@@ -452,7 +463,7 @@ async function transcribeAudio(
     patchCaptionHtml(dir, words);
     if (sidecar) {
       try {
-        await writeCaptionSidecar(words, sidecar, false);
+        writeCaptionSidecar(words, sidecar, false);
       } catch (err) {
         throw new TranscribeError(
           "caption_write_failed",

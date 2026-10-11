@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { ensureModel } from "../whisper/manager.js";
+import { MODELS_DIR, ensureModel } from "../whisper/manager.js";
 import { EventEmitter } from "node:events";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -55,6 +55,40 @@ afterEach(() => {
 });
 
 describe("downloadFile", () => {
+  it("hands https.get the caller's signal, so aborting a model download removes the partial file", async () => {
+    let seen: AbortSignal | undefined;
+    mockGet.mockImplementation(((
+      _url: string,
+      options: { signal?: AbortSignal },
+      callback: (response: IncomingMessage) => void,
+    ) => {
+      seen = options.signal;
+      const response = Object.assign(new PassThrough(), { statusCode: 200, headers: {} });
+      const request = new EventEmitter() as ClientRequest;
+      request.setTimeout = vi.fn();
+      callback(response as unknown as IncomingMessage);
+      response.write("partial");
+      // What Node does with a request whose signal aborts.
+      options.signal?.addEventListener("abort", () =>
+        request.emit(
+          "error",
+          Object.assign(new Error("The operation was aborted"), { name: "AbortError" }),
+        ),
+      );
+      return request;
+    }) as unknown as typeof httpsGet);
+    const controller = new AbortController();
+    const model = `test-${randomUUID()}`;
+
+    const download = ensureModel(model, { signal: controller.signal });
+    await new Promise((resolve) => setImmediate(resolve));
+    controller.abort();
+
+    await expect(download).rejects.toThrow("The operation was aborted");
+    expect(seen).toBe(controller.signal);
+    expect(readdirSync(MODELS_DIR).filter((name) => name.includes(model))).toEqual([]);
+  });
+
   it("carries model download progress through the real pipeline and stays quiet on cache hits", async () => {
     mockGet.mockImplementation(httpsResponse(200, { "content-length": "5" }, "hello"));
     const events: unknown[] = [];

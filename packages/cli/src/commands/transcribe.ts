@@ -168,7 +168,8 @@ function showEngine(
   spin: Spinner | null,
   opts: { json: boolean; model?: string },
 ): Spinner | null {
-  const label = c.accent(event.runner === "whisper" ? event.model : "Parakeet");
+  // The requested model, as the spinner has always shown it; event.model is the one whisper runs.
+  const label = c.accent(event.runner === "whisper" ? (opts.model ?? DEFAULT_MODEL) : "Parakeet");
   if (event.fallbackReason !== undefined) {
     spin?.clear();
     console.error(c.warn(`${event.fallbackReason}. Using ${event.runner} for this run.`));

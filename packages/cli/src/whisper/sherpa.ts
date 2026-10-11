@@ -31,7 +31,7 @@ import {
   getPreparedWavDurationSeconds,
   prepareWav,
   type TranscribeProgress,
-  type TranscribeResult,
+  type RunnerResult,
 } from "./transcribe.js";
 
 const RUNTIME = "sherpa-onnx-node";
@@ -464,7 +464,7 @@ export async function transcribeWithSherpa(
     cliUrl?: string;
     onEvent?: (event: TranscribeProgress) => void;
   },
-): Promise<TranscribeResult> {
+): Promise<RunnerResult> {
   options.onProgress?.("Transcribing with Parakeet...");
   options.onEvent?.({
     type: "progress",

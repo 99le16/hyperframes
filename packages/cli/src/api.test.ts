@@ -1,7 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { WhisperUnavailableError } from "./whisper/manager.js";
 
 const { transcribeMock, renderMock } = vi.hoisted(() => ({
@@ -11,6 +20,11 @@ const { transcribeMock, renderMock } = vi.hoisted(() => ({
 vi.mock("./whisper/transcribe.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./whisper/transcribe.js")>()),
   transcribe: transcribeMock,
+}));
+// Parakeet runs on parakeet-mlx in these tests, whatever this machine has installed.
+vi.mock("./whisper/sherpa.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./whisper/sherpa.js")>()),
+  sherpaParakeetInstalled: () => false,
 }));
 vi.mock("./background-removal/pipeline.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./background-removal/pipeline.js")>()),
@@ -41,6 +55,7 @@ afterEach(() => {
   expect(console.log).not.toHaveBeenCalled();
   expect(console.error).not.toHaveBeenCalled();
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -208,6 +223,67 @@ describe("transcribe", () => {
     expect(err.code).toBe("failed");
     expect(err.message).toBe("Command failed: whisper-cli\nloading model\nout of memory");
     expect(err.cause).toBe(crash);
+  });
+
+  it("reports the model whisper will run, not the English-only default", async () => {
+    const input = dummyAudio();
+    transcribeMock.mockImplementation(async (_input, outputDir) => whisperResult(outputDir));
+    const onEngine = vi.fn();
+
+    await transcribe({ input, engine: "whisper", language: "es", onEngine });
+
+    expect(onEngine).toHaveBeenCalledWith(expect.objectContaining({ model: "small" }));
+  });
+
+  it("throws at once for a signal that is already aborted, before any setup", async () => {
+    const input = dummyAudio();
+    const controller = new AbortController();
+    controller.abort();
+
+    const err = await transcribeError({ input, engine: "whisper", signal: controller.signal });
+
+    expect(err.code).toBe("cancelled");
+    expect(transcribeMock).not.toHaveBeenCalled();
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "stops a running parakeet-mlx when the signal aborts",
+    async () => {
+      const pidFile = join(dir, "parakeet.pid");
+      const runner = join(dir, "parakeet-mlx");
+      writeFileSync(
+        runner,
+        `#!/bin/sh\n[ "$1" = --help ] && exit 0\necho $$ > "${pidFile}"\nexec sleep 30\n`,
+      );
+      chmodSync(runner, 0o755);
+      vi.stubEnv("HYPERFRAMES_PARAKEET", runner);
+      const controller = new AbortController();
+      const started = Date.now();
+      // Abort once the child is really running; a blocked event loop never gets this far.
+      const poll = setInterval(() => {
+        if (existsSync(pidFile) && readFileSync(pidFile, "utf8").trim()) controller.abort();
+      }, 20);
+
+      const err = await transcribeError({
+        input: dummyAudio(),
+        engine: "parakeet",
+        signal: controller.signal,
+      }).finally(() => clearInterval(poll));
+
+      expect(err.code).toBe("cancelled");
+      expect(Date.now() - started).toBeLessThan(10_000);
+      const pid = Number(readFileSync(pidFile, "utf8"));
+      expect(() => process.kill(pid, 0)).toThrow();
+    },
+  );
+
+  it("keeps every import of the API modules at module scope", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const files = ["api.ts", ...readdirSync(join(here, "api")).map((f) => join("api", f))];
+    const sources = files.filter((f) => !f.endsWith(".test.ts"));
+    for (const file of sources) {
+      expect(readFileSync(join(here, file), "utf8"), file).not.toMatch(/\bimport\(/);
+    }
   });
 
   it.each([
