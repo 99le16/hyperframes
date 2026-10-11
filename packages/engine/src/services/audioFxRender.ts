@@ -550,12 +550,9 @@ export async function applyAudioFxChain(
 }
 
 /**
- * Run `body` with a leased browser, handing it a way to open a page on the runtime.
- *
- * Both resources are taken INSIDE the try that releases them. The lease used
- * to be acquired above it, with the mkdtemp between — so a failure there
- * (a full disk, a read-only tmpdir) leaked a pooled browser, and a pool with
- * no leases left hangs every later render rather than failing one.
+ * Run `body` with a leased browser and a way to open pages on the runtime. The lease and
+ * the temp dir are taken inside the try that releases them, so a failure between them
+ * cannot leak a pooled browser.
  */
 async function withFxBrowser<T>(
   options: { trackId: string; signal?: AbortSignal },
