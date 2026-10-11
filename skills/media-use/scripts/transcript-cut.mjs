@@ -203,6 +203,10 @@ function cutSegment(inputPath, segment, outPath, copy, fade) {
     // A keyframe every second. The renderer seeks into this footage, and x264
     // on its own leaves up to 250 frames between keyframes.
     argv.push("-force_key_frames", "expr:gte(t,n_forced)");
+    // Constant frame rate from the first frame. Left to itself, ffmpeg 7 starts
+    // a range that begins between two source frames one frame late, and .mov
+    // rounds that lead-in to the millisecond.
+    argv.push("-fps_mode", "cfr");
   } else {
     if (fade) argv.push("-af", fade);
     argv.push("-c:a", "pcm_s16le");
