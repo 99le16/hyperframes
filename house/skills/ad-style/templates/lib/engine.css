@@ -1,0 +1,36 @@
+@import url(fonts.css);
+:root{--y:#FAF400;--ink:#1d1d1f;--navy:#0f1a2a}
+html,body{margin:0;padding:0;background:#000;overflow:hidden}
+#root{position:relative;overflow:hidden;background:#000;font-family:"Helvetica Neue","Inter",sans-serif;color:#fff}
+.layer{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.inner{position:absolute;left:0;top:0;width:1080px;height:1920px}
+.inner video{display:block;width:100%;height:100%}
+.abs{position:absolute}
+/* behind-head / front words (ref: Helvetica Neue Bold, very tight) */
+.hv{font-family:"Helvetica Neue","Inter";font-weight:700;letter-spacing:-.055em;line-height:.82;white-space:nowrap}
+.hvs{font-family:"Helvetica Neue","Inter";font-weight:500;letter-spacing:-.04em;line-height:.95;white-space:nowrap}
+.hvi{font-family:"Helvetica Neue","Inter";font-weight:700;font-style:italic;letter-spacing:-.04em;line-height:.9;white-space:nowrap}
+.w{display:inline-block}
+.shadowed{text-shadow:0 2px 14px rgba(0,0,0,.35)}
+/* caption pill (ref: 351x96 at y1229, Helvetica bold ~56px) */
+.pill{position:absolute;left:540px;top:1277px;transform:translate(-50%,-50%);background:#fff;color:#111;border-radius:20px;
+  padding:14px 24px 17px;font-family:"Helvetica Neue","Inter";font-weight:700;font-size:54px;letter-spacing:-.035em;white-space:nowrap;line-height:1}
+/* typewriter title (ref: bold italic slab typewriter + yellow stamped highlight) */
+.tw{position:absolute;font-family:"Courier Prime";font-style:italic;font-weight:700;letter-spacing:-.02em;white-space:nowrap;line-height:1.12}
+.tw .c{opacity:0}
+.hl{display:inline-block;background:var(--y);color:#151515;font-family:"Special Elite";font-style:normal;font-weight:400;letter-spacing:.01em;
+  padding:0 .12em;margin:0 .06em;line-height:1.08;transform:translateY(-.04em)}
+/* notepad card */
+.card{position:absolute;background:#fbfbf8;box-shadow:0 10px 26px rgba(0,0,0,.45);color:#2a2a2a;font-family:"Helvetica Neue","Inter";font-weight:300;
+  letter-spacing:-.03em;display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.06}
+.card .spiral{position:absolute;left:4%;right:4%;top:-14px;height:30px;display:flex;justify-content:space-between}
+.card .spiral i{display:block;width:9px;height:30px;border-radius:5px;background:linear-gradient(90deg,#111,#555 50%,#111)}
+.card .fold{position:absolute;right:0;bottom:0;width:17%;aspect-ratio:1;background:linear-gradient(135deg,#d9d9d4 0 49%,transparent 51%);
+  box-shadow:-3px -3px 6px rgba(0,0,0,.18)}
+.card .foldcut{position:absolute;right:0;bottom:0;width:17%;aspect-ratio:1;background:linear-gradient(135deg,transparent 50%,var(--cbg,#152234) 50%)}
+.num{position:absolute;font-family:"Inter Tight","Helvetica Neue";font-weight:800;font-style:italic;color:var(--y);letter-spacing:-.02em;line-height:1}
+.cut{position:absolute;transform-origin:50% 100%}
+.cut img{display:block;width:100%;height:auto}
+.lbl{position:absolute;font-family:"Courier Prime";font-weight:700;font-size:19px;color:#222;white-space:nowrap;letter-spacing:-.02em}
+.hand{font-family:"Gochi Hand";}
+#grain{position:absolute;inset:0;z-index:95;pointer-events:none;opacity:.05;background-image:url(grain.png);mix-blend-mode:overlay}

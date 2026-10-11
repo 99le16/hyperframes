@@ -1,0 +1,89 @@
+[
+  {
+    "id": "H0",
+    "zoom": [
+      [0, 1, 960, 540],
+      [2.7, 1.18, 963, 430],
+      [3.48, 5.5, 963, 423]
+    ],
+    "s": 0.0,
+    "e": 3.48,
+    "note": "opener: dark trading room, monitors glowing; push into the centre monitor; 'TRADING' types on its screen",
+    "clip_dur": 4,
+    "motion": "Smooth cinematic dolly-in toward the centre monitor; the candlestick charts on the screens tick upward and glow; city lights twinkle."
+  },
+  {
+    "id": "H1",
+    "zoom": [
+      [0, 1, 960, 540],
+      [5.68, 1.14, 960, 480]
+    ],
+    "s": 27.6,
+    "e": 33.28,
+    "note": "pedestal under a red velvet cloth with a golden '?'; cloth is pulled → only smoke. Text 'MÉTODO SECRETO' then 'vendehumos'",
+    "clip_dur": 8,
+    "motion": "The red velvet cloth is pulled away upward and flies out of frame, revealing an EMPTY pedestal; thick smoke swirls up where the object should be; dust in the spotlight beam. Static camera with a slow push-in."
+  },
+  {
+    "id": "H2",
+    "zoom": [
+      [0, 1, 960, 540],
+      [6.98, 1.0, 960, 540]
+    ],
+    "s": 74.7,
+    "e": 81.68,
+    "note": "slot machine; reels show car / plane / palm tree; text 'El trading NO es…' typed on the top panel, a red ✕ stamps on each reel at coches / viajes / playa",
+    "clip_dur": 8,
+    "motion": "The slot machine reels spin fast with motion blur, then stop one by one on the car, the plane and the palm tree; the cabinet lights blink; slow push-in."
+  },
+  {
+    "id": "H3",
+    "zoom": [
+      [0, 1, 960, 540],
+      [3.3, 1.12, 900, 520],
+      [4.3, 6.0, 683, 430]
+    ],
+    "s": 130.1,
+    "e": 134.4,
+    "note": "cinematic chess board, red rim light, camera glides; 'ESTRATEGIA' lands on the board; push into the board → F05 3D chapter",
+    "clip_dur": 4,
+    "motion": "Low cinematic camera gliding slowly along the chess board toward the black king; red rim light flickers; shallow depth of field, haze drifting."
+  },
+  {
+    "id": "H4",
+    "zoom": [
+      [0, 1, 960, 540],
+      [7.98, 1.15, 960, 560]
+    ],
+    "s": 254.0,
+    "e": 261.98,
+    "note": "bull (green light) vs bear (red light) statues; 'EUFORIA' on the bull side @euforia, 'MIEDO' on the bear side @miedo",
+    "clip_dur": 8,
+    "motion": "The green light pulses on the charging bull and the red light pulses on the roaring bear; smoke rolls across the floor; slow push-in between the two statues; reflections shimmer."
+  },
+  {
+    "id": "H5",
+    "zoom": [
+      [0, 1, 960, 540],
+      [6.4, 1.15, 931, 520],
+      [7.27, 5.0, 931, 515]
+    ],
+    "s": 715.0,
+    "e": 722.27,
+    "note": "arcade cabinet, screen glows 'DEMO' with a score climbing; 'no duele' / no real money; text on the screen",
+    "clip_dur": 8,
+    "motion": "Slow push-in toward the glowing cyan arcade screen, the screen flickers softly like an old CRT; the coloured buttons blink; neon reflections move."
+  },
+  {
+    "id": "H6",
+    "zoom": [
+      [0, 1, 960, 540],
+      [5.36, 1.18, 960, 600]
+    ],
+    "s": 818.94,
+    "e": 824.3,
+    "note": "money swirling down a drain; 'PERDER MÁS' stamps over it @perder",
+    "clip_dur": 8,
+    "motion": "The water swirls faster into the drain, the dollar bills spin around and get sucked down one by one; ripples and splashes; slow rotating top-down camera."
+  }
+]

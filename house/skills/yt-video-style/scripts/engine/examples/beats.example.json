@@ -1,0 +1,737 @@
+{
+  "items": [
+    {
+      "id": "I01",
+      "kind": "ov",
+      "s": 0.0,
+      "e": 3.48,
+      "cam": "W",
+      "note": "tile: candlestick-chart icon pops LEFT of head at 'trading' (label script 'Trading'). Video opens from a white flash (compose)."
+    },
+    {
+      "id": "A01",
+      "kind": "av",
+      "s": 3.48,
+      "e": 8.3,
+      "clip": "AV1",
+      "note": "avatar at trading desk (gen/avatar_test.png). Bullets typed RIGHT side like ref 'More Money': Ingreso extra @ingreso / Profesionalizarte @profesionalizarte / Vivir del trading @vivir"
+    },
+    {
+      "id": "I02",
+      "kind": "ov",
+      "s": 8.3,
+      "e": 14.4,
+      "cam": "SL",
+      "note": "bullets left: 'El oficio digital' @oficio, script 'que más dinero mueve' @dinero"
+    },
+    {
+      "id": "I03",
+      "kind": "ov",
+      "s": 14.4,
+      "e": 19.4,
+      "cam": "SL",
+      "note": "bullets left: 'Lleno de:' @lleno, script lines Pseudo-traders @pseudo / Vendehumos @vendehumos / Falsos gurús @falsos"
+    },
+    {
+      "id": "A02",
+      "kind": "av",
+      "s": 19.4,
+      "e": 27.6,
+      "clip": "AV2",
+      "note": "flashy fake-guru cartoon (NOT the presenter) with sunglasses, gold watch, Lamborghini + mansion. Script words at the words: Relojes @relojes, Mansiones @mansiones, Coches de lujo @coches; at the end small script '¿alquilados?' @alquilados (27.3) — careful, ends at 27.6"
+    },
+    {
+      "id": "I04",
+      "kind": "ov",
+      "s": 27.6,
+      "e": 33.28,
+      "cam": "M",
+      "note": "tile: treasure chest / padlock pops RIGHT at 'método secreto' (label script 'Método secreto')"
+    },
+    {
+      "id": "F01",
+      "kind": "full",
+      "s": 33.28,
+      "e": 44.24,
+      "note": "header '✦ Una duda enorme' @duda; 2x2 glass cards in gentle 3D tilt, each question typed at its words: ¿Existe gente rentable? @existe / ¿Existe trading de verdad? @existe(2nd) / ¿Se puede vivir del trading? @puede / ¿Cómo puedo lograrlo? @como. Colours green/cyan/violet/blue."
+    },
+    {
+      "id": "F02",
+      "kind": "full",
+      "s": 44.24,
+      "e": 54.7,
+      "note": "credentials: three glass stat cards w/ counters: '5 años' + 'en la mesa de operaciones de un broker internacional' @suerte..@anos(5) ; '13 años' 'operando' @llevo ; '+10 años' 'rentable de forma consistente' @rentable. Camera glides left→right."
+    },
+    {
+      "id": "C01",
+      "kind": "cam",
+      "s": 54.7,
+      "e": 57.68,
+      "cam": "T"
+    },
+    {
+      "id": "I05",
+      "kind": "ov",
+      "s": 57.68,
+      "e": 63.6,
+      "cam": "SR",
+      "note": "bullets RIGHT side: 'El trading' @trading(60.9) + script 'sin fantasía' @fantasia"
+    },
+    {
+      "id": "F03",
+      "kind": "full",
+      "s": 63.6,
+      "e": 74.7,
+      "note": "ROADMAP grid like ref 'Mastering Gemini': header '✦ Tu hoja de ruta' then 3D tilted 3x2 grid of glass cards 'Paso #1..#6' with asterisk-masked titles (Estrategia, Mercados, Firmas propietarias, Formador, Demo vs real, Vivir del trading); camera drifts across; 'rentable y consistente' @rentable and 'vivir del trading' @vivir lift cards. Masked text ****."
+    },
+    {
+      "id": "I06",
+      "kind": "ov",
+      "s": 74.7,
+      "e": 81.68,
+      "cam": "W",
+      "note": "tiles column LEFT of head (like ref Claude/ChatGPT column): car @coches, plane @viajes, beach umbrella @playa"
+    },
+    {
+      "id": "I07",
+      "kind": "ov",
+      "s": 81.68,
+      "e": 88.6,
+      "cam": "SL",
+      "note": "bullets: 'Una profesión' @profesion; script 'como una ingeniería' @ingenieria, 'o una maestría' @maestria"
+    },
+    {
+      "id": "F04",
+      "kind": "full",
+      "s": 88.6,
+      "e": 97.66,
+      "note": "'✦ 3 complicaciones' @tres: three glass cards (green/cyan/violet) numbered 1/2/3, empty capsules; @primera card 1 fills + title 'Solo depende de ti'; script 'no es tan bueno' @realmente. cards 2,3 stay masked '****'"
+    },
+    {
+      "id": "I08",
+      "kind": "ov",
+      "s": 97.66,
+      "e": 103.58,
+      "cam": "SR",
+      "note": "bullets RIGHT: '2. Pensar en probabilidades' @pensar ; script 'Todos queremos certezas' @todos"
+    },
+    {
+      "id": "I09",
+      "kind": "ov",
+      "s": 103.58,
+      "e": 109.16,
+      "cam": "SL",
+      "note": "bullets LEFT: '3. Sin carrera homologada' @tercero ; tile graduation cap RIGHT of head @universitaria"
+    },
+    {
+      "id": "I10",
+      "kind": "ov",
+      "s": 109.16,
+      "e": 119.5,
+      "cam": "M",
+      "note": "tile warning sign RIGHT at 'escrúpulos' (label script 'Sin escrúpulos'); earlier at 'barreras' a low barrier? keep only the tile"
+    },
+    {
+      "id": "A03",
+      "kind": "av",
+      "s": 119.5,
+      "e": 124.4,
+      "clip": "AV3",
+      "note": "presenter cartoon watering a small plant of gold coins that grows into a tree (oficio→negocio). Bullets right: 'Un oficio' @oficio, 'Un negocio' @negocio + script 'a largo plazo' @largo"
+    },
+    {
+      "id": "I11",
+      "kind": "ov",
+      "s": 124.4,
+      "e": 130.1,
+      "cam": "SR",
+      "note": "bullets RIGHT: 'Metodología' @metodologia, 'Disciplina' @disciplina"
+    },
+    {
+      "id": "F05",
+      "kind": "full",
+      "s": 130.1,
+      "e": 140.4,
+      "note": "chapter like ref 'Beginner 10%': capsule tube left + big 'Paso 1' '15%' counter, then camera flies into the roadmap grid closeup where card 'Paso #1' unmasks 'La estrategia' typed. Under it three question lines typed: ¿Qué es? @que(es una estrategia) / ¿Cómo construirla? @construir / ¿Cómo hacerla rentable? @rentabilidad"
+    },
+    {
+      "id": "C02",
+      "kind": "cam",
+      "s": 140.4,
+      "e": 145.12,
+      "cam": "T"
+    },
+    {
+      "id": "I12",
+      "kind": "ov",
+      "s": 145.12,
+      "e": 149.9,
+      "cam": "SL",
+      "note": "bullets 'Trading =' @trading ; script 'Comercio' @comercio"
+    },
+    {
+      "id": "I13",
+      "kind": "ov",
+      "s": 149.9,
+      "e": 158.9,
+      "cam": "W",
+      "note": "tiles: cardboard box LEFT @fisicos (label 'Físico'), computer monitor with chart RIGHT @digital (label 'Digital')"
+    },
+    {
+      "id": "P01",
+      "kind": "pip",
+      "s": 158.9,
+      "e": 180.0,
+      "note": "dark trading platform window (left) + PiP. Chart of candles; @patrones two similar patterns get glowing boxes '×2'; @arriesgar a position-size panel slides in 'Riesgo 1 %'; @perder red stop-loss line + label 'Stop loss'; @precio (futuro) price line"
+    },
+    {
+      "id": "I14",
+      "kind": "ov",
+      "s": 180.0,
+      "e": 186.3,
+      "cam": "SL",
+      "note": "bullets 'Ventaja estadística' @ventaja ; script 'en el tiempo' @tiempo"
+    },
+    {
+      "id": "C03",
+      "kind": "cam",
+      "s": 186.3,
+      "e": 196.2,
+      "cam": "M"
+    },
+    {
+      "id": "I15",
+      "kind": "ov",
+      "s": 196.2,
+      "e": 203.18,
+      "cam": "W",
+      "note": "tiles: oil barrel LEFT @petroleo, wheat LEFT @grano, sugar RIGHT @azucar, coffee RIGHT @cafe"
+    },
+    {
+      "id": "A04",
+      "kind": "av",
+      "s": 203.18,
+      "e": 211.3,
+      "clip": "AV4",
+      "note": "cartoon cargo ship with coffee sacks crossing from one port to another at sunset. Script 'Arbitraje' @arbitraje; bullets 'Compra barato' @barato, 'Vende caro' @caro"
+    },
+    {
+      "id": "C04",
+      "kind": "cam",
+      "s": 211.3,
+      "e": 218.0,
+      "cam": "T"
+    },
+    {
+      "id": "I16",
+      "kind": "ov",
+      "s": 218.0,
+      "e": 229.0,
+      "cam": "SR",
+      "note": "bullets RIGHT: '2 meses' @dos(meses) ; script 'el precio puede cambiar' @evolucion"
+    },
+    {
+      "id": "I17",
+      "kind": "ov",
+      "s": 229.0,
+      "e": 237.82,
+      "cam": "M",
+      "note": "'otro vídeo' card: glass video thumbnail card (play button, title 'Cómo bloquean el precio') pops TOP-RIGHT @otro"
+    },
+    {
+      "id": "C05",
+      "kind": "cam",
+      "s": 237.82,
+      "e": 242.4,
+      "cam": "W"
+    },
+    {
+      "id": "I18",
+      "kind": "ov",
+      "s": 242.4,
+      "e": 254.0,
+      "cam": "SL",
+      "note": "bullets stack: 'Patrones de conducta' @patrones, 'Participantes' @participantes, 'Eventos' @eventos"
+    },
+    {
+      "id": "F06",
+      "kind": "full",
+      "s": 254.0,
+      "e": 261.98,
+      "note": "'✦ Comportamiento humano' header; two glass cards: EUFORIA (green capsule high, rising) @euforia and MIEDO (red capsule draining) @miedo"
+    },
+    {
+      "id": "P02",
+      "kind": "pip",
+      "s": 261.98,
+      "e": 269.2,
+      "note": "chart window: head-and-shoulders pattern drawn over candles @hombro, labels Hombro / Cabeza / Hombro; at end a '?' bubble"
+    },
+    {
+      "id": "I19",
+      "kind": "ov",
+      "s": 269.2,
+      "e": 275.3,
+      "cam": "SR",
+      "note": "bullets RIGHT 'Entiende' @entender ; script 'la emoción' @emocion"
+    },
+    {
+      "id": "F07",
+      "kind": "full",
+      "s": 275.3,
+      "e": 289.06,
+      "note": "TUBES 'Tipos de mercado' (see scenes/T_tubes.js): 3 cards Ineficientes(green)/Semieficientes(cyan)/Eficientes(violet) appear @categorias; @ineficientes card 1 highlights (others dim+blur), line 'Patrones de precio' typed under it @comportamiento"
+    },
+    {
+      "id": "I20",
+      "kind": "ov",
+      "s": 289.06,
+      "e": 295.48,
+      "cam": "SL",
+      "note": "tiles column LEFT: bitcoin @criptomonedas (label 'Cripto'), small-cap stock chart @acciones (label 'Small caps')"
+    },
+    {
+      "id": "F08",
+      "kind": "full",
+      "s": 295.48,
+      "e": 307.4,
+      "note": "TUBES continued: camera moves to card 2 Semieficientes (others dim); typed under it 'Análisis fundamental' @fundamental"
+    },
+    {
+      "id": "C06",
+      "kind": "cam",
+      "s": 307.4,
+      "e": 318.14,
+      "cam": "M"
+    },
+    {
+      "id": "I21",
+      "kind": "ov",
+      "s": 318.14,
+      "e": 325.8,
+      "cam": "SR",
+      "note": "bullets RIGHT 'Semieficiente' @semi ; script 'patrones fundamentales' @fundamentales"
+    },
+    {
+      "id": "I22",
+      "kind": "ov",
+      "s": 325.8,
+      "e": 331.66,
+      "cam": "W",
+      "note": "tiles RIGHT column: gold bar @oro, oil drop/commodities @materias"
+    },
+    {
+      "id": "F09",
+      "kind": "full",
+      "s": 331.66,
+      "e": 347.24,
+      "note": "TUBES continued: card 3 Eficientes highlighted, capsule full; 'Imposible sacar ventaja' typed @ningun; tile € / $ forex coin appears @divisas"
+    },
+    {
+      "id": "I23",
+      "kind": "ov",
+      "s": 347.24,
+      "e": 358.5,
+      "cam": "SL",
+      "note": "bullets 'Semieficiente' @semieficiente ; script 'Swing trading' @swing"
+    },
+    {
+      "id": "I24",
+      "kind": "ov",
+      "s": 358.5,
+      "e": 369.34,
+      "cam": "M",
+      "note": "video card TOP-RIGHT 'Swing trading explicado' @descripcion"
+    },
+    {
+      "id": "I25",
+      "kind": "ov",
+      "s": 369.34,
+      "e": 373.7,
+      "cam": "SR",
+      "note": "bullets RIGHT 'Ineficiente' @ineficiente ; script 'Intradía' @intradia"
+    },
+    {
+      "id": "C07",
+      "kind": "cam",
+      "s": 373.7,
+      "e": 382.4,
+      "cam": "T"
+    },
+    {
+      "id": "P03",
+      "kind": "pip",
+      "s": 382.4,
+      "e": 397.1,
+      "note": "chart window: Entrada marker @entras, Invalidación (stop) line @invalidada, Take profit line @beneficio, Gestión trailing @gestionar"
+    },
+    {
+      "id": "F10",
+      "kind": "full",
+      "s": 397.1,
+      "e": 410.0,
+      "note": "moraleja: big centred typed 'No es el patrón.' @patron; then two glass cards '✦ El contexto' @contexto and '✦ Tus normas' @normas"
+    },
+    {
+      "id": "C08",
+      "kind": "cam",
+      "s": 410.0,
+      "e": 419.08,
+      "cam": "T"
+    },
+    {
+      "id": "I26",
+      "kind": "ov",
+      "s": 419.08,
+      "e": 430.2,
+      "cam": "SL",
+      "note": "bullets 'Un negocio' @negocio ; script 'tiene que ser rentable' @rentables"
+    },
+    {
+      "id": "I27",
+      "kind": "ov",
+      "s": 430.2,
+      "e": 446.9,
+      "cam": "SR",
+      "note": "bullets RIGHT 'Diversificación' @diversificacion ; script 'de estrategias' @estrategias"
+    },
+    {
+      "id": "F11",
+      "kind": "full",
+      "s": 446.9,
+      "e": 459.02,
+      "note": "chapter 'La parte práctica' @practica: capsule 45 % + roadmap card 'Paso #3 Firmas propietarias' still masked; bullets 'Minimizar gastos' @minimizando, 'Maximizar aprendizaje' @maximizando"
+    },
+    {
+      "id": "A05",
+      "kind": "av",
+      "s": 459.02,
+      "e": 465.24,
+      "clip": "AV5",
+      "note": "presenter cartoon receiving a giant golden key in front of a glowing bank vault. Bullets 'Firmas propietarias' @firmas"
+    },
+    {
+      "id": "F12",
+      "kind": "full",
+      "s": 465.24,
+      "e": 469.4,
+      "note": "big glowing counter '10.000 $' → '200.000 $' @capitales/@200 like ref '500' scene, small 'de capital' label"
+    },
+    {
+      "id": "I28",
+      "kind": "ov",
+      "s": 469.4,
+      "e": 481.08,
+      "cam": "SL",
+      "note": "bullets stacking: 'Monetiza tu conocimiento' @monetizar, 'Arriesga solo la evaluación' @arriesgar, 'Maximiza beneficios' @maximizar"
+    },
+    {
+      "id": "I29",
+      "kind": "ov",
+      "s": 481.08,
+      "e": 490.4,
+      "cam": "SL",
+      "note": "bullets continuing (different framing): 'Sin tocar tus ahorros' @ahorros, 'Fondea tu propia cuenta' @fondear"
+    },
+    {
+      "id": "I30",
+      "kind": "ov",
+      "s": 490.4,
+      "e": 502.18,
+      "cam": "M",
+      "note": "video card TOP-RIGHT 'Firmas propietarias' @videos"
+    },
+    {
+      "id": "I31",
+      "kind": "ov",
+      "s": 502.18,
+      "e": 512.46,
+      "cam": "SL",
+      "note": "bullets 'Un formador' @formador ; script Estructura @estructura / Orden @orden / Gestión @gestion"
+    },
+    {
+      "id": "I32",
+      "kind": "ov",
+      "s": 512.46,
+      "e": 519.16,
+      "cam": "W",
+      "note": "tiles: YouTube-style red play tile LEFT @youtube, Instagram-style camera tile RIGHT @instagram; script 'Gratis' @gratuito"
+    },
+    {
+      "id": "F13",
+      "kind": "full",
+      "s": 519.16,
+      "e": 533.8,
+      "note": "'✦ Cómo filtrar a tu formador' @filtrar; checklist glass cards w/ check circles: Estructura @estructura, Resuelve dudas y soporte @resolutivo, Buena comunidad @comunidad"
+    },
+    {
+      "id": "C09",
+      "kind": "cam",
+      "s": 533.8,
+      "e": 541.96,
+      "cam": "T"
+    },
+    {
+      "id": "I33",
+      "kind": "ov",
+      "s": 541.96,
+      "e": 546.8,
+      "cam": "SR",
+      "note": "bullets RIGHT '¿Rentable en 2 semanas?' @tutorial"
+    },
+    {
+      "id": "I34",
+      "kind": "ov",
+      "s": 546.8,
+      "e": 561.5,
+      "cam": "SL",
+      "note": "bullets 'Experiencia' @experiencia, 'Ventaja estadística' @ventaja"
+    },
+    {
+      "id": "C10",
+      "kind": "cam",
+      "s": 561.5,
+      "e": 566.0,
+      "cam": "M"
+    },
+    {
+      "id": "A06",
+      "kind": "av",
+      "s": 566.0,
+      "e": 574.0,
+      "clip": "AV6",
+      "note": "presenter cartoon as young intern carrying a tower of coffee cups in an office. Bullets 'Becario' @becario, 'Junior' @junior"
+    },
+    {
+      "id": "F14",
+      "kind": "full",
+      "s": 574.0,
+      "e": 583.6,
+      "note": "timeline: glass progress bar with months ticks; counter '12 meses' @12 → '24 meses' @24 ; label 'Proyectos complejos' @complejos"
+    },
+    {
+      "id": "C11",
+      "kind": "cam",
+      "s": 583.6,
+      "e": 594.0,
+      "cam": "M"
+    },
+    {
+      "id": "I35",
+      "kind": "ov",
+      "s": 594.0,
+      "e": 606.0,
+      "cam": "SL",
+      "note": "bullets 'Buenos resultados' @buenos ; script 'en las primeras semanas' @primeras ; then 'Depende de ti' @depende"
+    },
+    {
+      "id": "C12",
+      "kind": "cam",
+      "s": 606.0,
+      "e": 614.0,
+      "cam": "T"
+    },
+    {
+      "id": "I36",
+      "kind": "ov",
+      "s": 614.0,
+      "e": 621.7,
+      "cam": "W",
+      "note": "tile group-of-people/community RIGHT @comunidad (label 'Comunidad')"
+    },
+    {
+      "id": "C13",
+      "kind": "cam",
+      "s": 621.7,
+      "e": 625.2,
+      "cam": "M"
+    },
+    {
+      "id": "A07",
+      "kind": "av",
+      "s": 625.2,
+      "e": 633.2,
+      "clip": "AV7",
+      "note": "presenter cartoon relaxed on a terrace by the sea at sunset with laptop (long-term, retirement). Bullets 'Un negocio a largo plazo' @negocio ; script 'mi jubilación' @jubilacion"
+    },
+    {
+      "id": "I37",
+      "kind": "ov",
+      "s": 633.2,
+      "e": 648.0,
+      "cam": "SL",
+      "note": "bullets: 'Un solo método' @solo, 'Gestión experta' @experta, 'Muy exigente' @exigente"
+    },
+    {
+      "id": "F15",
+      "kind": "full",
+      "s": 648.0,
+      "e": 657.5,
+      "note": "big counter '13' + 'años como trader' @13 ; script 'y sigo formándome' @formando (or @pagando)"
+    },
+    {
+      "id": "C14",
+      "kind": "cam",
+      "s": 657.5,
+      "e": 670.6,
+      "cam": "M"
+    },
+    {
+      "id": "I38",
+      "kind": "ov",
+      "s": 670.6,
+      "e": 684.7,
+      "cam": "SR",
+      "note": "bullets RIGHT 'No son 2 semanas' @dos ; script 'es una carrera a largo plazo' @carrera"
+    },
+    {
+      "id": "I39",
+      "kind": "ov",
+      "s": 684.7,
+      "e": 695.8,
+      "cam": "SL",
+      "note": "bullets 'Adáptalo' @adaptar ; script 'a tu personalidad' @personalidad"
+    },
+    {
+      "id": "I40",
+      "kind": "ov",
+      "s": 695.8,
+      "e": 705.42,
+      "cam": "M",
+      "note": "video card TOP-RIGHT 'Mi estrategia de trading' @videos"
+    },
+    {
+      "id": "F16",
+      "kind": "full",
+      "s": 705.42,
+      "e": 715.0,
+      "note": "chapter 'Demo vs Real' @demo: capsule 75 % + roadmap card 'Paso #5 Demo vs real' unmasks; typed 'Solo da confianza' @confianza"
+    },
+    {
+      "id": "P04",
+      "kind": "pip",
+      "s": 715.0,
+      "e": 727.32,
+      "note": "demo platform window, big 'DEMO' badge, equity curve shooting up +250 % @campeon trophy pops; @pierde it drops, script 'no duele' @duele"
+    },
+    {
+      "id": "I41",
+      "kind": "ov",
+      "s": 727.32,
+      "e": 738.04,
+      "cam": "SR",
+      "note": "bullets RIGHT 'Ve con lo mínimo' @minimo, 'Horas de práctica' @horas"
+    },
+    {
+      "id": "P05",
+      "kind": "pip",
+      "s": 738.04,
+      "e": 750.7,
+      "note": "journal window 'Diario de trading' table rows typed (fecha/activo/resultado/emoción emoji) @journal ; column 'Emociones' highlights @emociones"
+    },
+    {
+      "id": "I42",
+      "kind": "ov",
+      "s": 750.7,
+      "e": 757.44,
+      "cam": "M",
+      "note": "video card TOP-RIGHT 'Cómo hacer tu diario' @video"
+    },
+    {
+      "id": "F17",
+      "kind": "full",
+      "s": 757.44,
+      "e": 763.0,
+      "note": "chapter 'Vivir del trading' — capsule 90 %, header '✦ Lo que nadie te explica' @nadie, typed 'Ser rentable ≠ vivir del trading' @rentable"
+    },
+    {
+      "id": "C15",
+      "kind": "cam",
+      "s": 763.0,
+      "e": 768.8,
+      "cam": "T"
+    },
+    {
+      "id": "F18",
+      "kind": "full",
+      "s": 768.8,
+      "e": 779.3,
+      "note": "scale: two glass cards with counters: '5 % de 10.000 $' = '500 $' (green) @pequeno ; '5 % de 200.000 $' = '10.000 $' (violet) @grandes"
+    },
+    {
+      "id": "I43",
+      "kind": "ov",
+      "s": 779.3,
+      "e": 789.9,
+      "cam": "SL",
+      "note": "bullets 'Escala tu beneficio' @escalar ; script 'Capitaliza tu cuenta' @capitalizar"
+    },
+    {
+      "id": "C16",
+      "kind": "cam",
+      "s": 789.9,
+      "e": 793.5,
+      "cam": "M"
+    },
+    {
+      "id": "I44",
+      "kind": "ov",
+      "s": 793.5,
+      "e": 797.8,
+      "cam": "SR",
+      "note": "bullets RIGHT 'No dependas de terceros' @dependas"
+    },
+    {
+      "id": "C17",
+      "kind": "cam",
+      "s": 797.8,
+      "e": 806.78,
+      "cam": "T"
+    },
+    {
+      "id": "A08",
+      "kind": "av",
+      "s": 806.78,
+      "e": 811.66,
+      "clip": "AV8",
+      "note": "presenter cartoon relaxing on a big comfy cushion made of stacked banknotes. Bullets 'Colchón financiero' @colchon"
+    },
+    {
+      "id": "I45",
+      "kind": "ov",
+      "s": 811.66,
+      "e": 824.3,
+      "cam": "SL",
+      "note": "bullets 'Piensa en ser rentable' @rentable, 'Sin presión emocional' @presion"
+    },
+    {
+      "id": "C18",
+      "kind": "cam",
+      "s": 824.3,
+      "e": 830.58,
+      "cam": "T"
+    },
+    {
+      "id": "F19",
+      "kind": "full",
+      "s": 830.58,
+      "e": 841.06,
+      "note": "YouTube comments UI recreation (dark), channel 'Conquer Finance': comment box types '¿Puedes profundizar en las firmas propietarias?' @comentarios; like counter"
+    },
+    {
+      "id": "I46",
+      "kind": "ov",
+      "s": 841.06,
+      "e": 851.52,
+      "cam": "M",
+      "note": "video card TOP-RIGHT 'Mi metodología · 15 min' @enlace"
+    },
+    {
+      "id": "F20",
+      "kind": "full",
+      "s": 851.52,
+      "e": 859.58,
+      "note": "YouTube like/share/subscribe/bell bar with cursor clicks like ref: Like @like, Compartir @comparte, Suscribirse @suscribete, campana @campanita"
+    }
+  ]
+}

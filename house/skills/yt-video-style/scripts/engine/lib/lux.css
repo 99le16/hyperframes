@@ -1,0 +1,68 @@
+@import url(adfonts.css);
+@font-face { font-family: Satoshi; font-weight: 700; src: url(../fonts/satoshi/Satoshi_Complete/Fonts/OTF/Satoshi-Bold.otf); }
+@font-face { font-family: Satoshi; font-weight: 500; src: url(../fonts/satoshi/Satoshi_Complete/Fonts/OTF/Satoshi-Medium.otf); }
+@font-face { font-family: Satoshi; font-weight: 900; src: url(../fonts/satoshi/Satoshi_Complete/Fonts/OTF/Satoshi-Black.otf); }
+@font-face { font-family: Script; src: url(../fonts/MrDafoe-Regular.ttf); }
+
+html, body { margin: 0; padding: 0; background: transparent; }
+body.preview { background: #333; }
+#stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; overflow: hidden; font-family: Satoshi, sans-serif;
+  color: #fff; -webkit-font-smoothing: antialiased; }
+#world { position: absolute; inset: 0; transform-origin: 50% 50%; }
+.abs { position: absolute; }
+
+/* aurora background */
+.aur { position: absolute; inset: 0; background: #04050c; overflow: hidden; }
+.aur .blob { position: absolute; border-radius: 50%; filter: blur(90px); will-change: transform; }
+.aur .grain { position: absolute; inset: 0; opacity: .06; mix-blend-mode: overlay; }
+
+/* typed text + bullets */
+.tx { font-weight: 700; letter-spacing: -0.01em; line-height: 1.08; white-space: pre; color: #fff;
+  text-shadow: 0 0 18px rgba(255,255,255,.38), 0 0 2px rgba(255,255,255,.5), 0 2px 10px rgba(0,0,0,.25); }
+.tx .ch { opacity: 0; }
+.row { position: absolute; display: flex; align-items: center; }
+.spk { flex: none; filter: drop-shadow(0 0 10px rgba(110,140,255,.85)); }
+
+/* neon script */
+.scr { font-family: Script; color: #fff; white-space: pre; line-height: 1.0;
+  -webkit-text-stroke: 9px #5a2bff; paint-order: stroke fill;
+  text-shadow: 0 0 16px rgba(120,70,255,.95), 0 0 34px rgba(100,60,255,.55), 4px 5px 0 #2a0c8c; padding: 0 30px 20px 10px; }
+
+/* glass cards */
+.card { position: absolute; border-radius: 30px; overflow: hidden; box-sizing: border-box;
+  background: linear-gradient(170deg, rgba(255,255,255,.055), rgba(255,255,255,.015) 60%);
+  border: 1.5px solid rgba(255,255,255,.13); box-shadow: 0 30px 80px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.08); }
+.card .glow { position: absolute; inset: 0; }
+.card .ct { position: absolute; inset: 0; }
+.card .tag { font-weight: 500; font-size: 34px; color: rgba(255,255,255,.75); padding-bottom: 10px;
+  border-bottom: 2px solid rgba(255,255,255,.14); }
+
+/* windows */
+.win { position: absolute; background: #fff; border-radius: 14px; overflow: hidden; box-shadow: 0 40px 120px rgba(0,0,0,.6); color: #1b1d22;
+  font-family: "Helvetica Neue", Satoshi, sans-serif; }
+.pip { position: absolute; border-radius: 14px; box-shadow: 0 0 0 1.5px rgba(255,255,255,.08); }
+
+/* ===================== v9: papel / ad-style typography (EU AD3 papel v6) ===================== */
+:root { --y: #AED916; --g1: #AED916; --g2: #74CD2D; --g3: #3AC043; --grad: linear-gradient(120deg, #AED916 0%, #74CD2D 50%, #3AC043 100%); }
+#behind { position: absolute; inset: 0; }
+body.layer-behind #world, body.layer-behind .aur { visibility: hidden !important; }
+body.layer-front #behind { visibility: hidden !important; }
+.hv  { font-family: "Helvetica Neue", Inter; font-weight: 700; letter-spacing: -.055em; line-height: .82; white-space: nowrap; }
+.hvs { font-family: "Helvetica Neue", Inter; font-weight: 500; letter-spacing: -.04em; line-height: .95; white-space: nowrap; }
+.hvi { font-family: "Helvetica Neue", Inter; font-weight: 700; font-style: italic; letter-spacing: -.04em; line-height: .9; white-space: nowrap; }
+.shadowed { text-shadow: 0 2px 14px rgba(0,0,0,.45), 0 0 2px rgba(0,0,0,.3); }
+.tw { position: absolute; font-family: "Courier Prime"; font-style: italic; font-weight: 700; letter-spacing: -.02em; white-space: nowrap; line-height: 1.12; color: #f2f0ea; }
+.tw .c { opacity: 0; }
+.hl { display: inline-block; background: var(--grad); color: #151515; font-family: "Special Elite"; font-style: normal; font-weight: 400; letter-spacing: .01em;
+  padding: .16em .12em .02em; margin: 0 .06em; line-height: 1.12; transform-origin: 0 50%; }
+.num { position: absolute; font-family: "Inter Tight", "Helvetica Neue"; font-weight: 800; font-style: italic; color: var(--y); letter-spacing: -.02em; line-height: 1; }
+/* retheme the v8 components: Satoshi → Helvetica Neue, glow → papel shadow, sparkle → yellow */
+#stage { font-family: "Helvetica Neue", Inter, sans-serif; }
+.tx { font-family: "Helvetica Neue", Inter; font-weight: 700; letter-spacing: -.035em; text-shadow: 0 2px 14px rgba(0,0,0,.45); }
+.scr { font-family: "Special Elite"; color: #151515; -webkit-text-stroke: 0; background: var(--y); text-shadow: none; padding: 2px 14px 4px; line-height: 1.1; }
+.spk svg path { fill: var(--y) !important; }
+.spk { filter: none; }
+
+.gradtxt { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent !important; }
+.num { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.gradtxt, .num { padding-top: .24em !important; margin-top: -.24em; }

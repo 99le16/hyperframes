@@ -1,0 +1,23 @@
+[
+  {
+    "id": "unfold_remote",
+    "src": "seed/unfold_remote_fast.mp4",
+    "t": 6.3,
+    "d": 2.0,
+    "mstart": 0.0
+  },
+  {
+    "id": "tear_office",
+    "src": "seed/tear_office_25.mp4",
+    "t": 36.0,
+    "d": 3.6,
+    "mstart": 0.3
+  },
+  {
+    "id": "phone_cam",
+    "src": "cam.mp4",
+    "t": 48.54,
+    "d": 2.96,
+    "mstart": 48.54
+  }
+]

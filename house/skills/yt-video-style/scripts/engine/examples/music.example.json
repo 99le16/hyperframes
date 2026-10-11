@@ -1,0 +1,98 @@
+{
+  "cues": [
+    {
+      "id": "hook",
+      "f": "AQ_M1_intro.wav",
+      "a": 0.0,
+      "b": 44.24,
+      "lufs": -31,
+      "from": 0,
+      "loop": 30
+    },
+    {
+      "id": "cred",
+      "f": "M1_hook.wav",
+      "a": 44.24,
+      "b": 76.3,
+      "lufs": -31,
+      "hit": "hit",
+      "from": 8
+    },
+    {
+      "id": "defin",
+      "f": "AQ_M2_historia_nobeat.wav",
+      "a": 76.3,
+      "b": 145.12,
+      "lufs": -33,
+      "fi": 0.4,
+      "from": 0,
+      "loop": 22
+    },
+    {
+      "id": "comercio",
+      "f": "AQ_M2_historia.wav",
+      "a": 145.12,
+      "b": 275.3,
+      "hit": "hit",
+      "from": 22
+    },
+    {
+      "id": "mercados",
+      "f": "AQ_M1_intro.wav",
+      "a": 275.3,
+      "b": 446.9,
+      "lufs": -33,
+      "hit": "boom",
+      "from": 30
+    },
+    {
+      "id": "practica",
+      "f": "M4_practica.wav",
+      "a": 446.9,
+      "b": 561.5,
+      "hit": "hit",
+      "from": 0
+    },
+    {
+      "id": "historia",
+      "f": "AQ_M2_historia.wav",
+      "a": 561.5,
+      "b": 669.6,
+      "lufs": -33,
+      "fi": 0.8,
+      "from": 22
+    },
+    {
+      "id": "demo",
+      "f": "AQ_M1_intro.wav",
+      "a": 669.6,
+      "b": 757.44,
+      "hit": "boom",
+      "from": 0,
+      "loop": 30
+    },
+    {
+      "id": "vivir",
+      "f": "AQ_M3_triste.wav",
+      "a": 757.44,
+      "b": 824.3,
+      "from": 70,
+      "loop": 20
+    },
+    {
+      "id": "cta",
+      "f": "M4_practica.wav",
+      "a": 824.3,
+      "b": null,
+      "fi": 0.6,
+      "fo": 2.5,
+      "hit": "hit",
+      "from": 30
+    }
+  ],
+  "dips": [
+    [397.1, 401.9, -16],
+    [648.0, 651.8, -14]
+  ],
+  "mute_memes": ["M04"]
+}

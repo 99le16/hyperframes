@@ -1,0 +1,18 @@
+[
+  {
+    "id": "M01",
+    "s": 18.833,
+    "e": 22.633,
+    "src": "../../assets/broll/M01.mp4",
+    "audio": "../../assets/broll/M01.wav",
+    "what": "El lobo de Wall Street — mansión"
+  },
+  {
+    "id": "M04",
+    "s": 674.367,
+    "e": 679.1,
+    "src": "../../assets/broll/M04.mp4",
+    "audio": "../../assets/broll/M04.wav",
+    "what": "Stonks (muted)"
+  }
+]

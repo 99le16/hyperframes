@@ -1,0 +1,13 @@
+{
+  "duration": 859.58,
+  "fps": 30,
+  "master": "../../master.mp4",
+  "brand_gradient": ["#AED916", "#74CD2D", "#3AC043"],
+  "subtitle_color": "#FAF400",
+  "brand_text_ids": [],
+  "trims": {
+    "A02": ["s", 22.63],
+    "P04": ["e", 722.27]
+  },
+  "animated_avatars": ["AV2", "AV3", "AV4", "AV5", "AV6", "AV7", "AV8"]
+}
