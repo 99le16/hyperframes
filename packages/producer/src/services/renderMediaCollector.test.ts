@@ -102,6 +102,25 @@ describe("collectRenderMedia host windows", () => {
   });
 });
 
+async function compileProject(files: Record<string, string>) {
+  const dir = mkdtempSync(join(tmpdir(), "hf-media-"));
+  try {
+    for (const [name, html] of Object.entries(files)) writeFileSync(join(dir, name), html);
+    return await compileForRender(dir, join(dir, "index.html"), dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const inlineScene = (sceneTiming: string, extra = "") =>
+  `<!doctype html><html><body>` +
+  `<div id="root" data-composition-id="main" data-start="0" data-duration="12" data-width="1280" data-height="720">` +
+  `<div id="scene" data-composition-id="scene" class="clip" ${sceneTiming}>` +
+  `<video id="clip" class="clip" src="clip.mp4" data-start="0" data-duration="19" muted></video>` +
+  `<audio id="vo" src="vo.m4a" data-start="0" data-duration="19"></audio>` +
+  extra +
+  `</div></div></body></html>`;
+
 const media = (attrs: string) =>
   `<video ${MEDIA_RENDER_ID_ATTR}="clip" id="clip" src="clip.mp4" ${attrs}></video>` +
   `<audio ${MEDIA_RENDER_ID_ATTR}="vo" id="vo" src="vo.m4a" ${attrs}></audio>`;
@@ -125,27 +144,99 @@ describe("collectRenderMedia in-point hosts", () => {
   });
 
   it("finds an inline in-point host in a compiled document with no sub-composition files", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "hf-inpoint-"));
-    try {
-      writeFileSync(
-        join(dir, "index.html"),
+    const { videos, audios } = await compileProject({
+      "index.html": inlineScene(`data-start="0" data-duration="12" data-playback-start="7"`),
+    });
+    expect(videos.find((v) => v.id === "clip")).toMatchObject({ start: 0, end: 12, mediaStart: 7 });
+    expect(audios.find((a) => a.id === "vo")).toMatchObject({ start: 0, end: 12, mediaStart: 7 });
+  });
+
+  it("starts an inline scene's media at the scene's start in a compiled document", async () => {
+    const legacy = `<video id="legacy" src="l.mp4" data-start="6" data-duration="3" data-hf-media-start-basis="global" muted></video>`;
+    const { videos, audios } = await compileProject({
+      "index.html": inlineScene(`data-start="6" data-duration="6"`, legacy),
+    });
+    expect(videos.find((v) => v.id === "clip")).toMatchObject({ start: 6, end: 12, mediaStart: 0 });
+    expect(audios.find((a) => a.id === "vo")).toMatchObject({ start: 6, end: 12, mediaStart: 0 });
+    // Already root time: the scene's start is not added again.
+    expect(videos.find((v) => v.id === "legacy")).toMatchObject({ start: 6, end: 9 });
+  });
+
+  it("leaves media running past the root composition's end uncut", () => {
+    const html =
+      `<div data-composition-id="main" data-start="0" data-duration="12">` +
+      `<audio id="music" src="m.mp3" data-start="0" data-duration="19" data-end="19"></audio>` +
+      `</div>`;
+
+    expect(collectRenderMedia(html).audios[0]).toMatchObject({ start: 0, end: 19 });
+  });
+
+  it("places an in-point scene inside a later inline scene", () => {
+    const html =
+      `<div data-composition-id="outer" data-start="10" data-duration="10">` +
+      `<div data-composition-id="inner" data-start="0" data-duration="5" data-playback-start="3">` +
+      media(`data-start="0" data-duration="19" data-end="19"`) +
+      `</div></div>`;
+
+    const { videos, audios } = collectRenderMedia(html);
+    expect(videos.find((v) => v.id === "clip")).toMatchObject({
+      start: 10,
+      end: 15,
+      mediaStart: 3,
+    });
+    expect(audios.find((a) => a.id === "vo")).toMatchObject({ start: 10, end: 15, mediaStart: 3 });
+  });
+
+  it("keeps a looping video inside its in-point scene's slot", () => {
+    const html =
+      `<div data-composition-id="scene" data-start="2" data-duration="5" data-playback-start="3">` +
+      `<video id="bg" src="bg.mp4" loop data-start="0" data-duration="10"></video>` +
+      `</div>`;
+
+    expect(collectRenderMedia(html).videos.find((v) => v.id === "bg")).toMatchObject({
+      start: 2,
+      end: 7,
+      mediaStart: 0,
+    });
+  });
+
+  it("never lets an author id take a render id's window", () => {
+    const html =
+      `<div data-composition-file="a.html" data-composition-id="a" data-start="5" data-duration="6">` +
+      `<video ${MEDIA_RENDER_ID_ATTR}="clip" id="x" src="a.mp4" data-start="0" data-duration="12"></video>` +
+      `</div>` +
+      `<video id="clip" src="b.mp4" data-start="0" data-duration="3"></video>`;
+
+    expect(collectRenderMedia(html).videos[0]).toMatchObject({ src: "a.mp4", start: 5, end: 11 });
+  });
+
+  it("skips an element the parsers do not report when matching author ids", () => {
+    const html =
+      `<div data-composition-id="main"><img id="clip">` +
+      `<div data-composition-id="scene" data-start="5" data-duration="6">` +
+      `<video id="clip" src="a.mp4" data-start="0" data-duration="12"></video>` +
+      `</div></div>`;
+
+    expect(collectRenderMedia(html).videos[0]).toMatchObject({ start: 5, end: 11 });
+  });
+
+  it("keeps a scene clip's window when a root element without a src shares its id", async () => {
+    const { videos, images } = await compileProject({
+      "index.html":
         `<!doctype html><html><body>` +
-          `<div id="root" data-composition-id="main" data-start="0" data-duration="12" data-width="1280" data-height="720">` +
-          `<div id="scene" data-composition-id="scene" class="clip" data-start="0" data-duration="12" data-playback-start="7">` +
-          `<video id="clip" class="clip" src="clip.mp4" data-start="0" data-duration="19" muted></video>` +
-          `<audio id="vo" src="vo.m4a" data-start="0" data-duration="19"></audio>` +
-          `</div></div></body></html>`,
-      );
-      const { videos, audios } = await compileForRender(dir, join(dir, "index.html"), dir);
-      expect(videos.find((v) => v.id === "clip")).toMatchObject({
-        start: 0,
-        end: 12,
-        mediaStart: 7,
-      });
-      expect(audios.find((a) => a.id === "vo")).toMatchObject({ start: 0, end: 12, mediaStart: 7 });
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+        `<div id="root" data-composition-id="main" data-start="0" data-duration="12" data-width="1280" data-height="720">` +
+        `<div data-composition-src="a.html" data-start="5" data-duration="6"></div>` +
+        `<img id="clip" data-start="0" data-duration="3"><img id="pic">` +
+        `</div></body></html>`,
+      "a.html":
+        `<template><div data-composition-id="a" data-width="1280" data-height="720">` +
+        `<video id="clip" src="clip.mp4" data-start="0" data-duration="12" muted></video>` +
+        `<img id="pic" src="p.png" data-start="1" data-duration="2">` +
+        `</div></template>`,
+    });
+    // The windows main exports for this project.
+    expect(videos.find((v) => v.id === "clip")).toMatchObject({ start: 5, end: 11 });
+    expect(images.find((i) => i.id === "pic")).toMatchObject({ start: 6, end: 8 });
   });
 
   it("cuts a split scene's media to the second half's slot", () => {
