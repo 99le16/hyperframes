@@ -12,7 +12,18 @@
  * same way, so preview would quietly stop predicting the render.
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  readSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+  writeSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -52,9 +63,13 @@ function readWavChunks(buf: Buffer): {
   sampleRate: number;
   bits: number;
   data?: Buffer;
+  dataBody?: number;
+  dataSize?: number;
 } {
   const head = { format: 1, channels: 1, sampleRate: 48000, bits: 16 };
   let data: Buffer | undefined;
+  let dataBody: number | undefined;
+  let dataSize: number | undefined;
   for (const { id, body, size } of riffChunks(buf)) {
     if (id === "fmt ") {
       const format = wavFormatTag(buf, body, size);
@@ -65,6 +80,8 @@ function readWavChunks(buf: Buffer): {
       head.bits = buf.readUInt16LE(body + 14);
     } else if (id === "data") {
       data = buf.subarray(body, Math.min(buf.length, body + size));
+      dataBody = body;
+      dataSize = size;
       // The payload is the rest of the file for anything the mixer writes, and
       // reading past it buys nothing: `fmt ` precedes `data` in every WAV these
       // steps produce, and the alternative is walking a several-hundred-megabyte
@@ -72,7 +89,49 @@ function readWavChunks(buf: Buffer): {
       break;
     }
   }
-  return { ...head, data };
+  return { ...head, data, dataBody, dataSize };
+}
+
+/** Where a WAV's samples sit, read from its head alone. */
+export interface WavHeader {
+  format: number;
+  channels: number;
+  sampleRate: number;
+  bits: number;
+  float: boolean;
+  dataOffset: number;
+  dataBytes: number;
+}
+
+/** The most `readFileSync` returns in one call. */
+const MAX_WHOLE_FILE_BYTES = 2 ** 31 - 1;
+
+const HEADER_PROBE_BYTES = 64 * 1024;
+
+/** The header of `path`, or null when the head holds no readable `fmt `/`data` pair. */
+export function readWavHeader(path: string): WavHeader | null {
+  const fd = openSync(path, "r");
+  try {
+    const head = Buffer.alloc(HEADER_PROBE_BYTES);
+    const read = readSync(fd, head, 0, head.length, 0);
+    const buf = head.subarray(0, read);
+    if (buf.length < 44 || buf.toString("ascii", 0, 4) !== "RIFF") return null;
+    const { format, channels, sampleRate, bits, dataBody, dataSize } = readWavChunks(buf);
+    if (dataBody === undefined || dataSize === undefined) return null;
+    // A declared size past the end of the file (a live-written or >4 GiB WAV) means "to the end".
+    const dataBytes = Math.min(dataSize, statSync(path).size - dataBody);
+    return {
+      format,
+      channels,
+      sampleRate,
+      bits,
+      float: format === 3 && bits === 32,
+      dataOffset: dataBody,
+      dataBytes,
+    };
+  } finally {
+    closeSync(fd);
+  }
 }
 
 export function readWav(path: string): WavData {
@@ -111,6 +170,41 @@ function decodeSamples(data: Buffer, format: number, bits: number, path: string)
   throw new AudioFxRenderError(`Unsupported WAV format ${format}/${bits}-bit: ${path}`);
 }
 
+function wavHeader(bytes: number, sampleRate: number, channels: number, float: boolean): Buffer {
+  const bytesPerSample = float ? 4 : 2;
+  const buf = Buffer.alloc(44);
+  buf.write("RIFF", 0, "ascii");
+  buf.writeUInt32LE(Math.min(0xffffffff, 36 + bytes), 4);
+  buf.write("WAVE", 8, "ascii");
+  buf.write("fmt ", 12, "ascii");
+  buf.writeUInt32LE(16, 16);
+  buf.writeUInt16LE(float ? 3 : 1, 20); // IEEE_FLOAT / PCM
+  buf.writeUInt16LE(channels, 22);
+  buf.writeUInt32LE(sampleRate, 24);
+  buf.writeUInt32LE(sampleRate * channels * bytesPerSample, 28);
+  buf.writeUInt16LE(channels * bytesPerSample, 32);
+  buf.writeUInt16LE(float ? 32 : 16, 34);
+  buf.write("data", 36, "ascii");
+  buf.writeUInt32LE(Math.min(0xffffffff, bytes), 40);
+  return buf;
+}
+
+function encodeSamples(samples: Float32Array, float: boolean): Buffer {
+  const n = samples.length;
+  const buf = Buffer.alloc(n * (float ? 4 : 2));
+  for (let i = 0; i < n; i++) {
+    if (float) {
+      buf.writeFloatLE(samples[i] ?? 0, i * 4);
+      continue;
+    }
+    // Clamp before scaling: a limiter set to 0 dB or a resonant filter can push
+    // past full scale, and wrapping would turn that into a click.
+    const v = Math.max(-1, Math.min(1, samples[i] ?? 0));
+    buf.writeInt16LE(Math.round(v * 32767), i * 2);
+  }
+  return buf;
+}
+
 /**
  * Write interleaved samples, preserving the channel count.
  *
@@ -135,33 +229,8 @@ export function writeWav(
   channels = 1,
   float = false,
 ): void {
-  const n = samples.length;
-  const bytesPerSample = float ? 4 : 2;
-  const bytes = n * bytesPerSample;
-  const buf = Buffer.alloc(44 + bytes);
-  buf.write("RIFF", 0, "ascii");
-  buf.writeUInt32LE(36 + bytes, 4);
-  buf.write("WAVE", 8, "ascii");
-  buf.write("fmt ", 12, "ascii");
-  buf.writeUInt32LE(16, 16);
-  buf.writeUInt16LE(float ? 3 : 1, 20); // IEEE_FLOAT / PCM
-  buf.writeUInt16LE(channels, 22);
-  buf.writeUInt32LE(sampleRate, 24);
-  buf.writeUInt32LE(sampleRate * channels * bytesPerSample, 28);
-  buf.writeUInt16LE(channels * bytesPerSample, 32);
-  buf.writeUInt16LE(float ? 32 : 16, 34);
-  buf.write("data", 36, "ascii");
-  buf.writeUInt32LE(bytes, 40);
-  for (let i = 0; i < n; i++) {
-    if (float) {
-      buf.writeFloatLE(samples[i] ?? 0, 44 + i * 4);
-      continue;
-    }
-    // Clamp before scaling: a limiter set to 0 dB or a resonant filter can push
-    // past full scale, and wrapping would turn that into a click.
-    const v = Math.max(-1, Math.min(1, samples[i] ?? 0));
-    buf.writeInt16LE(Math.round(v * 32767), 44 + i * 2);
-  }
+  const body = encodeSamples(samples, float);
+  const buf = Buffer.concat([wavHeader(body.length, sampleRate, channels, float), body]);
   // lgtm[js/insecure-temporary-file] — `path` is always inside a directory the
   // caller made with `mkdtempSync`, never a name assembled directly under
   // `tmpdir()`. Both routes here are covered: the browser host page writes into
@@ -242,13 +311,144 @@ function applyEnvelopeToPlanes(
   planes: readonly Float32Array[],
   sampleRate: number,
   gainAt: (time: number) => number,
+  startFrame = 0,
 ): void {
   const frames = planes[0]?.length ?? 0;
   for (let frame = 0; frame < frames; frame += 1) {
-    const gain = gainAt(frame / sampleRate);
+    const gain = gainAt((startFrame + frame) / sampleRate);
     for (const plane of planes) plane[frame] = (plane[frame] ?? 0) * gain;
   }
 }
+
+/**
+ * Inputs whose samples exceed `aboveBytes` are processed in windows rather than whole: Node
+ * cannot read a file past 2 GiB in one call (a stereo float mix past ~93 min), and the page
+ * would hold the whole track twice besides.
+ */
+export interface AudioFxStreamingLimits {
+  aboveBytes: number;
+  segmentSeconds: number;
+  /** Audio rendered ahead of each window and discarded, so stateful effects arrive warm. */
+  prerollSeconds: number;
+  /** Audio rendered after each window and discarded, for look-ahead. */
+  postrollSeconds: number;
+}
+
+const DEFAULT_STREAMING_LIMITS: AudioFxStreamingLimits = {
+  aboveBytes: 512 * 1024 * 1024,
+  segmentSeconds: 300,
+  prerollSeconds: 10,
+  postrollSeconds: 1,
+};
+
+export interface AudioFxSegment {
+  /** The frames this window contributes to the output. */
+  keepFrom: number;
+  keepTo: number;
+  /** The frames rendered to produce them. */
+  readFrom: number;
+  readTo: number;
+  last: boolean;
+}
+
+/** Tile `totalFrames` into windows that each carry their pre/post-roll. */
+export function planAudioFxSegments(
+  totalFrames: number,
+  sampleRate: number,
+  limits: AudioFxStreamingLimits,
+): AudioFxSegment[] {
+  const step = Math.max(1, Math.round(limits.segmentSeconds * sampleRate));
+  const pre = Math.round(limits.prerollSeconds * sampleRate);
+  const post = Math.round(limits.postrollSeconds * sampleRate);
+  const segments: AudioFxSegment[] = [];
+  for (let keepFrom = 0; keepFrom < totalFrames; keepFrom += step) {
+    const keepTo = Math.min(totalFrames, keepFrom + step);
+    segments.push({
+      keepFrom,
+      keepTo,
+      readFrom: Math.max(0, keepFrom - pre),
+      readTo: Math.min(totalFrames, keepTo + post),
+      last: keepTo === totalFrames,
+    });
+  }
+  return segments;
+}
+
+function readFrames(fd: number, header: WavHeader, from: number, to: number): Float32Array {
+  const frameBytes = (header.channels * header.bits) / 8;
+  const data = Buffer.alloc((to - from) * frameBytes);
+  for (let filled = 0; filled < data.length; ) {
+    const n = readSync(
+      fd,
+      data,
+      filled,
+      data.length - filled,
+      header.dataOffset + from * frameBytes + filled,
+    );
+    if (n === 0) break;
+    filled += n;
+  }
+  return decodeSamples(data, header.format, header.bits, "streamed input");
+}
+
+async function renderInSegments(
+  openPage: () => Promise<FxPage>,
+  inputWav: string,
+  header: WavHeader,
+  chain: HfAudioFxChain,
+  outputWav: string,
+  options: { trackId: string; signal?: AbortSignal; envelope?: AudioFxEnvelope },
+  limits: AudioFxStreamingLimits,
+): Promise<boolean> {
+  const { sampleRate, channels, float } = header;
+  const totalFrames = Math.floor(header.dataBytes / ((channels * header.bits) / 8));
+  const gainAt = envelopeWalkerFor(options.envelope);
+  const inFd = openSync(inputWav, "r");
+  // Same directory rule as writeWav: the caller's mkdtemp work dir.
+  const outFd = openSync(outputWav, "w");
+  try {
+    writeSync(outFd, wavHeader(0, sampleRate, channels, float));
+    let written = 0;
+    for (const seg of planAudioFxSegments(totalFrames, sampleRate, limits)) {
+      if (options.signal?.aborted) {
+        throw new AudioFxRenderError(`Audio FX cancelled for track ${options.trackId}`);
+      }
+      const planes = deinterleave(readFrames(inFd, header, seg.readFrom, seg.readTo), channels);
+      // A fresh page per window, so the browser never holds more than one window of audio.
+      const page = await openPage();
+      let outPlanes: Float32Array[];
+      try {
+        await sendPlanesToPage(page, planes);
+        outPlanes = await readPlanesFromPage(
+          page,
+          await renderPlanesInPage(page, sampleRate, chain, ""),
+        );
+      } finally {
+        await page.close().catch(() => undefined);
+      }
+      const rendered = outPlanes[0]?.length ?? 0;
+      if (rendered === 0) {
+        throw new AudioFxRenderError(`Audio FX produced no samples for track ${options.trackId}`);
+      }
+      // The last window keeps the chain's tail (reverb, delay), as a whole-file render does.
+      const skip = seg.keepFrom - seg.readFrom;
+      const kept = outPlanes.map((plane) =>
+        plane.subarray(skip, seg.last ? rendered : seg.keepTo - seg.readFrom),
+      );
+      if (gainAt) applyEnvelopeToPlanes(kept, sampleRate, gainAt, seg.keepFrom);
+      const bytes = encodeSamples(interleave(kept), float);
+      writeFileSync(outFd, bytes);
+      written += bytes.length;
+    }
+    writeSync(outFd, wavHeader(written, sampleRate, channels, float), 0, 44, 0);
+  } finally {
+    closeSync(inFd);
+    closeSync(outFd);
+  }
+  return gainAt !== null;
+}
+
+type AudioFxEnvelope = { keyframes: AudioVolumeKeyframe[]; trackStart: number; baseVolume: number };
 
 /**
  * Run a chain over `inputWav`, writing `outputWav`. Resolves to the path to use
@@ -275,7 +475,8 @@ export async function applyAudioFxChain(
     trackId: string;
     signal?: AbortSignal;
     automation?: HfAutomation;
-    envelope?: { keyframes: AudioVolumeKeyframe[]; trackStart: number; baseVolume: number };
+    envelope?: AudioFxEnvelope;
+    streaming?: Partial<AudioFxStreamingLimits>;
   },
 ): Promise<{ path: string; envelopeBaked: boolean }> {
   if (enabledAudioFxNodes(chain).length === 0) return { path: inputWav, envelopeBaked: false };
@@ -283,8 +484,33 @@ export async function applyAudioFxChain(
     throw new AudioFxRenderError(`Audio FX input is missing: ${inputWav}`);
   }
 
-  const { samples, sampleRate, channels, float } = readWav(inputWav);
-  const planes = deinterleave(samples, channels);
+  // Automation is clocked from the file's own start, so a windowed render leaves it to the whole path.
+  const limits = { ...DEFAULT_STREAMING_LIMITS, ...options.streaming };
+  const header = options.automation ? null : readWavHeader(inputWav);
+  const streamed = header !== null && header.dataBytes > limits.aboveBytes;
+
+  if (streamed) {
+    return withFxBrowser(options, async (openPage) => ({
+      path: outputWav,
+      envelopeBaked: await renderInSegments(
+        openPage,
+        inputWav,
+        header,
+        chain,
+        outputWav,
+        options,
+        limits,
+      ),
+    }));
+  }
+
+  if (statSync(inputWav).size > MAX_WHOLE_FILE_BYTES) {
+    throw new AudioFxRenderError(
+      `Audio FX for track ${options.trackId}: parameter automation is not supported on inputs over 2 GiB (${inputWav})`,
+    );
+  }
+  const input = readWav(inputWav);
+  const planes = deinterleave(input.samples, input.channels);
   // An empty track has nothing to process — and an OfflineAudioContext of zero
   // length throws, which is fatal for the WHOLE render rather than this track:
   // the error travels past the mixer's per-track failure collector. ffmpeg
@@ -294,36 +520,13 @@ export async function applyAudioFxChain(
   // never costs a browser.
   if ((planes[0]?.length ?? 0) === 0) return { path: inputWav, envelopeBaked: false };
 
-  // Both resources are taken INSIDE the try that releases them. The lease used
-  // to be acquired above it, with the mkdtemp between — so a failure there
-  // (a full disk, a read-only tmpdir) leaked a pooled browser, and a pool with
-  // no leases left hangs every later render rather than failing one.
-  const hostDir = mkdtempSync(join(tmpdir(), "hf-fx-host-"));
-  let lease: Awaited<ReturnType<typeof acquireBrowser>> | null = null;
-  try {
-    // Audio processing needs no GPU or special capture mode; a plain sandboxed
-    // browser is enough, and the lease pool reuses one across tracks.
-    // Checked before the lease, not after: an already-cancelled track has no
-    // reason to take a browser out of the pool just to hand it straight back.
-    if (options.signal?.aborted) {
-      throw new AudioFxRenderError(`Audio FX cancelled for track ${options.trackId}`);
-    }
-    lease = await acquireBrowser(["--no-sandbox", "--autoplay-policy=no-user-gesture-required"]);
-    const page = await lease.browser.newPage();
+  return withFxBrowser(options, async (openPage) => {
+    const page = await openPage();
     try {
-      // AudioWorklet is only exposed in a secure context, and about:blank is
-      // not one — the module would fail with an opaque error. A file:// page
-      // qualifies and needs no listening socket.
-      const hostPage = join(hostDir, "audio-fx.html");
-      writeFileSync(hostPage, "<!doctype html><meta charset=utf-8><title>audio fx</title>");
-      await page.goto(pathToFileURL(hostPage).href, { waitUntil: "domcontentloaded" });
-      await page.addScriptTag({ content: getAudioFxRuntimeScript() });
-
       await sendPlanesToPage(page, planes);
-
       const outLengths = await renderPlanesInPage(
         page,
-        sampleRate,
+        input.sampleRate,
         chain,
         options.automation ? serializeAutomation(options.automation) : "",
       );
@@ -335,14 +538,42 @@ export async function applyAudioFxChain(
       // own paths still own this track's gain, so say so rather than claiming
       // a bake that never happened.
       const gainAt = envelopeWalkerFor(options.envelope);
-      if (gainAt) applyEnvelopeToPlanes(outPlanes, sampleRate, gainAt);
+      if (gainAt) applyEnvelopeToPlanes(outPlanes, input.sampleRate, gainAt);
       // Same format in as out: a float input is a group sub-mix whose headroom
       // must survive to its fader (see writeWav).
-      writeWav(outputWav, interleave(outPlanes), sampleRate, outPlanes.length, float);
+      writeWav(outputWav, interleave(outPlanes), input.sampleRate, outPlanes.length, input.float);
       return { path: outputWav, envelopeBaked: gainAt !== null };
     } finally {
       await page.close().catch(() => undefined);
     }
+  });
+}
+
+/**
+ * Run `body` with a leased browser, handing it a way to open a page on the runtime.
+ *
+ * Both resources are taken INSIDE the try that releases them. The lease used
+ * to be acquired above it, with the mkdtemp between — so a failure there
+ * (a full disk, a read-only tmpdir) leaked a pooled browser, and a pool with
+ * no leases left hangs every later render rather than failing one.
+ */
+async function withFxBrowser<T>(
+  options: { trackId: string; signal?: AbortSignal },
+  body: (openPage: () => Promise<FxPage>) => Promise<T>,
+): Promise<T> {
+  const hostDir = mkdtempSync(join(tmpdir(), "hf-fx-host-"));
+  let lease: Awaited<ReturnType<typeof acquireBrowser>> | null = null;
+  try {
+    // Audio processing needs no GPU or special capture mode; a plain sandboxed
+    // browser is enough, and the lease pool reuses one across tracks.
+    // Checked before the lease, not after: an already-cancelled track has no
+    // reason to take a browser out of the pool just to hand it straight back.
+    if (options.signal?.aborted) {
+      throw new AudioFxRenderError(`Audio FX cancelled for track ${options.trackId}`);
+    }
+    lease = await acquireBrowser(["--no-sandbox", "--autoplay-policy=no-user-gesture-required"]);
+    const { browser } = lease;
+    return await body(() => openFxPage(browser, hostDir));
   } catch (err) {
     if (err instanceof AudioFxRenderError) throw err;
     throw new AudioFxRenderError(
@@ -356,6 +587,26 @@ export async function applyAudioFxChain(
 
 /** The page handle `acquireBrowser().browser.newPage()` returns. */
 type FxPage = Awaited<ReturnType<Awaited<ReturnType<typeof acquireBrowser>>["browser"]["newPage"]>>;
+
+async function openFxPage(
+  browser: Awaited<ReturnType<typeof acquireBrowser>>["browser"],
+  hostDir: string,
+): Promise<FxPage> {
+  const page = await browser.newPage();
+  try {
+    // AudioWorklet is only exposed in a secure context, and about:blank is
+    // not one — the module would fail with an opaque error. A file:// page
+    // qualifies and needs no listening socket.
+    const hostPage = join(hostDir, "audio-fx.html");
+    writeFileSync(hostPage, "<!doctype html><meta charset=utf-8><title>audio fx</title>");
+    await page.goto(pathToFileURL(hostPage).href, { waitUntil: "domcontentloaded" });
+    await page.addScriptTag({ content: getAudioFxRuntimeScript() });
+    return page;
+  } catch (err) {
+    await page.close().catch(() => undefined);
+    throw err;
+  }
+}
 
 /**
  * Hand the input planes to the page a chunk at a time.

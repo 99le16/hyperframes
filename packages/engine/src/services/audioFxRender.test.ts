@@ -1,11 +1,26 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  mkdtempSync,
+  openSync,
+  rmSync,
+  truncateSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyVolumeEnvelopeToWav } from "./audioVolumeEnvelope.js";
 import { defaultAudioFxParams, type HfAudioFxChain } from "@hyperframes/core/audio-fx";
-import { applyAudioFxChain, AudioFxRenderError, readWav, writeWav } from "./audioFxRender.js";
+import {
+  applyAudioFxChain,
+  AudioFxRenderError,
+  planAudioFxSegments,
+  readWav,
+  readWavHeader,
+  writeWav,
+} from "./audioFxRender.js";
 import {
   MIXED_AUDIO_FILENAME,
   parseAudioElements,
@@ -14,6 +29,16 @@ import {
 } from "./audioMixer.js";
 import { resolveHeadlessShellPath } from "./browserManager.js";
 import { getFfmpegBinary } from "../utils/ffmpegBinaries.js";
+
+const wholeFileReads = vi.hoisted(() => ({ paths: [] as string[] }));
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  const readFileSync = ((path: Parameters<typeof actual.readFileSync>[0], ...rest: unknown[]) => {
+    wholeFileReads.paths.push(String(path));
+    return (actual.readFileSync as (...a: unknown[]) => unknown)(path, ...rest);
+  }) as typeof actual.readFileSync;
+  return { ...actual, readFileSync };
+});
 
 /** Same probe the ffmpeg-dependent suites use: ask the binary, don't assume it. */
 const HAS_FFMPEG = spawnSync(getFfmpegBinary(), ["-version"], { encoding: "utf-8" }).status === 0;
@@ -729,4 +754,132 @@ describe.skipIf(!HAS_BROWSER || !HAS_FFMPEG)("master bus: rendering it", () => {
     const masterFxChain = chainJson({ type: "gain", params: { gain: 12 } });
     expect(await mixedPeakDb("ordered", [element("g", group)], masterFxChain)).toBeCloseTo(-14, 0);
   }, 180_000);
+});
+
+describe("windowed rendering of a long input", () => {
+  const limits = { aboveBytes: 0, segmentSeconds: 1, prerollSeconds: 1, postrollSeconds: 0.1 };
+
+  it("tiles the input exactly, each window carrying its pre- and post-roll", () => {
+    const segments = planAudioFxSegments(Math.round(3.5 * SR), SR, limits);
+    expect(segments.map((s) => [s.keepFrom, s.keepTo])).toEqual([
+      [0, SR],
+      [SR, 2 * SR],
+      [2 * SR, 3 * SR],
+      [3 * SR, Math.round(3.5 * SR)],
+    ]);
+    expect(segments.map((s) => s.last)).toEqual([false, false, false, true]);
+    expect(segments[0]).toMatchObject({ readFrom: 0, readTo: SR + SR / 10 });
+    expect(segments[2]).toMatchObject({ readFrom: SR, readTo: 3 * SR + SR / 10 });
+    expect(segments[3]?.readTo).toBe(Math.round(3.5 * SR));
+  });
+
+  it("reads the head of a file Node cannot read whole", () => {
+    // 2.5 GiB of samples: past the 2 GiB ceiling readFileSync enforces, sparse on disk.
+    const path = join(dir, "huge.wav");
+    writeWav(path, new Float32Array(0), SR, 2, true);
+    const fd = openSync(path, "r+");
+    truncateSync(path, 2.5 * 1024 ** 3);
+    closeSync(fd);
+    expect(() => readWav(path)).toThrow(/greater than 2 GiB/);
+    const header = readWavHeader(path);
+    expect(header).toMatchObject({ channels: 2, sampleRate: SR, float: true, dataOffset: 44 });
+  });
+
+  it("names the unsupported case when automation meets a file past 2 GiB", async () => {
+    const path = join(dir, "huge-auto.wav");
+    writeWav(path, new Float32Array(0), SR, 2, true);
+    truncateSync(path, 2.5 * 1024 ** 3);
+    await expect(
+      applyAudioFxChain(path, chainOf("gain"), join(dir, "out.wav"), {
+        trackId: "t",
+        automation: { version: 1, lanes: [] },
+      }),
+    ).rejects.toThrow(/parameter automation is not supported on inputs over 2 GiB/);
+  });
+
+  const hot = (seconds: number): Float32Array => {
+    const frames = Math.floor(SR * seconds);
+    const s = new Float32Array(frames * 2);
+    for (let i = 0; i < frames; i++) {
+      const swell = 0.5 + 0.9 * Math.abs(Math.sin((2 * Math.PI * i) / (SR * 1.7)));
+      s[i * 2] = swell * Math.sin((2 * Math.PI * 300 * i) / SR);
+      s[i * 2 + 1] = swell * Math.sin((2 * Math.PI * 450 * i) / SR);
+    }
+    return s;
+  };
+  const limiter: HfAudioFxChain = {
+    version: 1,
+    nodes: [
+      {
+        type: "truepeak",
+        id: "m1",
+        enabled: true,
+        params: { ceiling: -6, lookahead: 3, release: 80 },
+      },
+    ],
+  };
+
+  it.skipIf(!HAS_BROWSER)(
+    "renders a long mix window by window, never reading the file whole, and matches the whole render",
+    async () => {
+      const input = join(dir, "long.wav");
+      writeWav(input, hot(4.4), SR, 2, true);
+      const whole = join(dir, "whole.wav");
+      const windowed = join(dir, "windowed.wav");
+      await applyAudioFxChain(input, limiter, whole, { trackId: "whole" });
+
+      wholeFileReads.paths.length = 0;
+      const result = await applyAudioFxChain(input, limiter, windowed, {
+        trackId: "windowed",
+        streaming: limits,
+      });
+
+      expect(result.path).toBe(windowed);
+      expect(wholeFileReads.paths).not.toContain(input);
+      const a = readWav(whole);
+      const b = readWav(windowed);
+      expect(b).toMatchObject({ channels: 2, sampleRate: SR, float: true });
+      expect(b.samples.length).toBe(a.samples.length);
+      let worst = 0;
+      // The final 10 ms is left out: a lookahead limiter's last frames come back silent or not
+      // depending on the input's length, whole or windowed alike.
+      for (let i = 0; i < a.samples.length - SR / 50; i++) {
+        worst = Math.max(worst, Math.abs((a.samples[i] ?? 0) - (b.samples[i] ?? 0)));
+      }
+      expect(worst).toBeLessThan(0.01);
+    },
+    180_000,
+  );
+
+  it.skipIf(!HAS_BROWSER)(
+    "bakes a volume envelope on the file's own clock across window boundaries",
+    async () => {
+      const input = join(dir, "env.wav");
+      writeWav(input, new Float32Array(SR * 3 * 2).fill(0.25), SR, 2, true);
+      const out = join(dir, "env-out.wav");
+      const gain: HfAudioFxChain = {
+        version: 1,
+        nodes: [{ type: "gain", id: "g", enabled: true, params: { gain: 0 } }],
+      };
+      const result = await applyAudioFxChain(input, gain, out, {
+        trackId: "env",
+        streaming: limits,
+        envelope: {
+          keyframes: [
+            { time: 0, volume: 1 },
+            { time: 1.5, volume: 1 },
+            { time: 1.5001, volume: 0.5 },
+            { time: 3, volume: 0.5 },
+          ],
+          trackStart: 0,
+          baseVolume: 1,
+        },
+      });
+      expect(result.envelopeBaked).toBe(true);
+      const samples = readWav(out).samples;
+      expect(samples[Math.floor(1.2 * SR) * 2]).toBeCloseTo(0.25, 2);
+      expect(samples[Math.floor(2.2 * SR) * 2]).toBeCloseTo(0.125, 2);
+    },
+    180_000,
+  );
 });
