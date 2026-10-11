@@ -35,6 +35,9 @@ interface PopoverProps extends Omit<ComponentPropsWithoutRef<typeof BasePopover.
   side?: "top" | "bottom" | "left" | "right";
   align?: "start" | "center" | "end";
   sideOffset?: number;
+  collisionAvoidance?: ComponentPropsWithoutRef<
+    typeof BasePopover.Positioner
+  >["collisionAvoidance"];
   /** Points the popup at its trigger. Off by default; the default gap from the trigger grows by the arrow's height. */
   arrow?: boolean;
   /** Portal target. Pass the shadow root when the trigger lives in one; `null` keeps it inline. */
@@ -57,6 +60,7 @@ export function Popover({
   align = "center",
   arrow = false,
   sideOffset = arrow ? SIDE_OFFSET + ARROW_PX : SIDE_OFFSET,
+  collisionAvoidance,
   container,
   className,
   initialFocus,
@@ -75,6 +79,7 @@ export function Popover({
           align={align}
           sideOffset={sideOffset}
           collisionPadding={VIEWPORT_MARGIN}
+          collisionAvoidance={collisionAvoidance}
           arrowPadding={ARROW_CORNER_CLEARANCE}
           className={POPUP_LAYER}
         >
