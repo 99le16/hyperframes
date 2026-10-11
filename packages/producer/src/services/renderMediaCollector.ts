@@ -139,10 +139,8 @@ function resolveHostWindow(
 }
 
 /**
- * Map each media id to the window of the composition hosts it is nested in.
- * Keyed on the id the parsers report (render id, else author id: render ids are
- * only stamped when files are inlined) rather than document position so the caller
- * never has to assume two separate parses walk the document in the same order.
+ * Map each media id the parsers report (render id, else author id: render ids are only stamped
+ * when files are inlined) to its hosts' window, keyed on id so two parses need not walk in step.
  */
 function collectHostWindows(html: string): Map<string, HostWindow> {
   const { document } = parseHTML(html);
@@ -151,10 +149,10 @@ function collectHostWindows(html: string): Map<string, HostWindow> {
   const visiting = new Set<RefResolverEl>();
   const media = `[${MEDIA_RENDER_ID_ATTR}], video[id], audio[id], img[id]`;
   for (const element of document.querySelectorAll(media)) {
-    const renderId = element.getAttribute(MEDIA_RENDER_ID_ATTR) || element.getAttribute("id");
-    if (!renderId) continue;
+    const id = element.getAttribute(MEDIA_RENDER_ID_ATTR) || element.getAttribute("id");
+    if (!id) continue;
     windows.set(
-      renderId,
+      id,
       resolveHostWindow(element as unknown as Element, document, startCache, visiting),
     );
   }
@@ -162,9 +160,8 @@ function collectHostWindows(html: string): Map<string, HostWindow> {
 }
 
 /**
- * Shift a scene-relative window onto the root timeline.
- * Returns null when the clip starts after its host has already ended, matching
- * the `start < absoluteEnd` drop the file-tree walk applied, or when in-point hosts cut all of it.
+ * Shift a scene-relative window onto the root timeline; null when the clip starts after its host
+ * ends (the file-tree walk's `start < absoluteEnd` drop) or its in-point hosts cut all of it.
  * `start` stays the clip's origin; `played` is the part the in-point hosts' slots keep.
  */
 function toAbsoluteWindow(
@@ -184,7 +181,6 @@ function toAbsoluteWindow(
     basis: window.basis,
   });
   const absolute = { start: absoluteStart, end: Math.min(absoluteEnd, window.limit) };
-  if (window.slots.length === 0) return { ...absolute, played: absolute };
   const played = cutToHostSlots(absolute, window.slots);
   if (played.end === played.start && absolute.end > absolute.start) return null;
   return { start: absolute.start, end: played.end, played };
