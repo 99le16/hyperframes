@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { MEDIA_RENDER_ID_ATTR } from "@hyperframes/core";
 import { resolveTimelineExtractionWindow } from "@hyperframes/engine";
+import { compileForRender } from "./htmlCompiler.js";
 import { collectRenderMedia } from "./renderMediaCollector.js";
 
 describe("collectRenderMedia host windows", () => {
@@ -111,14 +115,37 @@ describe("collectRenderMedia in-point hosts", () => {
 
     const { videos, audios } = collectRenderMedia(html);
     const video = videos.find((v) => v.id === "clip")!;
-    // Local 0 sits 7 s before the root; the engine trims that preroll from the source.
-    expect(video).toMatchObject({ start: -7, end: 12, mediaStart: 0 });
+    expect(video).toMatchObject({ start: 0, end: 12, mediaStart: 7 });
     expect(resolveTimelineExtractionWindow(video, video.end - video.start, 12)).toMatchObject({
       compositionStart: 0,
       mediaStart: 7,
       durationSeconds: 12,
     });
     expect(audios.find((a) => a.id === "vo")).toMatchObject({ start: 0, end: 12, mediaStart: 7 });
+  });
+
+  it("finds an inline in-point host in a compiled document with no sub-composition files", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "hf-inpoint-"));
+    try {
+      writeFileSync(
+        join(dir, "index.html"),
+        `<!doctype html><html><body>` +
+          `<div id="root" data-composition-id="main" data-start="0" data-duration="12" data-width="1280" data-height="720">` +
+          `<div id="scene" data-composition-id="scene" class="clip" data-start="0" data-duration="12" data-playback-start="7">` +
+          `<video id="clip" class="clip" src="clip.mp4" data-start="0" data-duration="19" muted></video>` +
+          `<audio id="vo" src="vo.m4a" data-start="0" data-duration="19"></audio>` +
+          `</div></div></body></html>`,
+      );
+      const { videos, audios } = await compileForRender(dir, join(dir, "index.html"), dir);
+      expect(videos.find((v) => v.id === "clip")).toMatchObject({
+        start: 0,
+        end: 12,
+        mediaStart: 7,
+      });
+      expect(audios.find((a) => a.id === "vo")).toMatchObject({ start: 0, end: 12, mediaStart: 7 });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("cuts a split scene's media to the second half's slot", () => {
@@ -131,8 +158,7 @@ describe("collectRenderMedia in-point hosts", () => {
       `</div>`;
 
     const { videos, audios } = collectRenderMedia(html);
-    // Video keeps its origin: frames before the host's start are hidden with the host.
-    expect(videos.find((v) => v.id === "clip")).toMatchObject({ start: 0, end: 12, mediaStart: 1 });
+    expect(videos.find((v) => v.id === "clip")).toMatchObject({ start: 5, end: 12, mediaStart: 6 });
     expect(audios.find((a) => a.id === "vo")).toMatchObject({ start: 5, end: 12, mediaStart: 6 });
     // Wholly before the in-point: never played.
     expect(audios.find((a) => a.id === "early")).toBeUndefined();

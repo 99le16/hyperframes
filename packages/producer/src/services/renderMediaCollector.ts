@@ -139,17 +139,19 @@ function resolveHostWindow(
 }
 
 /**
- * Map each render id to the window of the composition hosts it is nested in.
- * Keyed on the render id rather than document position so the caller never has
- * to assume two separate parses walk the document in the same order.
+ * Map each media id to the window of the composition hosts it is nested in.
+ * Keyed on the id the parsers report (render id, else author id: render ids are
+ * only stamped when files are inlined) rather than document position so the caller
+ * never has to assume two separate parses walk the document in the same order.
  */
 function collectHostWindows(html: string): Map<string, HostWindow> {
   const { document } = parseHTML(html);
   const windows = new Map<string, HostWindow>();
   const startCache = new Map<RefResolverEl, number>();
   const visiting = new Set<RefResolverEl>();
-  for (const element of document.querySelectorAll(`[${MEDIA_RENDER_ID_ATTR}]`)) {
-    const renderId = element.getAttribute(MEDIA_RENDER_ID_ATTR);
+  const media = `[${MEDIA_RENDER_ID_ATTR}], video[id], audio[id], img[id]`;
+  for (const element of document.querySelectorAll(media)) {
+    const renderId = element.getAttribute(MEDIA_RENDER_ID_ATTR) || element.getAttribute("id");
     if (!renderId) continue;
     windows.set(
       renderId,
@@ -188,15 +190,20 @@ function toAbsoluteWindow(
   return { start: absolute.start, end: played.end, played };
 }
 
-/** Start audio where its in-point hosts let it play, that much further into its source. */
-function startAtPlayed<T extends AudioElement>(audio: T, played: { start: number }): T {
-  const head = played.start - audio.start;
-  if (head <= 0) return audio;
-  const rate = normalizeRateSpec(audio.playbackRate);
+/** Start a clip where its in-point hosts let it play, that much further into its source. */
+function startAtPlayed<T extends AudioElement | VideoElement>(
+  clip: T,
+  played: { start: number },
+): T {
+  const head = played.start - clip.start;
+  // ponytail: a looping video keeps its origin (its loop runs from mediaStart), so a head cut
+  // after 0 is not applied to it; that needs a visible start separate from the origin in the engine.
+  if (head <= 0 || ("loop" in clip && clip.loop)) return clip;
+  const rate = normalizeRateSpec(clip.playbackRate);
   return {
-    ...audio,
+    ...clip,
     start: played.start,
-    mediaStart: audio.mediaStart + sourceTimeAt(rate, head),
+    mediaStart: clip.mediaStart + sourceTimeAt(rate, head),
     playbackRate: shiftRateLane(rate, head),
   };
 }
@@ -219,11 +226,14 @@ export function collectRenderMedia(html: string): RenderMedia {
   const windows = collectHostWindows(html);
   const windowFor = (id: string): HostWindow => windows.get(id) ?? ROOT_WINDOW;
 
-  // Pictures keep their origin: the engine trims a negative start, and the host hides them before its own.
   const videos: VideoElement[] = [];
   for (const video of parseVideoElements(html)) {
     const absolute = toAbsoluteWindow(video.start, video.end, windowFor(video.id));
-    if (absolute) videos.push({ ...video, start: absolute.start, end: absolute.end });
+    if (absolute) {
+      videos.push(
+        startAtPlayed({ ...video, start: absolute.start, end: absolute.end }, absolute.played),
+      );
+    }
   }
 
   const images: ImageElement[] = [];
