@@ -993,7 +993,8 @@ describe("windowed rendering of a long input", () => {
   const memoryChain = (): HfAudioFxChain => ({
     version: 1,
     nodes: [
-      { type: "bitcrush", id: "b", enabled: true, params: { bits: 6, samples: 3, mix: 0.5 } },
+      // A hold of 5 does not divide the windows' 128-aligned starts, so an unseeded counter drifts.
+      { type: "bitcrush", id: "b", enabled: true, params: { bits: 5, samples: 5, mix: 0.7 } },
       {
         type: "chorus",
         id: "c",
