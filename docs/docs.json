@@ -1008,7 +1008,8 @@
               "reference/html-schema",
               "reference/color-grading",
               "reference/audio-effects",
-              "reference/speed-ramps"
+              "reference/speed-ramps",
+              "reference/lint-rules"
             ]
           },
           {
