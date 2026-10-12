@@ -98,14 +98,15 @@ async function render(
   // A lookahead limiter delays its output; render that much longer and drop the
   // lead-in so the clip stays sample-aligned with its source.
   const latency = chainLatencySamples(chain, sampleRate);
-  const ctx = new OfflineAudioContext(channels, frames + tail + latency, sampleRate);
+  const total = frames + tail + latency;
+  const ctx = new OfflineAudioContext(channels, total, sampleRate);
 
   if (chainNeedsWorklets(chain)) await ensureAudioFxWorklets(ctx);
 
   const source = ctx.createBufferSource();
-  // Padded with silence by the limiter's lookahead: once a source ends its worklets stop being
-  // fed, so without it the last `latency` samples of the clip never leave the lookahead line.
-  source.buffer = toBuffer(ctx, planes, channels, frames + latency, sampleRate);
+  // Padded with silence for the whole render: once a source ends its worklets stop being fed, so
+  // anything still held in a lookahead line or a grain ring would never leave it.
+  source.buffer = toBuffer(ctx, planes, channels, total, sampleRate);
 
   const fx = buildFxChain(ctx, chain, elapsed);
 
