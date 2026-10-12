@@ -1,4 +1,5 @@
 import { runInNewContext } from "node:vm";
+import { MEDIA_RENDER_ID_ATTR } from "@hyperframes/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { captureDeVerificationFrames, type CaptureSession } from "./frameCapture.js";
 import { pageScreenshotCapture } from "./screenshotService.js";
@@ -63,7 +64,7 @@ afterEach(() => {
 describe("drawElement verification page", () => {
   it("captures ground truth without seeking or injecting into the live animation", async () => {
     const { session, capturePage, verificationPage, browser, onBeforeCapture } = makeSession();
-    await captureDeVerificationFrames(session, session.page, vi.fn());
+    await expect(captureDeVerificationFrames(session, session.page, vi.fn())).resolves.toBe(true);
 
     expect(capturePage.seek).not.toHaveBeenCalled();
     expect(browser.newPage).toHaveBeenCalledOnce();
@@ -99,6 +100,25 @@ describe("drawElement verification page", () => {
     await expect(captureDeVerificationFrames(session, session.page, vi.fn())).rejects.toThrow(
       "injection failed",
     );
+    expect(verificationPage.close).toHaveBeenCalledOnce();
+    expect(capturePage.seek).not.toHaveBeenCalled();
+    expect(session.deVerifyFrames).toBeUndefined();
+  });
+
+  it("installs the media render-id resolvers on the verification page", async () => {
+    const { session, verificationPage } = makeSession();
+    await captureDeVerificationFrames(session, session.page, vi.fn());
+    expect(verificationPage.evaluateOnNewDocument).toHaveBeenCalledWith(
+      expect.any(Function),
+      MEDIA_RENDER_ID_ATTR,
+    );
+  });
+
+  it("reports a verification page that fails to load instead of throwing", async () => {
+    const { session, capturePage, verificationPage } = makeSession();
+    verificationPage.goto.mockRejectedValueOnce(new Error("Navigation timeout"));
+
+    await expect(captureDeVerificationFrames(session, session.page, vi.fn())).resolves.toBe(false);
     expect(verificationPage.close).toHaveBeenCalledOnce();
     expect(capturePage.seek).not.toHaveBeenCalled();
     expect(session.deVerifyFrames).toBeUndefined();

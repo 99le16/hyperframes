@@ -1177,8 +1177,17 @@ async function finalizeDrawElementInit(
   // not the live DOM (see the Lim 6 boundary-screenshot note).
   {
     const verifyStart = Date.now();
-    await captureDeVerificationFrames(session, page, logInitPhase);
+    const keepDrawElement = await captureDeVerificationFrames(session, page, logInitPhase);
     session.deVerifyInitMs = Date.now() - verifyStart;
+    // A verification page that cannot load leaves drawElement without its
+    // safety net, so the session stays on its launch capture mode instead.
+    if (!keepDrawElement) {
+      session.deFallbackTrigger = "verify_page_failed";
+      if (transparent) {
+        await initTransparentBackground(session.page);
+      }
+      return;
+    }
   }
   await injectDrawElementCanvas(page, session.options.width, session.options.height);
   if (transparent) {
@@ -3400,6 +3409,7 @@ export async function createStaticVerificationPage(session: CaptureSession): Pro
         w.__name = <T>(fn: T, _name: string): T => fn;
       }
     });
+    await installMediaRenderIdBridge(page);
     if (session.options.variables && Object.keys(session.options.variables).length > 0) {
       const variablesJson = JSON.stringify(session.options.variables);
       await page.evaluateOnNewDocument((json: string) => {
@@ -4878,13 +4888,13 @@ export async function captureDeVerificationFrames(
   session: CaptureSession,
   capturePage: Page,
   logInitPhase: (phase: string) => void,
-): Promise<void> {
+): Promise<boolean> {
   // Explicit HF_DE_VERIFY wins; otherwise the session's own sample count
   // (raised by the parallel coordinator for multi-worker DE), then default 4.
   const kRaw = Number(process.env.HF_DE_VERIFY ?? session.options.deVerifySamples ?? "4");
   const k = Number.isFinite(kRaw) ? Math.max(0, Math.min(8, Math.floor(kRaw))) : 4;
-  if (k === 0 || process.env.HF_FORCE_DRAWELEMENT === "1") return;
-  if (session.options.format === "png") return; // worker-encode drain (the consumer) is jpeg-only
+  if (k === 0 || process.env.HF_FORCE_DRAWELEMENT === "1") return true;
+  if (session.options.format === "png") return true; // worker-encode drain (the consumer) is jpeg-only
   const fps = fpsToNumber(session.options.fps);
   // Prefer the producer-resolved duration (the range that will actually be
   // drained). The page's raw __hf.duration can exceed it — timelines outrun
@@ -4897,11 +4907,11 @@ export async function captureDeVerificationFrames(
       () => (window as unknown as { __hf?: { duration?: number } }).__hf?.duration ?? 0,
     ));
   const totalFrames = Math.floor(duration * fps);
-  if (totalFrames < 10) return;
+  if (totalFrames < 10) return true;
   if (duration > 3600) {
     // No producer duration and the page reports an implausible one.
     logInitPhase(`drawElement self-verify skipped: implausible duration ${duration}s`);
-    return;
+    return true;
   }
   // Ground truth must show what the real capture paths would show: <video>
   // pixels come from the onBeforeCapture injector. When this session has no
@@ -4912,13 +4922,20 @@ export async function captureDeVerificationFrames(
     const hasVideos = await capturePage.evaluate(() => document.querySelector("video") !== null);
     if (hasVideos) {
       logInitPhase("drawElement self-verify skipped: video comp without frame injector");
-      return;
+      return true;
     }
   }
   // A late-starting lt-side-rule in a 100s comp reproduces this: verification
   // seeks cache inherited visibility:hidden in its outro tween (#5415).
   // Keep those seeks off the live capture page.
-  const page = await createStaticVerificationPage(session);
+  let page: Page;
+  try {
+    page = await createStaticVerificationPage(session);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    logInitPhase(`drawElement self-verify page failed to load: ${reason}`);
+    return false;
+  }
   try {
     const boundary = await computeClipBoundaryFrames(page, fps);
     const fractions = computeDeVerifySampleFractions(k);
@@ -4964,6 +4981,7 @@ export async function captureDeVerificationFrames(
     logInitPhase(
       `drawElement self-verify armed: ${frames.size} ground-truth frame(s) @ [${[...frames.keys()].join(", ")}] of ${totalFrames}`,
     );
+    return true;
   } finally {
     await page.close().catch(() => {});
   }
