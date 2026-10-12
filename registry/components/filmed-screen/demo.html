@@ -566,18 +566,19 @@ void main() {
         canvas: ".hf-filmed-screen",
         shots: [
           {
-            until: 3,
+            until: 3.8,
             palette: ["#08060a", "#2a1405", "#8a4a10", "#ffb340", "#fff1d6"],
             tilt: [0.16, -0.22, 0.03],
             zoom: [1.0, 1.2],
             blur: 1.0,
             center: [760, 420],
             focus: function (t) {
-              return document.getElementById(t < 1.4 ? "title" : "sub");
+              // Racks title → subtitle → title, so the catalog poster (t = 3 s) lands on the title.
+              return document.getElementById(t < 1.4 || t >= 2.6 ? "title" : "sub");
             },
           },
           {
-            until: 6,
+            until: 6.8,
             palette: null,
             tilt: [-0.14, 0.24, -0.04],
             zoom: [1.3, 1.6],
