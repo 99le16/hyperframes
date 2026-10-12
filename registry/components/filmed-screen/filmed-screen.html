@@ -1,7 +1,8 @@
 <!--
   Filmed Screen — films your scene like a camera pointed at a monitor: perspective tilt,
-  depth of field that follows an element you name, chromatic fringing, LED sub-pixels,
-  a per-shot colour grade, and shots that glide into each other (or cut, with a tear).
+  a gently curved screen, depth of field that follows an element you name, chromatic
+  fringing, LED sub-pixels, a vignette, a per-shot colour grade, and shots that glide (or
+  orbit) into each other, or cut with a tear.
   The focused element stays sharp, and focus racks smoothly between elements.
 
   Usage: paste this snippet into your composition and put your scene inside
@@ -15,21 +16,27 @@
   - .hf-filmed-screen-scene needs an explicit pixel size; inset:0 measures 0×0 inside the canvas.
   - Rendering uses screenshot capture on one worker, so expect slower renders.
 
-  HFFilmedScreen.mount({ canvas, shots, rack, fadeOut, zIndex }) → { destroy() }
+  HFFilmedScreen.mount({ canvas, shots, rack, vignette, aberration, led, curve, fadeOut, zIndex })
+    → { destroy() }
     canvas  — element, list or selector; the first one not already filmed is used. Pass your
               own document.querySelectorAll(...) so each instance finds its own canvas.
               A <canvas layoutsubtree> films its first child (DOM); any other canvas
               (p5, three.js…) is sampled directly.
     fadeOut — fade to black over the last 0.4 s of the composition (default true)
     zIndex  — z-index of the lens output canvas (default 10)
-    rack    — seconds a focus change takes to settle (default 0.7)
-    shots   — [{ until, palette, invert, tilt, zoom, blur, center, focus, transition, glide }]
+    rack    — seconds a focus change takes to settle (default 0.3)
+    vignette   — edge darkening (default 1.0; 0 turns it off)
+    aberration — chromatic fringing, × the base amount (default 2.2)
+    led        — LED sub-pixel grid strength (default 0.45)
+    curve      — screen curvature (default 0.15; 0 is flat)
+    shots   — [{ until, palette, invert, tilt, tiltTo, zoom, blur, center, focus, transition, glide }]
       until    end of the shot, in seconds of this composition's timeline
       palette  5 hex colours, dark → light; null keeps true colour
       invert   true flips brightness, keeping hue (light pages → dark screens)
       tilt     [x, y, roll] radians
+      tiltTo   tilt to end the shot on, for an orbit (default: tilt)
       zoom     [from, to] across the shot
-      blur     depth-of-field strength, ~0.6–1.2
+      blur     depth-of-field strength (default 0.45; ~1 for a shallow phone look)
       center   [x, y] where the camera points when nothing is in focus
       focus    (t, local) → Element | {x, y, w, h} | array (last one is the focus)
       transition  "glide" (default) eases in from the previous shot; "cut" cuts with a tear
@@ -72,6 +79,7 @@ uniform sampler2D uSrc;
 uniform vec2 uRes; uniform float uTime; uniform vec2 uAim; uniform float uZoom; uniform vec3 uRot;
 uniform vec2 uFocus; uniform vec4 uFocusRect; uniform float uBlur; uniform vec3 uP[5]; uniform float uTrue;
 uniform float uCut; uniform float uOut; uniform float uSeed; uniform float uInv;
+uniform float uVig; uniform float uCA; uniform float uLed; uniform float uCurve;
 out vec4 outColor;
 const float FOCAL = 1.7; const float CELL = 3.0;
 const int TAPS = 36; const int GLOW_TAPS = 16;
@@ -109,7 +117,11 @@ void main() {
     float n = hash(vec2(band, frameSeed.x * 3.7 + frameSeed.y));
     px.x += step(0.93 - 0.18 * uCut, n) * (hash(vec2(band, frameSeed.y + 9.0)) - 0.5) * 220.0 * uCut;
   }
-  vec2 s = (px - 0.5 * res) / res.y;
+  vec2 s0 = (px - 0.5 * res) / res.y;
+  // Barrel curve, normalised so the frame's corners stay put: the middle swells toward the
+  // camera and straight lines bow outward, without the page edge entering the shot.
+  vec2 corner = 0.5 * res / res.y;
+  vec2 s = s0 * (1.0 + uCurve * dot(s0, s0)) / (1.0 + uCurve * dot(corner, corner));
   vec3 d = vec3(s.x, s.y, FOCAL);
   mat3 R = rotation();
   vec3 eu = R * vec3(1.0, 0.0, 0.0); vec3 ev = R * vec3(0.0, 1.0, 0.0); vec3 nrm = R * vec3(0.0, 0.0, 1.0);
@@ -129,7 +141,8 @@ void main() {
   float coc = clamp(uBlur * 190.0 * abs(1.0 - zf / z), 0.0, 46.0) * (1.0 - sharp);
   float logPerPx = 1.0 / uZoom * z;
   float rLog = coc * logPerPx;
-  vec2 ca = (1.0 - sharp) * s * (0.006 + 0.008 * uCut) * (res.y / uZoom);
+  // A trace of fringing survives on the focused text (a quarter), enough to read as glass.
+  vec2 ca = (1.0 - 0.75 * sharp) * uCA * s * (0.006 + 0.008 * uCut) * (res.y / uZoom);
   float snapAmt = smoothstep(0.5 * CELL, 2.0 * CELL, rLog);
   float spin = hash(coord * 0.37 + frameSeed) * 6.2831;
   vec3 accC = vec3(0.0); float accGl = 0.0; float accRr = 0.0; float accRl = 0.0; float accBb = 0.0; float accBl = 0.0;
@@ -173,11 +186,12 @@ void main() {
   float rowm = 1.0 - smoothstep(0.28, 0.5, abs(cu.y));
   float colm = 1.0 - smoothstep(0.36, 0.5, abs(cu.x));
   vec3 led = rowm * colm * (0.4 + 1.0 * sub);
-  float ledAmt = (1.0 - smoothstep(0.8, 3.5, rLog / CELL)) * smoothstep(2.2, 4.5, CELL / logPerPx);
-  col *= mix(vec3(1.0), led * 1.3, ledAmt * 0.9 * (1.0 - 0.7 * sharp));
+  // The grid only shows once a cell spans ~4 output px; finer, it aliases into moiré.
+  float ledAmt = (1.0 - smoothstep(0.8, 3.5, rLog / CELL)) * smoothstep(4.0, 6.5, CELL / logPerPx);
+  col *= mix(vec3(1.0), led * 1.3, ledAmt * uLed * (1.0 - 0.7 * sharp));
   col = col * (1.0 + uCut * 1.1) + uCut * 0.06;
-  vec2 v = s * vec2(0.85, 1.15);
-  col *= 1.0 - 0.42 * dot(v, v);
+  vec2 v = s0 * vec2(0.85, 1.15);
+  col *= 1.0 - uVig * dot(v, v);
   col *= 1.0 - (0.035 - 0.035 * sin(coord.y * 0.9 - uTime * 55.0));
   col += (hash(coord + frameSeed * 1.31) - 0.5) * 0.06;
   col *= 1.0 - uOut;
@@ -401,7 +415,7 @@ void main() {
       gl.enableVertexAttribArray(aLoc);
       gl.vertexAttribPointer(aLoc, 2, gl.FLOAT, false, 0, 0);
       var loc = {};
-      "uSrc uRes uTime uAim uZoom uRot uFocus uFocusRect uBlur uP uTrue uCut uOut uSeed uInv"
+      "uSrc uRes uTime uAim uZoom uRot uFocus uFocusRect uBlur uP uTrue uCut uOut uSeed uInv uVig uCA uLed uCurve"
         .split(" ")
         .forEach(function (n) {
           loc[n] = gl.getUniformLocation(prog, n);
@@ -469,12 +483,16 @@ void main() {
           len = Math.max(0.001, sh.until - start);
         var sway = Math.sin(i * 1.7 + local * 0.9) * 0.012;
         var tilt = sh.tilt || [0.1, -0.15, 0.02],
+          tiltTo = sh.tiltTo || tilt,
           zoom = sh.zoom || [1.1, 1.3];
         return {
           center: sh.center || [W / 2, H / 2],
-          rot: [tilt[0] + sway, tilt[1] - sway * 0.7, tilt[2] + sway * 0.4],
+          // An orbit: the tilt eases from `tilt` to `tiltTo` across the shot.
+          rot: [0, 1, 2].map(function (k) {
+            return lerp(tilt[k], tiltTo[k], smoother(local / len)) + sway * [1, -0.7, 0.4][k];
+          }),
           zoom: lerp(zoom[0], zoom[1], smoother(local / len)),
-          blur: sh.blur == null ? 0.9 : sh.blur,
+          blur: sh.blur == null ? 0.45 : sh.blur,
           pal: sh.palette ? [].concat.apply([], sh.palette.map(hex)) : null,
           trueAmt: sh.palette ? 0 : 1,
           inv: sh.invert ? 1 : 0,
@@ -529,7 +547,7 @@ void main() {
         var t = now(),
           at = camAt(t),
           cam = at.cam;
-        var rack = opts.rack == null ? 0.7 : opts.rack;
+        var rack = opts.rack == null ? 0.3 : opts.rack;
         var still = [cam.center[0], cam.center[1], 0, 0];
         var rect = [0, 0, 0, 0],
           wsum = 0;
@@ -607,6 +625,10 @@ void main() {
         gl.uniform1f(loc.uOut, fs.out);
         gl.uniform1f(loc.uSeed, fs.seed);
         gl.uniform1f(loc.uInv, cam.inv);
+        gl.uniform1f(loc.uVig, opts.vignette == null ? 1.0 : opts.vignette);
+        gl.uniform1f(loc.uCA, opts.aberration == null ? 2.2 : opts.aberration);
+        gl.uniform1f(loc.uLed, opts.led == null ? 0.45 : opts.led);
+        gl.uniform1f(loc.uCurve, opts.curve == null ? 0.15 : opts.curve);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         fs = null;
         return true;
@@ -648,15 +670,17 @@ void main() {
 </script>
 
 <script>
+  // An orbit across two shots: a wide establishing shot, then a close-up that follows the
+  // headline and the paragraph while the camera swings to the same angle on the other side.
   HFFilmedScreen.mount({
     canvas: document.querySelectorAll(".hf-filmed-screen"),
     shots: [
       {
-        until: 3,
-        palette: ["#08060a", "#2a1405", "#8a4a10", "#ffb340", "#fff1d6"],
-        tilt: [0.16, -0.22, 0.03],
-        zoom: [1.15, 1.4],
-        blur: 1.0,
+        until: 2.5,
+        palette: null,
+        tilt: [0.06, 0.24, -0.02],
+        tiltTo: [0.08, 0.14, -0.012],
+        zoom: [1.28, 1.38],
         focus: function () {
           return document.querySelector(".hf-filmed-screen-scene h1");
         },
@@ -664,9 +688,9 @@ void main() {
       {
         until: 6,
         palette: null,
-        tilt: [-0.14, 0.24, -0.04],
-        zoom: [1.1, 1.3],
-        blur: 0.9,
+        tilt: [0.1, 0.14, -0.012],
+        tiltTo: [0.06, -0.24, 0.02],
+        zoom: [2.0, 2.4],
         focus: function () {
           return document.querySelector(".hf-filmed-screen-scene p");
         },
