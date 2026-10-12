@@ -238,21 +238,20 @@ export function collectRenderMedia(html: string): RenderMedia {
   const audios: AudioElement[] = [];
   for (const audio of parseAudioElements(html)) {
     const elementId = audio.type === "video" ? audio.id.replace(/-audio$/, "") : audio.id;
-    // The mixer reads end === 0 as "run to the natural media length", so an
-    // unbounded track must stay unbounded rather than collapse onto its start.
-    const authoredEnd = audio.end > 0 ? audio.end : Infinity;
-    const absolute = toAbsoluteWindow(audio.start, authoredEnd, windowFor(elementId));
-    if (!absolute) {
-      droppedMediaIds.add(elementId);
-      continue;
-    }
-    audios.push(
-      startAtPlayed(
-        { ...audio, start: absolute.start, end: Number.isFinite(absolute.end) ? absolute.end : 0 },
-        absolute.played,
-      ),
-    );
+    const placed = placeAudio(audio, windowFor(elementId));
+    if (placed) audios.push(placed);
+    else droppedMediaIds.add(elementId);
   }
 
   return { videos, audios, images, droppedMediaIds };
+}
+
+function placeAudio(audio: AudioElement, window: HostWindow): AudioElement | null {
+  // The mixer reads end === 0 as "run to the natural media length", so an
+  // unbounded track must stay unbounded rather than collapse onto its start.
+  const authoredEnd = audio.end > 0 ? audio.end : Infinity;
+  const absolute = toAbsoluteWindow(audio.start, authoredEnd, window);
+  if (!absolute) return null;
+  const end = Number.isFinite(absolute.end) ? absolute.end : 0;
+  return startAtPlayed({ ...audio, start: absolute.start, end }, absolute.played);
 }
