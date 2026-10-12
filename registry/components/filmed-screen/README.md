@@ -2,8 +2,8 @@
 
 Your scene, filmed off a screen. The live DOM is captured through HTML-in-Canvas every frame and
 shaded by one WebGL pass: a tilted screen plane in perspective, depth of field that follows an
-element you name, chromatic fringing, LED sub-pixels, a per-shot colour grade, bloom, vignette,
-grain and a tear on every cut. The element in focus stays sharp: inside its box the pass turns off
+element you name, chromatic fringing, LED sub-pixels, a per-shot colour grade, bloom, vignette and
+grain. Shots glide into each other and focus racks smoothly between elements. The element in focus stays sharp: inside its box the pass turns off
 blur, LED-cell snapping and fringing, and fades back in over ~160 px around it.
 
 Ported from the virtual-camera pass in [ff-tracking](https://github.com/mrsarac/ff-tracking)
@@ -60,16 +60,22 @@ HFFilmedScreen.mount({
 });
 ```
 
-| field   | default            | notes                                                                      |
-| ------- | ------------------ | -------------------------------------------------------------------------- |
-| until   | —                  | End of the shot, in seconds of the owning composition. Shots cut here.     |
-| palette | null               | Five hex colours, dark → light. `null` keeps true colour.                  |
-| invert  | false              | Flips brightness and keeps hue, so light pages read as dark screens.       |
-| tilt    | [0.1, -0.15, 0.02] | Screen plane rotation `[x, y, roll]` in radians.                           |
-| zoom    | [1.1, 1.3]         | Eased across the shot.                                                     |
-| blur    | 0.9                | Depth-of-field strength; ~0.6–1.2 reads as a phone camera.                 |
-| center  | canvas centre      | Where the camera points when nothing is in focus.                          |
-| focus   | —                  | `(t, local) → Element \| {x,y,w,h} \| array`; the last entry is the focus. |
+| field      | default            | notes                                                                                              |
+| ---------- | ------------------ | -------------------------------------------------------------------------------------------------- |
+| until      | —                  | End of the shot, in seconds of the owning composition. Shots cut here.                             |
+| palette    | null               | Five hex colours, dark → light. `null` keeps true colour.                                          |
+| invert     | false              | Flips brightness and keeps hue, so light pages read as dark screens.                               |
+| tilt       | [0.1, -0.15, 0.02] | Screen plane rotation `[x, y, roll]` in radians.                                                   |
+| zoom       | [1.1, 1.3]         | Eased across the shot.                                                                             |
+| blur       | 0.9                | Depth-of-field strength; ~0.6–1.2 reads as a phone camera.                                         |
+| center     | canvas centre      | Where the camera points when nothing is in focus.                                                  |
+| focus      | —                  | `(t, local) → Element \| {x,y,w,h} \| array`; the last entry is the focus.                         |
+| transition | "glide"            | `"glide"` eases camera, grade and colour mode in from the previous shot; `"cut"` cuts with a tear. |
+| glide      | 1.2                | Seconds a glide takes.                                                                             |
+
+`mount()` also takes `rack` (default 0.7): the seconds a focus change takes to settle. Focus is a
+weighted average of where it was over that window, so it eases on an S-curve and any seek order
+renders the same frame.
 
 A `<canvas>` without `layoutsubtree` (p5, three.js, a 2D canvas) is sampled directly instead; give
 `focus` rectangles in its pixel space.

@@ -1,9 +1,14 @@
 <!doctype html>
+<!--
+  filmed-screen demo. Three scenes in the style of other compositions — a code editor, an
+  analytics card and a chat thread — cross-fade inside one filmed screen. Each gets its own
+  shot and grade; the camera glides between them and racks focus to whatever just changed.
+-->
 <html lang="en">
   <head>
-    <title>Filmed Screen Demo</title>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=1920, height=1080" />
+    <title>Filmed Screen Demo</title>
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
     <style>
       * {
@@ -13,17 +18,16 @@
       }
       html,
       body {
-        margin: 0;
         width: 1920px;
         height: 1080px;
         overflow: hidden;
-        background: #0a0a0a;
+        background: #050608;
       }
       #root {
         position: relative;
         width: 1920px;
         height: 1080px;
-        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        overflow: hidden;
       }
       .scene {
         position: absolute;
@@ -31,39 +35,189 @@
         top: 0;
         width: 1920px;
         height: 1080px;
-        padding: 180px 220px;
-        color: #f4f4f5;
+        opacity: 0;
+        font-family: Inter, "Helvetica Neue", Arial, "DejaVu Sans", sans-serif;
+        color: #e8ecf3;
       }
-      .scene h1 {
-        font-size: 120px;
-        font-weight: 700;
-        letter-spacing: -0.04em;
+      .mono {
+        font-family: "JetBrains Mono", ui-monospace, Menlo, "DejaVu Sans Mono", monospace;
       }
-      .scene p {
-        margin-top: 24px;
-        font-size: 44px;
-        color: #a1a1aa;
+
+      /* A — code editor */
+      .editor {
+        position: absolute;
+        left: 260px;
+        top: 170px;
+        width: 1400px;
+        height: 740px;
+        border-radius: 22px;
+        background: #0f1218;
+        border: 2px solid #232836;
+        overflow: hidden;
       }
-      .tiles {
+      .editor .bar {
+        height: 64px;
         display: flex;
-        gap: 32px;
-        margin-top: 96px;
+        align-items: center;
+        gap: 14px;
+        padding: 0 28px;
+        background: #151a23;
+        border-bottom: 2px solid #232836;
       }
-      .tile {
-        width: 420px;
-        padding: 32px;
-        border-radius: 20px;
-        background: #18181b;
-        border: 2px solid #27272a;
+      .editor .bar i {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #3a4150;
       }
-      .tile b {
+      .editor .bar span {
+        margin-left: 18px;
+        font-size: 24px;
+        color: #8a93a6;
+      }
+      .code {
+        padding: 36px 0;
+        font-size: 34px;
+        line-height: 64px;
+      }
+      .code div {
+        padding: 0 44px;
+        white-space: nowrap;
+      }
+      .code .ind b {
+        width: 92px;
+      }
+      .code b {
+        display: inline-block;
+        width: 52px;
+        color: #4a5263;
+        font-weight: 400;
+      }
+      .k {
+        color: #c792ea;
+      }
+      .f {
+        color: #82aaff;
+      }
+      .s {
+        color: #c3e88d;
+      }
+      .n {
+        color: #f78c6c;
+      }
+      .c {
+        color: #5c6577;
+      }
+      #a-hl {
+        background: rgba(255, 196, 92, 0.12);
+        box-shadow: inset 5px 0 #ffc45c;
+      }
+      #a-type {
+        display: inline-block;
+        overflow: hidden;
+        vertical-align: bottom;
+        width: 0;
+      }
+
+      /* B — analytics card */
+      .card {
+        position: absolute;
+        left: 300px;
+        top: 190px;
+        width: 1320px;
+        height: 700px;
+        padding: 64px 72px;
+        border-radius: 28px;
+        background: linear-gradient(160deg, #161b26, #0d1017);
+        border: 2px solid #252b38;
+      }
+      .card h3 {
+        font-size: 34px;
+        font-weight: 600;
+        color: #9aa3b5;
+        letter-spacing: 0.02em;
+      }
+      #b-num {
+        margin-top: 18px;
+        font-size: 168px;
+        font-weight: 800;
+        letter-spacing: -0.04em;
+        color: #fff;
+      }
+      #b-num small {
+        font-size: 54px;
+        font-weight: 600;
+        color: #5ee6a8;
+        margin-left: 24px;
+        letter-spacing: 0;
+      }
+      .bars {
+        position: absolute;
+        left: 72px;
+        right: 72px;
+        bottom: 72px;
+        height: 250px;
+        display: flex;
+        align-items: flex-end;
+        gap: 30px;
+      }
+      .bars div {
+        flex: 1;
+        height: 100%;
+        border-radius: 12px 12px 4px 4px;
+        background: #2b3448;
+        transform-origin: 50% 100%;
+      }
+      #b-top {
+        background: linear-gradient(180deg, #5ee6a8, #1f9e6d);
+      }
+
+      /* C — chat thread */
+      .thread {
+        position: absolute;
+        left: 420px;
+        top: 140px;
+        width: 1080px;
+        height: 800px;
+      }
+      .msg {
+        position: absolute;
+        left: 0;
+        max-width: 820px;
+        padding: 30px 38px;
+        border-radius: 30px;
+        font-size: 40px;
+        line-height: 1.3;
+        opacity: 0;
+      }
+      .msg.them {
+        background: #1c2230;
+        border-bottom-left-radius: 8px;
+      }
+      .msg.me {
+        left: auto;
+        right: 0;
+        background: #2f6bff;
+        border-bottom-right-radius: 8px;
+      }
+      .msg em {
         display: block;
-        font-size: 72px;
-        color: #fbbf24;
+        font-style: normal;
+        font-size: 26px;
+        color: #8a93a6;
+        margin-bottom: 8px;
       }
-      .tile span {
-        font-size: 28px;
-        color: #a1a1aa;
+      .msg.me em {
+        color: #c8d8ff;
+      }
+      #c1 {
+        top: 40px;
+      }
+      #c2 {
+        top: 270px;
+      }
+      #c3 {
+        top: 500px;
       }
     </style>
   </head>
@@ -72,7 +226,7 @@
       id="root"
       data-composition-id="filmed-screen-demo"
       data-start="0"
-      data-duration="9"
+      data-duration="10"
       data-width="1920"
       data-height="1080"
     >
@@ -95,24 +249,115 @@
             background: #0b0d12;
           "
         >
-          <div class="scene">
-            <h1 id="title">Filmed Screen</h1>
-            <p id="sub">A HyperFrames component that films your scene.</p>
-            <div class="tiles">
-              <div class="tile" id="t1"><b id="n1">36</b><span>bokeh taps per pixel</span></div>
-              <div class="tile" id="t2"><b id="n2">3 px</b><span>LED cell pitch</span></div>
-              <div class="tile" id="t3"><b id="n3">0</b><span>overlays</span></div>
+          <section class="scene" id="scene-a">
+            <div class="editor mono">
+              <div class="bar"><i></i><i></i><i></i><span>render.ts</span></div>
+              <div class="code">
+                <div>
+                  <b>1</b><span class="k">import</span> { render } <span class="k">from</span>
+                  <span class="s">"hyperframes"</span>;
+                </div>
+                <div><b>2</b></div>
+                <div>
+                  <b>3</b><span class="k">const</span> video = <span class="k">await</span>
+                  <span class="f">render</span>({
+                </div>
+                <div class="ind"><b>4</b> composition: <span class="s">"./index.html"</span>,</div>
+                <div class="ind"><b>5</b> fps: <span class="n">30</span>,</div>
+                <div id="a-hl" class="ind">
+                  <b>6</b> <span id="a-type">filmedScreen: <span class="k">true</span>,</span>
+                </div>
+                <div><b>7</b>});</div>
+                <div><b>8</b><span class="c">// HTML in, video out.</span></div>
+              </div>
             </div>
-          </div>
+          </section>
+
+          <section class="scene" id="scene-b">
+            <div class="card">
+              <h3>Renders this week</h3>
+              <div id="b-num">0<small>+18%</small></div>
+              <div class="bars" id="b-bars">
+                <div style="--h: 0.38"></div>
+                <div style="--h: 0.52"></div>
+                <div style="--h: 0.46"></div>
+                <div style="--h: 0.64"></div>
+                <div style="--h: 0.58"></div>
+                <div style="--h: 0.71"></div>
+                <div id="b-top" style="--h: 1"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="scene" id="scene-c">
+            <div class="thread">
+              <div class="msg them" id="c1"><em>Maya</em>Can we get the launch cut by noon?</div>
+              <div class="msg me" id="c2">
+                <em>You</em>Rendering now. Filmed-screen look on the product shots.
+              </div>
+              <div class="msg them" id="c3">
+                <em>Maya</em>That looks like a real camera. Ship it.
+              </div>
+            </div>
+          </section>
         </div>
       </canvas>
     </div>
     <script>
+      window.__timelines = window.__timelines || {};
       const tl = gsap.timeline({ paused: true });
-      tl.from("#title", { opacity: 0, y: 40, duration: 0.6 }, 0.2)
-        .from("#sub", { opacity: 0, y: 24, duration: 0.6 }, 0.8)
-        .from(".tile", { opacity: 0, y: 40, duration: 0.5, stagger: 0.25 }, 3.2)
-        .to({}, { duration: 9 }, 0);
+      const numEl = document.getElementById("b-num");
+      // GSAP does not fire callbacks on seek, so the counter is driven by a property setter.
+      const counter = {
+        set value(v) {
+          numEl.firstChild.nodeValue = Math.round(v).toLocaleString("en-US");
+        },
+        get value() {
+          return 0;
+        },
+      };
+      const bars = gsap.utils.toArray(".bars div");
+
+      tl.to("#scene-a", { opacity: 1, duration: 0.5 }, 0)
+        .from(".editor", { y: 30, duration: 1.2, ease: "power2.out" }, 0)
+        .to("#a-type", { width: 470, duration: 1.1, ease: "steps(23)" }, 1.0)
+        .to("#scene-a", { opacity: 0, duration: 0.6, ease: "power1.inOut" }, 3.4)
+
+        .to("#scene-b", { opacity: 1, duration: 0.6, ease: "power1.inOut" }, 3.4)
+        .fromTo(counter, { value: 0 }, { value: 12480, duration: 1.6, ease: "power2.out" }, 3.6)
+        .fromTo(
+          bars,
+          { scaleY: 0 },
+          {
+            scaleY: (i, el) => Number(el.style.getPropertyValue("--h")),
+            duration: 0.9,
+            ease: "power3.out",
+            stagger: 0.08,
+          },
+          4.4,
+        )
+        .to("#scene-b", { opacity: 0, duration: 0.6, ease: "power1.inOut" }, 6.8)
+
+        .to("#scene-c", { opacity: 1, duration: 0.6, ease: "power1.inOut" }, 6.8)
+        .fromTo(
+          "#c1",
+          { opacity: 0, y: 24 },
+          { opacity: 1, y: 0, duration: 0.45, ease: "power2.out" },
+          7.0,
+        )
+        .fromTo(
+          "#c2",
+          { opacity: 0, y: 24 },
+          { opacity: 1, y: 0, duration: 0.45, ease: "power2.out" },
+          7.8,
+        )
+        .fromTo(
+          "#c3",
+          { opacity: 0, y: 24 },
+          { opacity: 1, y: 0, duration: 0.45, ease: "power2.out" },
+          8.6,
+        )
+        .to({}, { duration: 10 }, 0);
       window.__timelines["filmed-screen-demo"] = tl;
       tl.seek(0);
     </script>
@@ -209,14 +454,11 @@ void main() {
     accBb += cb.b * wb; accBl += lb * wb; wB += wb;
   }
   accC /= wG; accGl /= wG; accRr /= wR; accRl /= wR; accBb /= wB; accBl /= wB;
-  vec3 col;
-  if (uTrue > 0.5) {
-    col = vec3(accRr, accC.g, accBb);
-  } else {
-    col = vec3(pal(accRl).r, pal(accGl).g, pal(accBl).b);
-    float red = clamp((accC.r - max(accC.g, accC.b)) * 1.4, 0.0, 1.0);
-    col = mix(col, vec3(1.0, 0.13, 0.10), red);
-  }
+  // uTrue blends graded and true colour, so a glide between shots can cross-fade the grade.
+  vec3 graded = vec3(pal(accRl).r, pal(accGl).g, pal(accBl).b);
+  float red = clamp((accC.r - max(accC.g, accC.b)) * 1.4, 0.0, 1.0);
+  graded = mix(graded, vec3(1.0, 0.13, 0.10), red);
+  vec3 col = mix(graded, vec3(accRr, accC.g, accBb), uTrue);
   float glowR = 26.0 * logPerPx + rLog * 0.6;
   float glow = 0.0; vec3 glowC = vec3(0.0);
   for (int j = 0; j < GLOW_TAPS; j++) {
@@ -228,7 +470,7 @@ void main() {
     glow += l * l; glowC += g * l;
   }
   glow /= float(GLOW_TAPS); glowC /= float(GLOW_TAPS);
-  vec3 glowTint = (uTrue > 0.5) ? glowC : pal(min(1.0, glow * 1.6)) * glow;
+  vec3 glowTint = mix(pal(min(1.0, glow * 1.6)) * glow, glowC, uTrue);
   col += glowTint * 0.6 * (1.0 - 0.6 * sharp);
   vec2 cu = fract(base / CELL) - 0.5;
   vec3 sub = 0.5 + 0.5 * cos(6.2831853 * (vec3(cu.x + 0.5) - vec3(0.1667, 0.5, 0.8333)));
@@ -249,9 +491,6 @@ void main() {
 
         function clamp(x, a, b) {
           return Math.min(b, Math.max(a, x));
-        }
-        function easeOut(x) {
-          return 1 - Math.pow(1 - clamp(x, 0, 1), 3);
         }
         function hex(h) {
           var n = parseInt(h.slice(1), 16);
@@ -469,36 +708,106 @@ void main() {
               h: (r.height * H) / o.height,
             };
           }
-          var fs = null;
-          function prepare() {
-            var t = now(),
-              s = shotAt(t),
+          function smoother(x) {
+            x = clamp(x, 0, 1);
+            return x * x * x * (x * (x * 6 - 15) + 10);
+          }
+          function lerp(a, b, k) {
+            return a + (b - a) * k;
+          }
+          function lerpArr(a, b, k) {
+            return a.map(function (v, i) {
+              return lerp(v, b[i], k);
+            });
+          }
+          // One shot's camera at `local` seconds into it. Everything here is a pure function of time.
+          function shotCam(i, local) {
+            var sh = shots[i],
+              start = i > 0 ? shots[i - 1].until : 0,
+              len = Math.max(0.001, sh.until - start);
+            var sway = Math.sin(i * 1.7 + local * 0.9) * 0.012;
+            var tilt = sh.tilt || [0.1, -0.15, 0.02],
+              zoom = sh.zoom || [1.1, 1.3];
+            return {
+              center: sh.center || [W / 2, H / 2],
+              rot: [tilt[0] + sway, tilt[1] - sway * 0.7, tilt[2] + sway * 0.4],
+              zoom: lerp(zoom[0], zoom[1], smoother(local / len)),
+              blur: sh.blur == null ? 0.9 : sh.blur,
+              pal: sh.palette ? [].concat.apply([], sh.palette.map(hex)) : null,
+              trueAmt: sh.palette ? 0 : 1,
+              inv: sh.invert ? 1 : 0,
+            };
+          }
+          // Shots glide into each other by default: camera, grade and colour mode ease over
+          // `glide` seconds. `transition: "cut"` keeps the hard cut and its tear.
+          function camAt(t) {
+            var s = shotAt(t),
+              cam = shotCam(s.i, s.local),
               sh = s.shot;
-            var picked = sh.focus ? sh.focus(t, s.local) : null;
+            cam.cut = 0;
+            if (s.i > 0 && sh.transition === "cut") {
+              cam.cut = Math.max(0, 1 - s.local * 15);
+            } else if (s.i > 0) {
+              var glide = sh.glide == null ? 1.2 : sh.glide;
+              if (s.local < glide) {
+                var prevLen = shots[s.i - 1].until - (s.i > 1 ? shots[s.i - 2].until : 0);
+                var p = shotCam(s.i - 1, prevLen + s.local),
+                  k = smoother(s.local / glide);
+                if (!p.pal) p.pal = cam.pal;
+                if (!cam.pal) cam.pal = p.pal;
+                ["zoom", "blur", "trueAmt", "inv"].forEach(function (key) {
+                  cam[key] = lerp(p[key], cam[key], k);
+                });
+                cam.center = lerpArr(p.center, cam.center, k);
+                cam.rot = lerpArr(p.rot, cam.rot, k);
+                if (cam.pal) cam.pal = lerpArr(p.pal, cam.pal, k);
+              }
+            }
+            return { s: s, cam: cam };
+          }
+          function focusRectAt(t, fallback) {
+            var s = shotAt(Math.max(0, t)),
+              sh = s.shot;
+            var picked = sh.focus ? sh.focus(Math.max(0, t), s.local) : null;
             var rects = []
               .concat(picked || [])
               .map(rectOf)
               .filter(Boolean);
             var f = rects[rects.length - 1];
-            var center = sh.center || [W / 2, H / 2];
-            var rect = f ? [f.x - 8, f.y - 6, f.w + 16, f.h + 12] : [center[0], center[1], 0, 0];
+            return f ? [f.x - 8, f.y - 6, f.w + 16, f.h + 12] : fallback;
+          }
+          // Focus racks instead of snapping: the focus box is a Hann-weighted average of where it
+          // was over the last `rack` seconds, so a new target eases in on an S-curve. Stateless, so
+          // any seek order gives the same frame.
+          var RACK_TAPS = 12;
+          var fs = null;
+          function prepare() {
+            var t = now(),
+              at = camAt(t),
+              cam = at.cam;
+            var rack = opts.rack == null ? 0.7 : opts.rack;
+            var still = [cam.center[0], cam.center[1], 0, 0];
+            var rect = [0, 0, 0, 0],
+              wsum = 0;
+            for (var i = 0; i < RACK_TAPS; i++) {
+              var w = 0.5 - 0.5 * Math.cos((2 * Math.PI * (i + 0.5)) / RACK_TAPS);
+              var r = focusRectAt(t - (rack * i) / (RACK_TAPS - 1), still);
+              for (var j = 0; j < 4; j++) rect[j] += r[j] * w;
+              wsum += w;
+            }
+            rect = rect.map(function (v) {
+              return v / wsum;
+            });
             var focus = [rect[0] + rect[2] / 2, rect[1] + rect[3] / 2];
-            var len = sh.until - s.start;
-            var sway = Math.sin(s.i * 1.7 + s.local * 1.3) * 0.015;
-            var tilt = sh.tilt || [0.1, -0.15, 0.02],
-              zoom = sh.zoom || [1.1, 1.3];
             fs = {
               t: t,
-              sh: sh,
+              cam: cam,
               rect: rect,
               focus: focus,
-              aim: [focus[0] * 0.65 + center[0] * 0.35, focus[1] * 0.65 + center[1] * 0.35],
-              zoom: zoom[0] + (zoom[1] - zoom[0]) * easeOut(s.local / len),
-              rot: [tilt[0] + sway, tilt[1] - sway * 0.7, tilt[2] + sway * 0.4],
-              cut: s.i > 0 ? Math.max(0, 1 - s.local * 15) : 0,
+              aim: [focus[0] * 0.65 + cam.center[0] * 0.35, focus[1] * 0.65 + cam.center[1] * 0.35],
               out:
                 opts.fadeOut === false || !isFinite(DUR) ? 0 : clamp((t - (DUR - 0.4)) / 0.4, 0, 1),
-              seed: s.i * 31 + Math.floor(s.local * 30),
+              seed: at.s.i * 31 + Math.floor(at.s.local * 30),
             };
           }
           function draw() {
@@ -512,30 +821,24 @@ void main() {
                 return false;
               }
             }
-            var sh = fs.sh;
+            var cam = fs.cam;
             gl.bindTexture(gl.TEXTURE_2D, tex);
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
             gl.uniform1i(loc.uSrc, 0);
             gl.uniform2f(loc.uRes, W, H);
             gl.uniform1f(loc.uTime, fs.t);
             gl.uniform2f(loc.uAim, fs.aim[0], fs.aim[1]);
-            gl.uniform1f(loc.uZoom, fs.zoom);
-            gl.uniform3f(loc.uRot, fs.rot[0], fs.rot[1], fs.rot[2]);
+            gl.uniform1f(loc.uZoom, cam.zoom);
+            gl.uniform3f(loc.uRot, cam.rot[0], cam.rot[1], cam.rot[2]);
             gl.uniform2f(loc.uFocus, fs.focus[0], fs.focus[1]);
             gl.uniform4f(loc.uFocusRect, fs.rect[0], fs.rect[1], fs.rect[2], fs.rect[3]);
-            gl.uniform1f(loc.uBlur, sh.blur == null ? 0.9 : sh.blur);
-            gl.uniform3fv(
-              loc.uP,
-              [].concat.apply(
-                [],
-                (sh.palette || ["#000000", "#000000", "#000000", "#000000", "#000000"]).map(hex),
-              ),
-            );
-            gl.uniform1f(loc.uTrue, sh.palette ? 0 : 1);
-            gl.uniform1f(loc.uCut, fs.cut);
+            gl.uniform1f(loc.uBlur, cam.blur);
+            gl.uniform3fv(loc.uP, cam.pal || new Array(15).fill(0));
+            gl.uniform1f(loc.uTrue, cam.trueAmt);
+            gl.uniform1f(loc.uCut, cam.cut);
             gl.uniform1f(loc.uOut, fs.out);
             gl.uniform1f(loc.uSeed, fs.seed);
-            gl.uniform1f(loc.uInv, sh.invert ? 1 : 0);
+            gl.uniform1f(loc.uInv, cam.inv);
             gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
             fs = null;
             return true;
@@ -564,39 +867,34 @@ void main() {
     <script>
       HFFilmedScreen.mount({
         canvas: ".hf-filmed-screen",
+        rack: 0.8,
         shots: [
           {
-            until: 3.8,
-            palette: ["#08060a", "#2a1405", "#8a4a10", "#ffb340", "#fff1d6"],
-            tilt: [0.16, -0.22, 0.03],
-            zoom: [1.0, 1.2],
-            blur: 1.0,
-            center: [760, 420],
-            focus: function (t) {
-              // Racks title → subtitle → title, so the catalog poster (t = 3 s) lands on the title.
-              return document.getElementById(t < 1.4 || t >= 2.6 ? "title" : "sub");
-            },
+            until: 3.6,
+            palette: ["#07050a", "#2a1405", "#8a4a10", "#ffb340", "#fff1d6"],
+            tilt: [0.13, -0.2, 0.025],
+            zoom: [1.05, 1.3],
+            blur: 0.95,
+            center: [900, 520],
+            focus: () => document.getElementById("a-hl"),
           },
           {
-            until: 6.8,
+            until: 6.9,
             palette: null,
-            tilt: [-0.14, 0.24, -0.04],
-            zoom: [1.3, 1.6],
-            blur: 1.0,
-            focus: function (t, local) {
-              return document.getElementById(["t1", "t2", "t3"][Math.min(2, Math.floor(local))]);
-            },
+            tilt: [-0.1, 0.2, -0.025],
+            zoom: [1.05, 1.18],
+            blur: 0.9,
+            center: [960, 540],
+            focus: (t, local) => document.getElementById(local < 1.7 ? "b-num" : "b-bars"),
           },
           {
-            until: 9,
-            palette: ["#020806", "#06210f", "#1b6b33", "#7dff9a", "#eafff0"],
-            invert: false,
-            tilt: [0.08, 0.3, 0.02],
-            zoom: [1.6, 1.25],
-            blur: 0.8,
-            focus: function () {
-              return document.getElementById("t3");
-            },
+            until: 10,
+            palette: ["#02040a", "#06183a", "#1f5fa8", "#7fd6ff", "#effaff"],
+            tilt: [0.08, 0.24, 0.02],
+            zoom: [1.3, 1.15],
+            blur: 1.0,
+            center: [960, 520],
+            focus: (t) => document.getElementById(t < 7.8 ? "c1" : t < 8.6 ? "c2" : "c3"),
           },
         ],
       });
