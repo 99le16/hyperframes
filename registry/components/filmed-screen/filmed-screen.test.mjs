@@ -131,3 +131,38 @@ test("the demo pastes the same library as the snippet", async () => {
   assert.ok(pasted, "demo.html carries the library inline");
   assert.equal(squash(pasted[0]), squash(`<script>${library}</script>`));
 });
+
+test("a draw before the scene's first paint waits for the paint instead of logging", () => {
+  const p = page();
+  const errors = [];
+  p.sandbox.console.error = (m) => errors.push(m);
+  const listeners = [];
+  let throwsLeft = 1;
+  const scene = { querySelectorAll: () => [], setAttribute() {} };
+  const src = Object.assign(p.canvas(), {
+    hasAttribute: (
+      (has) => (k) =>
+        k === "layoutsubtree" || has(k)
+    )(p.canvas().hasAttribute),
+    firstElementChild: scene,
+    getContext: () => ({
+      clearRect() {},
+      drawElementImage() {
+        if (throwsLeft-- > 0)
+          throw new Error(
+            "Failed to execute 'drawElementImage' on 'CanvasRenderingContext2D': No cached paint record for element.",
+          );
+      },
+    }),
+    addEventListener: (type, fn) => type === "paint" && listeners.push(fn),
+    requestPaint: () => listeners.splice(0).forEach((fn) => fn()),
+  });
+  const attrs = new Map();
+  src.hasAttribute = (k) => k === "layoutsubtree" || attrs.has(k);
+  src.setAttribute = (k, v) => attrs.set(k, v);
+  p.sandbox.HFFilmedScreen.mount({ canvas: [src], shots });
+  p.sandbox.__hf.seek(0.5);
+  p.sandbox.__hf_page_composite_resolve();
+  assert.deepEqual(errors, []);
+  assert.equal(p.draws.length, 1, "redrawn once the paint landed");
+});

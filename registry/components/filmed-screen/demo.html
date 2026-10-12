@@ -827,7 +827,8 @@ void main() {
           // A new target eases in on an S-curve, and with no state kept, any seek order gives the
           // same frame.
           var RACK_TAPS = 12;
-          var fs = null;
+          var fs = null,
+            awaitingPaint = false;
           function prepare() {
             var t = now(),
               at = camAt(t),
@@ -870,6 +871,25 @@ void main() {
                 srcCtx.clearRect(0, 0, W, H);
                 srcCtx.drawElementImage(screenEl, 0, 0);
               } catch (e) {
+                // Before the scene's first paint there is nothing to capture yet. That is a wait,
+                // not a failure: ask for a paint and draw again when it lands.
+                if (/paint record/i.test(e.message)) {
+                  if (!awaitingPaint) {
+                    awaitingPaint = true;
+                    src.addEventListener(
+                      "paint",
+                      function () {
+                        awaitingPaint = false;
+                        draw();
+                      },
+                      { once: true },
+                    );
+                    try {
+                      if (src.requestPaint) src.requestPaint();
+                    } catch (_) {}
+                  }
+                  return false;
+                }
                 console.error("[filmed-screen] capture failed: " + e.message);
                 return false;
               }
