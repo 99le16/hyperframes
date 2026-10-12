@@ -4,7 +4,7 @@ import test from "node:test";
 import vm from "node:vm";
 
 const html = await readFile(new URL("./filmed-screen.html", import.meta.url), "utf8");
-const library = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+const library = html.match(/<script>([\s\S]*?)<\/script>/i)[1];
 
 // A page with the engine's seek hooks, a `data-vfx-chain` co-owner of the composite slot, and
 // enough canvas/WebGL surface for mount() to build a lens. Draws are counted per lens.
@@ -127,7 +127,7 @@ test("nothing claims the composite slot until a lens is mounted", () => {
 test("the demo pastes the same library as the snippet", async () => {
   const demo = await readFile(new URL("./demo.html", import.meta.url), "utf8");
   const squash = (s) => s.replace(/\s+/g, "");
-  const pasted = demo.match(/<script>\s*\(function \(\) \{[\s\S]*?<\/script>/);
+  const pasted = demo.match(/<script>\s*\(function \(\) \{[\s\S]*?<\/script>/i);
   assert.ok(pasted, "demo.html carries the library inline");
   assert.equal(squash(pasted[0]), squash(`<script>${library}</script>`));
 });
