@@ -504,48 +504,71 @@ void main() {
           resolvedSeq = -1,
           myPrepare = null,
           myResolve = null,
-          priorPrepare = null,
-          priorResolve = null;
+          preparing = false,
+          resolving = false;
+        function live() {
+          lenses = lenses.filter(function (l) {
+            return l.src.isConnected !== false;
+          });
+          return lenses;
+        }
+        // Co-owners of the composite slot (core's data-vfx-chain among them) re-wrap it on every
+        // seek and read their prior when called, so a stale wrapper of ours is re-entered through
+        // them. Each wrapper keeps its own prior, and a re-entered one returns at once, so the
+        // chain stays a constant depth. In the engine's order (vfx arms inside the seek, this hook
+        // after it returns) every owner runs exactly once per frame.
         function arm() {
-          var w = G;
-          if (w.__hf_page_composite_prepare !== myPrepare) {
-            priorPrepare =
-              typeof w.__hf_page_composite_prepare === "function"
-                ? w.__hf_page_composite_prepare
+          if (!live().length) return;
+          if (G.__hf_page_composite_prepare !== myPrepare) {
+            var priorPrepare =
+              typeof G.__hf_page_composite_prepare === "function"
+                ? G.__hf_page_composite_prepare
                 : null;
             myPrepare = async function () {
-              var p = priorPrepare ? await priorPrepare() : false;
-              lenses.forEach(function (l) {
-                l.prepare();
-              });
-              return p;
+              if (preparing) return false;
+              preparing = true;
+              try {
+                var p = priorPrepare ? await priorPrepare() : false;
+                live().forEach(function (l) {
+                  l.prepare();
+                });
+                return p;
+              } finally {
+                preparing = false;
+              }
             };
-            w.__hf_page_composite_prepare = myPrepare;
+            G.__hf_page_composite_prepare = myPrepare;
           }
-          if (w.__hf_page_composite_resolve !== myResolve) {
-            priorResolve =
-              typeof w.__hf_page_composite_resolve === "function"
-                ? w.__hf_page_composite_resolve
+          if (G.__hf_page_composite_resolve !== myResolve) {
+            var priorResolve =
+              typeof G.__hf_page_composite_resolve === "function"
+                ? G.__hf_page_composite_resolve
                 : null;
             myResolve = function () {
-              var p = priorResolve ? priorResolve() : false;
-              var ok = false;
-              lenses.forEach(function (l) {
-                ok = l.draw() || ok;
-              });
-              resolvedSeq = seq;
-              w.__hf_page_composite_pending = false;
-              return ok || p;
+              if (resolving) return false;
+              resolving = true;
+              try {
+                var p = priorResolve ? priorResolve() : false;
+                var ok = false;
+                live().forEach(function (l) {
+                  ok = l.draw() || ok;
+                });
+                resolvedSeq = seq;
+                G.__hf_page_composite_pending = false;
+                return ok || p;
+              } finally {
+                resolving = false;
+              }
             };
-            w.__hf_page_composite_resolve = myResolve;
+            G.__hf_page_composite_resolve = myResolve;
           }
-          w.__hf_page_composite_pending = true;
+          G.__hf_page_composite_pending = true;
         }
         // Preview and snapshot never call the resolver: wait for a paint, then draw.
         function previewFrame(my) {
           setTimeout(function () {
             if (my !== seq || resolvedSeq >= my) return;
-            lenses.forEach(function (l) {
+            live().forEach(function (l) {
               l.prepare();
               l.afterPaint(function () {
                 if (my === seq && resolvedSeq < my) l.draw();
@@ -586,12 +609,25 @@ void main() {
             }, 20);
         })(0);
 
+        var MOUNTED = "data-filmed-screen-mounted";
         function mount(opts) {
-          var src =
-            typeof opts.canvas === "string"
-              ? document.querySelector(opts.canvas) || G.document.querySelector(opts.canvas)
-              : opts.canvas;
-          if (!src) throw new Error("[filmed-screen] no canvas matches " + opts.canvas);
+          // The library initialises once per page, so its own `document` may be another
+          // sub-composition's scope. The snippet passes its caller-scoped query result; the first
+          // canvas not already filmed is this instance's.
+          var c = opts.canvas;
+          var candidates =
+            typeof c === "string"
+              ? Array.from(document.querySelectorAll(c)).concat(
+                  Array.from(G.document.querySelectorAll(c)),
+                )
+              : c && typeof c.getContext !== "function"
+                ? Array.from(c)
+                : [c];
+          var src = candidates.filter(function (el) {
+            return el && !el.hasAttribute(MOUNTED);
+          })[0];
+          if (!src) throw new Error("[filmed-screen] no unmounted canvas matches " + c);
+          src.setAttribute(MOUNTED, "");
           var comp = src.closest("[data-composition-id]");
           var compId = comp && comp.getAttribute("data-composition-id");
           var DUR = Number(comp && comp.getAttribute("data-duration")) || Infinity;
@@ -601,15 +637,18 @@ void main() {
           var screenEl = src.hasAttribute("layoutsubtree") ? src.firstElementChild : null;
           var srcCtx = screenEl ? src.getContext("2d") : null;
 
-          // No HTML-in-Canvas: put the scene back in the page and step aside.
-          if (screenEl && !(srcCtx && srcCtx.drawElementImage)) {
-            src.parentNode.insertBefore(screenEl, src);
-            src.remove();
+          // No HTML-in-Canvas or no WebGL2: put the scene back in the page and step aside.
+          function stepAside(why) {
+            if (screenEl) {
+              src.parentNode.insertBefore(screenEl, src);
+              src.remove();
+            }
             console.warn(
-              "[filmed-screen] HTML-in-Canvas unavailable; rendering the scene without the lens",
+              "[filmed-screen] " + why + " unavailable; rendering the scene without the lens",
             );
-            return;
+            return { destroy: function () {} };
           }
+          if (screenEl && !(srcCtx && srcCtx.drawElementImage)) return stepAside("HTML-in-Canvas");
 
           // The filmed scene sits under the lens on purpose. The layout audit reads the flag on each
           // text element, not its ancestors.
@@ -639,6 +678,10 @@ void main() {
           src.parentNode.insertBefore(out, src.nextSibling);
 
           var gl = out.getContext("webgl2", { preserveDrawingBuffer: true, antialias: false });
+          if (!gl) {
+            out.remove();
+            return stepAside("WebGL2");
+          }
           function sh(type, s) {
             var x = gl.createShader(type);
             gl.shaderSource(x, s);
@@ -679,7 +722,10 @@ void main() {
 
           // Seconds on this composition's own timeline, so shots work inside sub-compositions.
           function now() {
-            var tl = window.__timelines && compId && window.__timelines[compId];
+            var tl =
+              compId &&
+              ((window.__timelines && window.__timelines[compId]) ||
+                (G.__timelines && G.__timelines[compId]));
             return tl && typeof tl.time === "function" ? tl.time() : lastSeekT;
           }
           function shotAt(t) {
@@ -776,9 +822,10 @@ void main() {
             var f = rects[rects.length - 1];
             return f ? [f.x - 8, f.y - 6, f.w + 16, f.h + 12] : fallback;
           }
-          // Focus racks instead of snapping: the focus box is a Hann-weighted average of where it
-          // was over the last `rack` seconds, so a new target eases in on an S-curve. Stateless, so
-          // any seek order gives the same frame.
+          // Focus racks instead of snapping: over the last `rack` seconds, take the target each shot
+          // named at that moment, measure where it sits in the DOM now, and Hann-average the boxes.
+          // A new target eases in on an S-curve, and with no state kept, any seek order gives the
+          // same frame.
           var RACK_TAPS = 12;
           var fs = null;
           function prepare() {
@@ -811,6 +858,12 @@ void main() {
             };
           }
           function draw() {
+            // A composition that isn't on screen yet (or any more) has no paint record to capture.
+            if (
+              src.checkVisibility &&
+              !src.checkVisibility({ opacityProperty: true, visibilityProperty: true })
+            )
+              return false;
             if (!fs) prepare();
             if (screenEl) {
               try {
@@ -858,7 +911,21 @@ void main() {
             } catch (e) {}
             setTimeout(once, 250);
           }
-          lenses.push({ prepare: prepare, draw: draw, afterPaint: afterPaint });
+          var lens = { src: src, prepare: prepare, draw: draw, afterPaint: afterPaint };
+          lenses.push(lens);
+          // A lens whose canvas leaves the page is dropped on the next frame; destroy() also frees
+          // its GL context. The seek hooks stay: they are shared by every lens on the page.
+          return {
+            destroy: function () {
+              lenses = lenses.filter(function (l) {
+                return l !== lens;
+              });
+              var lose = gl.getExtension("WEBGL_lose_context");
+              if (lose) lose.loseContext();
+              out.remove();
+              src.removeAttribute(MOUNTED);
+            },
+          };
         }
 
         G.HFFilmedScreen = { mount: mount };
@@ -866,7 +933,7 @@ void main() {
     </script>
     <script>
       HFFilmedScreen.mount({
-        canvas: ".hf-filmed-screen",
+        canvas: document.querySelectorAll(".hf-filmed-screen"),
         rack: 0.8,
         shots: [
           {

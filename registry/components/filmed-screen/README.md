@@ -41,7 +41,7 @@ timeline.
 
 ```js
 HFFilmedScreen.mount({
-  canvas: ".hf-filmed-screen",
+  canvas: document.querySelectorAll(".hf-filmed-screen"),
   shots: [
     {
       until: 3,
@@ -62,7 +62,7 @@ HFFilmedScreen.mount({
 
 | field      | default            | notes                                                                                              |
 | ---------- | ------------------ | -------------------------------------------------------------------------------------------------- |
-| until      | —                  | End of the shot, in seconds of the owning composition. Shots cut here.                             |
+| until      | —                  | End of the shot, in seconds of the owning composition; the next shot starts here.                  |
 | palette    | null               | Five hex colours, dark → light. `null` keeps true colour.                                          |
 | invert     | false              | Flips brightness and keeps hue, so light pages read as dark screens.                               |
 | tilt       | [0.1, -0.15, 0.02] | Screen plane rotation `[x, y, roll]` in radians.                                                   |
@@ -73,17 +73,39 @@ HFFilmedScreen.mount({
 | transition | "glide"            | `"glide"` eases camera, grade and colour mode in from the previous shot; `"cut"` cuts with a tear. |
 | glide      | 1.2                | Seconds a glide takes.                                                                             |
 
-`mount()` also takes `rack` (default 0.7): the seconds a focus change takes to settle. Focus is a
-weighted average of where it was over that window, so it eases on an S-curve and any seek order
-renders the same frame.
+## Mount options
+
+| option  | default | notes                                                                   |
+| ------- | ------- | ----------------------------------------------------------------------- |
+| canvas  | —       | Element, list or selector. The first canvas not already filmed is used. |
+| shots   | —       | The shot list above.                                                    |
+| rack    | 0.7     | Seconds a focus change takes to settle.                                 |
+| fadeOut | true    | Fades to black over the last 0.4 s of the owning composition.           |
+| zIndex  | 10      | z-index of the lens output canvas.                                      |
+
+Pass `document.querySelectorAll(...)` from your own snippet rather than a selector string. The
+library initialises once per page, so its own `document` belongs to whichever copy loaded first;
+your query is scoped to your composition, which is what keeps two instances (or the same
+sub-composition mounted twice) on their own canvases.
+
+Focus is a weighted average, over the last `rack` seconds, of where each shot's target sits in the
+DOM now, so it eases on an S-curve and any seek order renders the same frame.
+
+`mount()` returns `{ destroy() }`, which drops the lens, frees its GL context and removes its output
+canvas. A lens whose canvas leaves the page is dropped on the next frame anyway.
+
+The lens shares the engine's composite hooks with other owners such as `data-vfx-chain`: each
+wrapper keeps its own prior and a re-entered one returns at once, so the chain stays a constant
+depth however both re-arm. `filmed-screen.test.mjs` runs that against core's arming pattern.
 
 A `<canvas>` without `layoutsubtree` (p5, three.js, a 2D canvas) is sampled directly instead; give
 `focus` rectangles in its pixel space.
 
 ## Requirements and costs
 
-- **HTML-in-Canvas** (`drawElementImage`), which the HyperFrames renderer's Chrome has. Without it
-  the snippet moves the scene back into the page and renders it unfilmed, with one console warning.
+- **HTML-in-Canvas** (`drawElementImage`) and **WebGL2**, which the HyperFrames renderer's Chrome
+  has. Without either, the snippet moves the scene back into the page and renders it unfilmed, with
+  one console warning.
 - **Keep the `<canvas layoutsubtree>` in the HTML.** The renderer picks screenshot capture for
   compositions that declare one. Created from script, it is never seen, the frame handshake is
   skipped and frames come out blank.
