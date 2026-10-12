@@ -10,12 +10,15 @@ const library = html.match(/<script>([\s\S]*?)<\/script>/i)[1];
 // enough canvas/WebGL surface for mount() to build a lens. Draws are counted per lens.
 function page() {
   const draws = [];
+  const uniforms = {};
   const gl = (id) =>
     new Proxy(
       {},
       {
         get: (_, key) => {
           if (key === "getShaderParameter") return () => true;
+          if (key === "getUniformLocation") return (_, name) => name;
+          if (key === "uniform1f") return (name, v) => (uniforms[name] = v);
           if (key === "drawArrays") return () => draws.push(id);
           if (key === "getExtension") return () => null;
           if (typeof key === "string" && /^[A-Z0-9_]+$/.test(key)) return 1;
@@ -80,7 +83,7 @@ function page() {
       setAttribute: (k, v) => attrs.set(k, v),
     };
   };
-  return { sandbox, draws, armVfx, canvas, captures: () => vfxCaptures };
+  return { sandbox, draws, uniforms, armVfx, canvas, captures: () => vfxCaptures };
 }
 
 const shots = [{ until: 10, palette: null }];
@@ -165,4 +168,12 @@ test("a draw before the scene's first paint waits for the paint instead of loggi
   p.sandbox.__hf_page_composite_resolve();
   assert.deepEqual(errors, []);
   assert.equal(p.draws.length, 1, "redrawn once the paint landed");
+});
+
+test("a negative curve is clamped to flat instead of folding the frame", () => {
+  const p = page();
+  p.sandbox.HFFilmedScreen.mount({ canvas: [p.canvas()], shots, curve: -1 });
+  p.sandbox.__hf.seek(0.5);
+  p.sandbox.__hf_page_composite_resolve();
+  assert.equal(p.uniforms.uCurve, 0);
 });

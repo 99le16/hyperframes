@@ -90,6 +90,13 @@ HFFilmedScreen.mount({
 | fadeOut    | true    | Fades to black over the last 0.4 s of the owning composition.           |
 | zIndex     | 10      | z-index of the lens output canvas.                                      |
 
+**Previous look.** Before these defaults the lens used `blur: 0.9`, `rack: 0.7`, `vignette: 0.42`,
+`aberration: 1`, `led: 0.9` and `curve: 0`; pass those to get close to it. Two changes have no
+option and can't be restored: the LED grid now fades in only once a cell spans about 4 output
+pixels, and a quarter of the fringing stays on the focused element.
+
+`curve` is clamped at 0, and the vignette never darkens past black, so very large values are safe.
+
 Pass `document.querySelectorAll(...)` from your own snippet rather than a selector string. The
 library initialises once per page, so its own `document` belongs to whichever copy loaded first;
 your query is scoped to your composition, which is what keeps two instances (or the same
