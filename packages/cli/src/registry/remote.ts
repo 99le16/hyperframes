@@ -2,7 +2,13 @@ import { readBoundedRegistryFile } from "./boundedFile.js";
 import { publishRegistryFile, registryRoot } from "./publication.js";
 import { fetchRegistryHttps, registryHttpsUrl, registryPathUrl } from "./transport.js";
 import { readBoundedResponse, type DownloadByteBudget } from "../capture/readBoundedResponse.js";
-import { validRegistryName, validRegistryManifest, validRegistryItem } from "./validation.js";
+import {
+  validRegistryName,
+  validRegistryManifest,
+  validRegistryItem,
+  validRegistryUsage,
+  type RegistryUsage,
+} from "./validation.js";
 /**
  * Remote Registry Fetching
  *
@@ -127,15 +133,38 @@ export async function fetchRegistryManifest(
   baseUrl: string = DEFAULT_REGISTRY_URL,
   options?: { skipCache?: boolean },
 ): Promise<RegistryManifest | undefined> {
-  const url = registryPathUrl(baseUrl, "registry.json");
-  const cacheFile = cachePath(baseUrl, "registry");
-  const cached = readCacheEntry(cacheFile, validRegistryManifest);
-  if (!options?.skipCache && cached && isFresh(cached)) return cached.data;
+  return fetchCachedJson(
+    registryPathUrl(baseUrl, "registry.json"),
+    cachePath(baseUrl, "registry"),
+    validRegistryManifest,
+    options?.skipCache,
+  );
+}
+
+/** Each item's 30-day usage count, under the manifest's cache policy; undefined when the registry publishes none. */
+export async function fetchRegistryUsage(
+  baseUrl: string = DEFAULT_REGISTRY_URL,
+): Promise<RegistryUsage | undefined> {
+  return fetchCachedJson(
+    registryPathUrl(baseUrl, "usage.json"),
+    cachePath(baseUrl, "usage"),
+    validRegistryUsage,
+  );
+}
+
+async function fetchCachedJson<T>(
+  url: string,
+  cacheFile: string,
+  validate: (value: unknown) => value is T,
+  skipCache?: boolean,
+): Promise<T | undefined> {
+  const cached = readCacheEntry(cacheFile, validate);
+  if (!skipCache && cached && isFresh(cached)) return cached.data;
 
   try {
-    const manifest = await fetchJson(url, validRegistryManifest);
-    writeCache(cacheFile, manifest);
-    return manifest;
+    const data = await fetchJson(url, validate);
+    writeCache(cacheFile, data);
+    return data;
   } catch {
     return cached?.data;
   }

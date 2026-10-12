@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { GENERATED_CATALOG_PATHS } from "./catalog-generated-paths.mjs";
 import { VECTORS, vectorsAgree } from "./catalog-vectors.mjs";
+import { USAGE_PATH } from "./catalog-usage.mjs";
 
 const BRANCH = "bot/catalog-publish";
 const TITLE = "chore(catalog): publish generated catalog";
@@ -287,9 +288,11 @@ function sameGenerated(root, published) {
   const pairs = Array.from({ length: changes.length / 2 }, (_, i) =>
     changes.slice(2 * i, 2 * i + 2),
   );
+  // Usage counts move on every run; they ride along with a real catalog change instead of forcing a new snapshot.
   return pairs.every(
     ([status, path]) =>
-      status === "M" && VECTORS.test(path) && sameVectors(root, published, generated, path),
+      path === USAGE_PATH ||
+      (status === "M" && VECTORS.test(path) && sameVectors(root, published, generated, path)),
   );
 }
 

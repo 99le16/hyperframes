@@ -1,7 +1,12 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { validRegistryName, validRegistryManifest, validRegistryItem } from "./validation.js";
+import {
+  validRegistryName,
+  validRegistryManifest,
+  validRegistryItem,
+  validRegistryUsage,
+} from "./validation.js";
 
 const item = {
   name: "demo",
@@ -12,6 +17,12 @@ const item = {
 };
 
 describe("registry manifest boundary", () => {
+  it("accepts usage only as whole non-negative counts keyed by item name", () => {
+    expect(validRegistryUsage({ usage30d: { demo: 3, idle: 0 } })).toBe(true);
+    for (const usage30d of [{ demo: -1 }, { demo: 1.5 }, { demo: "3" }, { "../x": 1 }, [], null])
+      expect(validRegistryUsage({ usage30d })).toBe(false);
+    expect(validRegistryUsage(null)).toBe(false);
+  });
   it("rejects cache-key traversal and marker breakouts", () => {
     for (const name of ["x/../../../.config/tool", "demo -->", "a".repeat(129)])
       expect(validRegistryName(name)).toBe(false);

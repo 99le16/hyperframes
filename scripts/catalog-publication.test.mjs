@@ -191,6 +191,23 @@ test("reverting unpublished sources closes the obsolete PR and resets its branch
   );
 });
 
+test("a usage-only change opens no publication of its own", (t) => {
+  const fixture = publicationFixture(t, false);
+  writeFileSync(join(fixture.root, "registry/usage.json"), '{"usage30d":{"demo":3}}');
+  fixture.run();
+  assert.deepEqual(
+    fixture.calls().filter((call) => call.method !== "GET"),
+    [
+      { endpoint: "repos/test/catalog/pulls/42", method: "PATCH", body: { state: "closed" } },
+      {
+        endpoint: "repos/test/catalog/git/refs/heads/bot/catalog-publish",
+        method: "PATCH",
+        body: { sha: fixture.base, force: true },
+      },
+    ],
+  );
+});
+
 test("a failed staging cleanup preserves the publication failure as well", (t) => {
   const fixture = publicationFixture(t, true);
   assert.throws(fixture.run, (error) => {

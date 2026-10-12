@@ -72,6 +72,7 @@ describe("countUnindexed", () => {
 
 const state = vi.hoisted(() => ({
   registry: [] as Array<{ name: string; type: string; tags?: string[] }>,
+  usage: undefined as Record<string, number> | undefined,
   artifactRevision: "revision-current",
   cachedVectorRevision: "revision-current",
   vectorFetches: 0,
@@ -111,6 +112,7 @@ vi.mock("../registry/remote.js", () => ({
     items: state.registry,
     catalogArtifact: { revision: state.artifactRevision },
   }),
+  fetchRegistryUsage: async () => (state.usage ? { usage30d: state.usage } : undefined),
 }));
 
 vi.mock("@clack/prompts", () => ({
@@ -270,6 +272,7 @@ async function runForExit(
 
 beforeEach(() => {
   state.modelStatus = "ready";
+  state.usage = undefined;
   state.artifactRevision = "revision-current";
   state.cachedVectorRevision = "revision-current";
   state.vectorFetches = 0;
@@ -910,5 +913,22 @@ describe("catalogRow", () => {
       duration: 5,
       preview,
     });
+  });
+
+  it("passes the item's 30-day usage through, zero included, and adds no field without one", () => {
+    expect(catalogRow(block, 12).usage30d).toBe(12);
+    expect(catalogRow(block, 0).usage30d).toBe(0);
+    expect(catalogRow(block)).not.toHaveProperty("usage30d");
+  });
+
+  it("the plain --json listing carries each published count onto its row", async () => {
+    state.registry = [
+      { name: "whip-pan", type: "hyperframes:block" },
+      { name: "count-up", type: "hyperframes:component" },
+    ];
+    state.usage = { "whip-pan": 5 };
+    const rows = JSON.parse(await runCatalog({ json: true })) as Array<Record<string, unknown>>;
+    expect(rows.find((row) => row.name === "whip-pan")?.usage30d).toBe(5);
+    expect(rows.find((row) => row.name === "count-up")).not.toHaveProperty("usage30d");
   });
 });

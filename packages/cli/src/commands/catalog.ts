@@ -14,7 +14,7 @@ import * as clack from "@clack/prompts";
 import { realpath, type ItemType, type RegistryItem } from "@hyperframes/core";
 import { c } from "../ui/colors.js";
 import { loadAllItems } from "../registry/resolver.js";
-import { fetchRegistryManifest } from "../registry/remote.js";
+import { fetchRegistryManifest, fetchRegistryUsage } from "../registry/remote.js";
 import { loadProjectConfig, DEFAULT_PROJECT_CONFIG } from "../utils/projectConfig.js";
 import { relative, resolve } from "node:path";
 import { finishCommand } from "../utils/commandResult.js";
@@ -222,7 +222,10 @@ export default defineCommand({
 
     // Asked for the whole manifest on purpose: its item list defines coverage,
     // and its artifact revision is the one owner of vector freshness.
-    const manifest = await fetchRegistryManifest(config.registry);
+    const [manifest, usage] = await Promise.all([
+      fetchRegistryManifest(config.registry),
+      json ? fetchRegistryUsage(config.registry) : undefined,
+    ]);
     const entries = manifest?.items ?? [];
     const artifactRevision = manifest?.catalogArtifact?.revision;
     const catalog = entries.filter((e) => e.type !== "hyperframes:example");
@@ -368,7 +371,8 @@ export default defineCommand({
     }
 
     if (json) {
-      const output = matching.map(catalogRow);
+      const usage30d = new Map(Object.entries(usage?.usage30d ?? {}));
+      const output = matching.map((item) => catalogRow(item, usage30d.get(item.name)));
       if (!query) {
         // A plain listing has no tier and no drop count, and this array shape
         // is already released. Leave it alone.
@@ -513,7 +517,7 @@ export default defineCommand({
 });
 
 /** One `--json` row: what an agent or app needs to pick an item and show it before `add` downloads anything. */
-export function catalogRow(item: RegistryItem) {
+export function catalogRow(item: RegistryItem, usage30d?: number) {
   return {
     name: item.name,
     type: item.type.replace("hyperframes:", ""),
@@ -523,6 +527,7 @@ export function catalogRow(item: RegistryItem) {
     ...("dimensions" in item && item.dimensions ? { dimensions: item.dimensions } : {}),
     ...("duration" in item && item.duration ? { duration: item.duration } : {}),
     ...(item.preview ? { preview: item.preview } : {}),
+    ...(usage30d === undefined ? {} : { usage30d }),
   };
 }
 
