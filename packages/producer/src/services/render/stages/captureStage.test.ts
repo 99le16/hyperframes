@@ -80,6 +80,10 @@ describe("disk capture capacity", () => {
     expect(estimateDiskCaptureBytes(10, captureOptions)).toBe(100_000);
   });
 
+  it("allows for the larger frames of quality-100 jpeg", () => {
+    expect(estimateDiskCaptureBytes(10, { ...captureOptions, quality: 100 })).toBe(200_000);
+  });
+
   it("fails before capture when estimated frames exceed available headroom", () => {
     expect(() =>
       assertDiskCaptureHeadroom("/render/captured-frames", 10, pngOptions, () => 800_000),
