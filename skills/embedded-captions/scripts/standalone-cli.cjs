@@ -8,9 +8,13 @@ const { win32 } = require("node:path");
 // A release version or a dist-tag, as plugin-cli.mjs accepts from its manifest;
 // anything else (a URL, a git spec, extra npm flags) would change what npx runs.
 const VERSION_SPEC = /^(?:\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?|[a-z][a-z0-9-]*)$/;
+// The CLI release this copy of the skill was published with. A standalone
+// install carries no manifest to read it from, and `latest` would let a future
+// release change what a hash-locked skill runs.
+const DEFAULT_VERSION = "0.8.149";
 
 function invocation(args, env = process.env, platform = process.platform, node = process.execPath) {
-  const version = env.HYPERFRAMES_CLI_VERSION || "latest";
+  const version = env.HYPERFRAMES_CLI_VERSION || DEFAULT_VERSION;
   if (!VERSION_SPEC.test(version))
     throw new Error(
       `HYPERFRAMES_CLI_VERSION must be a hyperframes release version or dist-tag, got ${JSON.stringify(version)}.`,

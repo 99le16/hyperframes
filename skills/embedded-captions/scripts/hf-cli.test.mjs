@@ -64,7 +64,7 @@ test("the fallback runs the published CLI through npx and pins the requested ver
     "/usr/bin/node",
   );
   assert.deepEqual(posix.command, "npx");
-  assert.deepEqual(posix.args, ["--yes", "hyperframes@latest", "render", "-o", "out.mp4"]);
+  assert.deepEqual(posix.args, ["--yes", "hyperframes@0.8.149", "render", "-o", "out.mp4"]);
   assert.equal(posix.env.HYPERFRAMES_SKIP_SKILLS, "1");
   const pinned = invocation(
     ["check"],
