@@ -100,9 +100,9 @@ Source: `packages/lint/src/rules/composition.ts`.
 
 ### `html_dir_attribute_breaks_render`
 
-**Error.** `<html dir="rtl">` (or `ltr`) renders correctly in preview and snapshot but produces a fully blank or black video from render — a confirmed, silent failure.
+**Error.** `<html dir="rtl">` or `<html dir="auto">` renders correctly in preview and snapshot but produces a fully blank or black video from render — a confirmed, silent failure. `dir="ltr"` is not flagged.
 
-**Fix:** Remove `dir` from `<html>` and scope the direction to individual text-containing elements instead.
+**Fix:** Remove `dir` from `<html>`, keep `lang`, and scope the direction to individual text-containing elements instead — `direction: rtl` in CSS, or `dir="auto"` on the element.
 
 ### `invalid_parent_traversal_in_asset_path`
 
@@ -208,7 +208,7 @@ Source: `packages/lint/src/rules/composition.ts`.
 
 ### `timeline_track_too_dense`
 
-**Warning.** One track in this file carries many timed elements, which makes the timeline harder to read, iterate on, and diff.
+**Warning.** One track in this file carries more than 3 timed elements (audio, video, caption cues and sub-composition mounts are not counted), which makes the timeline harder to read, iterate on, and diff.
 
 **Fix:** Split the elements into sub-compositions and mount them from the parent with `data-composition-src`.
 
@@ -536,6 +536,24 @@ Source: `packages/lint/src/rules/media.ts`.
 
 **Fix:** Use a relative path or HTTPS URL for the `src` — never embed media as base64.
 
+### `color_grading_invalid_json`
+
+**Error.** `data-color-grading` on a `<video>` or `<img>` starts with `{` or `[` but is not valid JSON, so the grade does not render.
+
+**Fix:** Use valid JSON, for example `data-color-grading='{"preset":"skin-soft","intensity":0.6,"adjust":{"highlights":-0.08}}'` — single-quote the attribute, double-quote the JSON.
+
+### `color_grading_invalid_structure`
+
+**Error.** `data-color-grading` parses as JSON but breaks the grading contract — an unsupported key, a value of the wrong type, or a number out of range. The runtime silently ignores unknown keys, so a control can look applied in the HTML yet never render. One finding is reported per problem, naming the offending path.
+
+**Fix:** Correct or remove the value the finding names, following the [Color grading](/reference/color-grading) reference.
+
+### `color_grading_non_media`
+
+**Error.** `data-color-grading` is set on an element other than `<video>` or `<img>`, such as a wrapper or an element with a CSS background. The shader runtime only grades real `<video>` and `<img>` elements, so the attribute has no effect.
+
+**Fix:** Move the attribute to the `<video>` or `<img>` element itself.
+
 ### `duplicate_media_discovery_risk`
 
 **Warning.** Several matching media entries share the same source, start and duration, so the compiler can discover the same media twice.
@@ -708,7 +726,7 @@ Source: `packages/lint/src/rules/fonts.ts`.
 
 ### `system_font_will_alias`
 
-**Warning.** A system font family is used; in distributed rendering system-font capture is disabled, so the font is substituted at render time and text can reflow.
+**Warning.** A system font family is used without a matching `@font-face`; in distributed rendering system-font capture is disabled, so the font is substituted at render time and text can reflow. Only reported when the linter runs with the `distributed: true` option (linting for distributed or Lambda renders); a local render captures the system font as designed, so it is not flagged there.
 
 **Fix:** Bundle the font with `@font-face` and a project-local file instead of relying on OS fonts.
 
@@ -842,7 +860,7 @@ Source: the project lint pass in `packages/lint/src/project.ts`, `packages/lint/
 
 ### `inaccessible_media_url`
 
-**Error.** A media URL is not accessible, so the media cannot load.
+**Error.** A remote media URL did not answer a `HEAD` request with a 2xx status (or the request failed or timed out), so the media cannot load. Reported only by the async `lintMediaUrls()` export of `@hyperframes/lint`; `hyperframes lint` and `hyperframes check` do not run it.
 
 **Fix:** Replace it with a valid, reachable media URL.
 
