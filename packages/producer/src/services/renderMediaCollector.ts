@@ -1,12 +1,9 @@
 /**
  * Collect the render pipeline's media list from the fully inlined document.
  *
- * Element ids are unique per composition file, not per render document: two scenes
- * that both declare `<video id="clip">`, or a bare `<video>` auto-id'd `hf-video-0`,
- * would collapse into one entry if media were gathered per file and merged by id
- * (see mediaRenderIds.ts). The inlined document holds every element exactly once,
- * keyed by its render id (stamped when files are inlined) or else its author id, and
- * placed by the composition hosts it sits inside.
+ * Ids are unique per composition file, not per render document (see mediaRenderIds.ts), so media is
+ * read from the inlined document: each element once, keyed by its render id or else its author id,
+ * and placed by the composition hosts it sits inside.
  */
 
 import { parseHTML } from "linkedom";
