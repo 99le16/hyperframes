@@ -74,3 +74,26 @@ test("the fallback runs the published CLI through npx and pins the requested ver
   );
   assert.equal(pinned.args[1], "hyperframes@0.8.149");
 });
+
+test("the fallback refuses a version pin that is not a release version or dist-tag", async () => {
+  const { invocation } = await import("./standalone-cli.cjs");
+  for (const bad of [
+    "1.0.0 --package=evil",
+    "https://example.com/hyperframes.tgz",
+    "git+https://example.com/x.git",
+    "npm:other@1.0.0",
+    "../local",
+  ]) {
+    assert.throws(
+      () => invocation(["check"], { HYPERFRAMES_CLI_VERSION: bad }, "linux", "/usr/bin/node"),
+      /release version or dist-tag/,
+      bad,
+    );
+  }
+  for (const ok of ["latest", "alpha", "0.8.149", "0.7.67-alpha.0"]) {
+    assert.equal(
+      invocation(["check"], { HYPERFRAMES_CLI_VERSION: ok }, "linux", "/usr/bin/node").args[1],
+      `hyperframes@${ok}`,
+    );
+  }
+});

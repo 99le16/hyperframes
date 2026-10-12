@@ -5,8 +5,16 @@ const { spawnSync } = require("node:child_process");
 const { existsSync } = require("node:fs");
 const { win32 } = require("node:path");
 
+// A release version or a dist-tag, as plugin-cli.mjs accepts from its manifest;
+// anything else (a URL, a git spec, extra npm flags) would change what npx runs.
+const VERSION_SPEC = /^(?:\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?|[a-z][a-z0-9-]*)$/;
+
 function invocation(args, env = process.env, platform = process.platform, node = process.execPath) {
   const version = env.HYPERFRAMES_CLI_VERSION || "latest";
+  if (!VERSION_SPEC.test(version))
+    throw new Error(
+      `HYPERFRAMES_CLI_VERSION must be a hyperframes release version or dist-tag, got ${JSON.stringify(version)}.`,
+    );
   const cliArgs = ["--yes", `hyperframes@${version}`, ...args];
   const childEnv = { ...env, HYPERFRAMES_SKIP_SKILLS: "1", HYPERFRAMES_NO_UPDATE_CHECK: "1" };
   if (platform !== "win32") return { command: "npx", args: cliArgs, env: childEnv };
