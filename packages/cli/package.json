@@ -1,6 +1,6 @@
 {
   "name": "@hyperframes/cli",
-  "version": "0.8.147",
+  "version": "0.8.150",
   "description": "HyperFrames CLI — create, preview, and render HTML video compositions",
   "license": "Apache-2.0",
   "repository": {
@@ -17,6 +17,13 @@
     "dist"
   ],
   "type": "module",
+  "exports": {
+    "./api": {
+      "import": "./dist/api.js",
+      "types": "./dist/api.d.ts"
+    },
+    "./package.json": "./package.json"
+  },
   "scripts": {
     "test": "vitest run",
     "dev": "tsx src/cli.ts",
