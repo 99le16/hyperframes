@@ -1,5 +1,6 @@
 export const GENERATED_CATALOG_PATHS = [
   "registry/registry.json",
+  "registry/usage.json",
   "registry/catalog-artifact/local-vectors.json",
   "registry/catalog-artifact/local-vectors.bin",
   "docs/catalog/blocks",

@@ -19,6 +19,23 @@ export function validRegistryManifest(value: unknown): value is RegistryManifest
   );
 }
 
+/** `registry/usage.json`: distinct people who added each item over the last 30 days. */
+export interface RegistryUsage {
+  usage30d: Record<string, number>;
+}
+
+export function validRegistryUsage(value: unknown): value is RegistryUsage {
+  const usage = (value as { usage30d?: unknown } | null)?.usage30d;
+  if (typeof usage !== "object" || usage === null || Array.isArray(usage)) return false;
+  const entries = Object.entries(usage);
+  return (
+    entries.length <= 10_000 &&
+    entries.every(
+      ([name, count]) => validRegistryName(name) && Number.isSafeInteger(count) && count >= 0,
+    )
+  );
+}
+
 export function validRegistryItem(
   value: unknown,
   name: string,

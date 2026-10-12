@@ -175,8 +175,7 @@ catch (error) {
   };
 }
 
-test("reverting unpublished sources closes the obsolete PR and resets its branch to main", (t) => {
-  const fixture = publicationFixture(t, false);
+function assertClearedPublication(fixture) {
   fixture.run();
   assert.deepEqual(
     fixture.calls().filter((call) => call.method !== "GET"),
@@ -189,6 +188,17 @@ test("reverting unpublished sources closes the obsolete PR and resets its branch
       },
     ],
   );
+}
+
+test("reverting unpublished sources closes the obsolete PR and resets its branch to main", (t) => {
+  const fixture = publicationFixture(t, false);
+  assertClearedPublication(fixture);
+});
+
+test("a usage-only change opens no publication of its own", (t) => {
+  const fixture = publicationFixture(t, false);
+  writeFileSync(join(fixture.root, "registry/usage.json"), '{"usage30d":{"demo":3}}');
+  assertClearedPublication(fixture);
 });
 
 test("a failed staging cleanup preserves the publication failure as well", (t) => {
