@@ -1,14 +1,13 @@
 <!doctype html>
 <!--
-  filmed-screen demo. Three scenes in the style of other compositions — a code editor, an
-  analytics card and a chat thread — cross-fade inside one filmed screen. Each gets its own
-  shot and grade; the camera glides between them and racks focus to whatever just changed.
+  filmed-screen demo: a white search homepage for a made-up engine, "lumen", filmed with the
+  component's defaults. A query types letter by letter and the camera follows each new letter
+  while it orbits from one side of the screen to the other.
 -->
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=1920, height=1080" />
-    <title>Filmed Screen Demo</title>
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
     <style>
       * {
@@ -21,7 +20,7 @@
         width: 1920px;
         height: 1080px;
         overflow: hidden;
-        background: #050608;
+        background: #fff;
       }
       #root {
         position: relative;
@@ -29,195 +28,103 @@
         height: 1080px;
         overflow: hidden;
       }
-      .scene {
+      .page {
         position: absolute;
         left: 0;
         top: 0;
         width: 1920px;
         height: 1080px;
-        opacity: 0;
-        font-family: Inter, "Helvetica Neue", Arial, "DejaVu Sans", sans-serif;
-        color: #e8ecf3;
+        background: #fff;
+        font-family: Arial, Helvetica, "DejaVu Sans", sans-serif;
+        color: #202124;
       }
-      .mono {
-        font-family: "JetBrains Mono", ui-monospace, Menlo, "DejaVu Sans Mono", monospace;
-      }
-
-      /* A — code editor */
-      .editor {
-        position: absolute;
-        left: 260px;
-        top: 170px;
-        width: 1400px;
-        height: 740px;
-        border-radius: 22px;
-        background: #0f1218;
-        border: 2px solid #232836;
-        overflow: hidden;
-      }
-      .editor .bar {
-        height: 64px;
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        padding: 0 28px;
-        background: #151a23;
-        border-bottom: 2px solid #232836;
-      }
-      .editor .bar i {
-        width: 16px;
-        height: 16px;
-        border-radius: 50%;
-        background: #3a4150;
-      }
-      .editor .bar span {
-        margin-left: 18px;
-        font-size: 24px;
-        color: #8a93a6;
-      }
-      .code {
-        padding: 36px 0;
-        font-size: 34px;
-        line-height: 64px;
-      }
-      .code div {
-        padding: 0 44px;
-        white-space: nowrap;
-      }
-      .code .ind b {
-        width: 92px;
-      }
-      .code b {
-        display: inline-block;
-        width: 52px;
-        color: #4a5263;
-        font-weight: 400;
-      }
-      .k {
-        color: #c792ea;
-      }
-      .f {
-        color: #82aaff;
-      }
-      .s {
-        color: #c3e88d;
-      }
-      .n {
-        color: #f78c6c;
-      }
-      .c {
-        color: #5c6577;
-      }
-      #a-hl {
-        background: rgba(255, 196, 92, 0.12);
-        box-shadow: inset 5px 0 #ffc45c;
-      }
-      #a-type {
-        display: inline-block;
-        overflow: hidden;
-        vertical-align: bottom;
-        width: 0;
-      }
-
-      /* B — analytics card */
-      .card {
-        position: absolute;
-        left: 300px;
-        top: 190px;
-        width: 1320px;
-        height: 700px;
-        padding: 64px 72px;
-        border-radius: 28px;
-        background: linear-gradient(160deg, #161b26, #0d1017);
-        border: 2px solid #252b38;
-      }
-      .card h3 {
-        font-size: 34px;
-        font-weight: 600;
-        color: #9aa3b5;
-        letter-spacing: 0.02em;
-      }
-      #b-num {
-        margin-top: 18px;
-        font-size: 168px;
-        font-weight: 800;
-        letter-spacing: -0.04em;
-        color: #fff;
-      }
-      #b-num small {
-        font-size: 54px;
-        font-weight: 600;
-        color: #5ee6a8;
-        margin-left: 24px;
-        letter-spacing: 0;
-      }
-      .bars {
-        position: absolute;
-        left: 72px;
-        right: 72px;
-        bottom: 72px;
-        height: 250px;
-        display: flex;
-        align-items: flex-end;
-        gap: 30px;
-      }
-      .bars div {
-        flex: 1;
-        height: 100%;
-        border-radius: 12px 12px 4px 4px;
-        background: #2b3448;
-        transform-origin: 50% 100%;
-      }
-      #b-top {
-        background: linear-gradient(180deg, #5ee6a8, #1f9e6d);
-      }
-
-      /* C — chat thread */
-      .thread {
-        position: absolute;
-        left: 420px;
-        top: 140px;
-        width: 1080px;
-        height: 800px;
-      }
-      .msg {
+      .logo {
         position: absolute;
         left: 0;
-        max-width: 820px;
-        padding: 30px 38px;
-        border-radius: 30px;
-        font-size: 40px;
-        line-height: 1.3;
-        opacity: 0;
-      }
-      .msg.them {
-        background: #1c2230;
-        border-bottom-left-radius: 8px;
-      }
-      .msg.me {
-        left: auto;
         right: 0;
-        background: #2f6bff;
-        border-bottom-right-radius: 8px;
+        top: 290px;
+        text-align: center;
+        font-size: 160px;
+        font-weight: 700;
+        letter-spacing: -8px;
+        font-family: Inter, Arial, sans-serif;
+        line-height: 1.1;
+        background: linear-gradient(100deg, #6c4cf5 10%, #b44df2 48%, #f2647a 90%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
       }
-      .msg em {
-        display: block;
-        font-style: normal;
-        font-size: 26px;
-        color: #8a93a6;
-        margin-bottom: 8px;
+      .logo i {
+        display: inline-block;
+        width: 26px;
+        height: 26px;
+        margin-left: 8px;
+        border-radius: 50%;
+        background: #f2647a;
       }
-      .msg.me em {
-        color: #c8d8ff;
+      .search {
+        position: absolute;
+        left: 520px;
+        top: 520px;
+        width: 880px;
+        height: 74px;
+        border-radius: 37px;
+        border: 2px solid #dfe1e5;
+        display: flex;
+        align-items: center;
+        padding: 0 30px;
+        gap: 22px;
+        box-shadow: 0 2px 8px rgba(32, 33, 36, 0.18);
       }
-      #c1 {
-        top: 40px;
+      .search svg {
+        flex: none;
       }
-      #c2 {
-        top: 270px;
+      #q {
+        font-size: 30px;
+        white-space: nowrap;
+        color: #202124;
       }
-      #c3 {
-        top: 500px;
+      #q span {
+        display: none;
+      }
+      #caret {
+        display: inline-block;
+        width: 2px;
+        height: 34px;
+        background: #202124;
+        vertical-align: middle;
+        margin-left: 1px;
+      }
+      .buttons {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 650px;
+        display: flex;
+        justify-content: center;
+        gap: 18px;
+      }
+      .buttons div {
+        padding: 16px 28px;
+        background: #f8f9fa;
+        border: 1px solid #f8f9fa;
+        border-radius: 8px;
+        font-size: 22px;
+        color: #3c4043;
+      }
+      .lang {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 760px;
+        text-align: center;
+        font-size: 20px;
+        color: #4d5156;
+      }
+      .lang b {
+        color: #1a0dab;
+        font-weight: 400;
+        margin: 0 6px;
       }
     </style>
   </head>
@@ -226,7 +133,7 @@
       id="root"
       data-composition-id="filmed-screen-demo"
       data-start="0"
-      data-duration="10"
+      data-duration="8"
       data-width="1920"
       data-height="1080"
     >
@@ -246,120 +153,68 @@
             width: 1920px;
             height: 1080px;
             overflow: hidden;
-            background: #0b0d12;
+            background: #fff;
           "
         >
-          <section class="scene" id="scene-a">
-            <div class="editor mono">
-              <div class="bar"><i></i><i></i><i></i><span>render.ts</span></div>
-              <div class="code">
-                <div>
-                  <b>1</b><span class="k">import</span> { render } <span class="k">from</span>
-                  <span class="s">"hyperframes"</span>;
-                </div>
-                <div><b>2</b></div>
-                <div>
-                  <b>3</b><span class="k">const</span> video = <span class="k">await</span>
-                  <span class="f">render</span>({
-                </div>
-                <div class="ind"><b>4</b> composition: <span class="s">"./index.html"</span>,</div>
-                <div class="ind"><b>5</b> fps: <span class="n">30</span>,</div>
-                <div id="a-hl" class="ind">
-                  <b>6</b> <span id="a-type">filmedScreen: <span class="k">true</span>,</span>
-                </div>
-                <div><b>7</b>});</div>
-                <div><b>8</b><span class="c">// HTML in, video out.</span></div>
+          <div class="page">
+            <div class="logo">lumen<i></i></div>
+            <div class="search" id="box">
+              <svg width="28" height="28" viewBox="0 0 24 24">
+                <circle cx="10" cy="10" r="6.5" fill="none" stroke="#9aa0a6" stroke-width="2.2" />
+                <line
+                  x1="15"
+                  y1="15"
+                  x2="21"
+                  y2="21"
+                  stroke="#9aa0a6"
+                  stroke-width="2.2"
+                  stroke-linecap="round"
+                />
+              </svg>
+              <div id="q">
+                <span class="c">h</span><span class="c">o</span><span class="c">w</span
+                ><span class="c">&nbsp;</span><span class="c">d</span><span class="c">o</span
+                ><span class="c">&nbsp;</span><span class="c">c</span><span class="c">a</span
+                ><span class="c">m</span><span class="c">e</span><span class="c">r</span
+                ><span class="c">a</span><span class="c">s</span><span class="c">&nbsp;</span
+                ><span class="c">f</span><span class="c">o</span><span class="c">c</span
+                ><span class="c">u</span><span class="c">s</span
+                ><span id="caret" style="display: inline-block"></span>
               </div>
             </div>
-          </section>
-
-          <section class="scene" id="scene-b">
-            <div class="card">
-              <h3>Renders this week</h3>
-              <div id="b-num">0<small>+18%</small></div>
-              <div class="bars" id="b-bars">
-                <div style="--h: 0.38"></div>
-                <div style="--h: 0.52"></div>
-                <div style="--h: 0.46"></div>
-                <div style="--h: 0.64"></div>
-                <div style="--h: 0.58"></div>
-                <div style="--h: 0.71"></div>
-                <div id="b-top" style="--h: 1"></div>
-              </div>
+            <div class="buttons">
+              <div>Search</div>
+              <div>Surprise me</div>
             </div>
-          </section>
-
-          <section class="scene" id="scene-c">
-            <div class="thread">
-              <div class="msg them" id="c1"><em>Maya</em>Can we get the launch cut by noon?</div>
-              <div class="msg me" id="c2">
-                <em>You</em>Rendering now. Filmed-screen look on the product shots.
-              </div>
-              <div class="msg them" id="c3">
-                <em>Maya</em>That looks like a real camera. Ship it.
-              </div>
-            </div>
-          </section>
+            <div class="lang">Search the web, privately. <b>Learn how</b></div>
+          </div>
         </div>
       </canvas>
     </div>
     <script>
       window.__timelines = window.__timelines || {};
       const tl = gsap.timeline({ paused: true });
-      const numEl = document.getElementById("b-num");
-      // GSAP does not fire callbacks on seek, so the counter is driven by a property setter.
-      const counter = {
-        set value(v) {
-          numEl.firstChild.nodeValue = Math.round(v).toLocaleString("en-US");
-        },
-        get value() {
-          return 0;
-        },
-      };
-      const bars = gsap.utils.toArray(".bars div");
-
-      tl.to("#scene-a", { opacity: 1, duration: 0.5 }, 0)
-        .from(".editor", { y: 30, duration: 1.2, ease: "power2.out" }, 0)
-        .to("#a-type", { width: 470, duration: 1.1, ease: "steps(23)" }, 1.0)
-        .to("#scene-a", { opacity: 0, duration: 0.6, ease: "power1.inOut" }, 3.4)
-
-        .to("#scene-b", { opacity: 1, duration: 0.6, ease: "power1.inOut" }, 3.4)
-        .fromTo(counter, { value: 0 }, { value: 12480, duration: 1.6, ease: "power2.out" }, 3.6)
-        .fromTo(
-          bars,
-          { scaleY: 0 },
-          {
-            scaleY: (i, el) => Number(el.style.getPropertyValue("--h")),
-            duration: 0.9,
-            ease: "power3.out",
-            stagger: 0.08,
-          },
-          4.4,
-        )
-        .to("#scene-b", { opacity: 0, duration: 0.6, ease: "power1.inOut" }, 6.8)
-
-        .to("#scene-c", { opacity: 1, duration: 0.6, ease: "power1.inOut" }, 6.8)
-        .fromTo(
-          "#c1",
-          { opacity: 0, y: 24 },
-          { opacity: 1, y: 0, duration: 0.45, ease: "power2.out" },
-          7.0,
-        )
-        .fromTo(
-          "#c2",
-          { opacity: 0, y: 24 },
-          { opacity: 1, y: 0, duration: 0.45, ease: "power2.out" },
-          7.8,
-        )
-        .fromTo(
-          "#c3",
-          { opacity: 0, y: 24 },
-          { opacity: 1, y: 0, duration: 0.45, ease: "power2.out" },
-          8.6,
-        )
-        .to({}, { duration: 10 }, 0);
+      const chars = Array.from(document.querySelectorAll("#q span.c"));
+      // Typing schedule: a human-ish rhythm, deterministic (no Math.random).
+      const rhythm = [0.13, 0.17, 0.11, 0.2, 0.14, 0.12, 0.18, 0.15];
+      const START = 2.0;
+      const at = [];
+      let t = START;
+      chars.forEach((el, i) => {
+        at.push(t);
+        tl.set(el, { display: "inline" }, t);
+        t += rhythm[i % rhythm.length] + (chars[i].textContent === " " ? 0.08 : 0);
+      });
+      // Caret blinks only while idle (before and after typing), as a real one does.
+      const caret = document.getElementById("caret");
+      for (let b = 0.5; b < 8; b += 0.5) {
+        const idle = b < START || b > t + 0.3;
+        tl.set(caret, { opacity: idle ? (Math.round(b * 2) % 2 ? 0 : 1) : 1 }, b);
+      }
+      tl.to({}, { duration: 8 }, 0);
       window.__timelines["filmed-screen-demo"] = tl;
       tl.seek(0);
+      window.__typedAt = at;
     </script>
     <!-- filmed-screen.html library, pasted as an author would -->
     <script>
@@ -376,6 +231,7 @@ uniform sampler2D uSrc;
 uniform vec2 uRes; uniform float uTime; uniform vec2 uAim; uniform float uZoom; uniform vec3 uRot;
 uniform vec2 uFocus; uniform vec4 uFocusRect; uniform float uBlur; uniform vec3 uP[5]; uniform float uTrue;
 uniform float uCut; uniform float uOut; uniform float uSeed; uniform float uInv;
+uniform float uVig; uniform float uCA; uniform float uLed; uniform float uCurve;
 out vec4 outColor;
 const float FOCAL = 1.7; const float CELL = 3.0;
 const int TAPS = 36; const int GLOW_TAPS = 16;
@@ -413,7 +269,11 @@ void main() {
     float n = hash(vec2(band, frameSeed.x * 3.7 + frameSeed.y));
     px.x += step(0.93 - 0.18 * uCut, n) * (hash(vec2(band, frameSeed.y + 9.0)) - 0.5) * 220.0 * uCut;
   }
-  vec2 s = (px - 0.5 * res) / res.y;
+  vec2 s0 = (px - 0.5 * res) / res.y;
+  // Barrel curve, normalised so the frame's corners stay put: the middle swells toward the
+  // camera and straight lines bow outward, without the page edge entering the shot.
+  vec2 corner = 0.5 * res / res.y;
+  vec2 s = s0 * (1.0 + uCurve * dot(s0, s0)) / (1.0 + uCurve * dot(corner, corner));
   vec3 d = vec3(s.x, s.y, FOCAL);
   mat3 R = rotation();
   vec3 eu = R * vec3(1.0, 0.0, 0.0); vec3 ev = R * vec3(0.0, 1.0, 0.0); vec3 nrm = R * vec3(0.0, 0.0, 1.0);
@@ -433,7 +293,8 @@ void main() {
   float coc = clamp(uBlur * 190.0 * abs(1.0 - zf / z), 0.0, 46.0) * (1.0 - sharp);
   float logPerPx = 1.0 / uZoom * z;
   float rLog = coc * logPerPx;
-  vec2 ca = (1.0 - sharp) * s * (0.006 + 0.008 * uCut) * (res.y / uZoom);
+  // A trace of fringing survives on the focused text (a quarter), enough to read as glass.
+  vec2 ca = (1.0 - 0.75 * sharp) * uCA * s * (0.006 + 0.008 * uCut) * (res.y / uZoom);
   float snapAmt = smoothstep(0.5 * CELL, 2.0 * CELL, rLog);
   float spin = hash(coord * 0.37 + frameSeed) * 6.2831;
   vec3 accC = vec3(0.0); float accGl = 0.0; float accRr = 0.0; float accRl = 0.0; float accBb = 0.0; float accBl = 0.0;
@@ -477,11 +338,12 @@ void main() {
   float rowm = 1.0 - smoothstep(0.28, 0.5, abs(cu.y));
   float colm = 1.0 - smoothstep(0.36, 0.5, abs(cu.x));
   vec3 led = rowm * colm * (0.4 + 1.0 * sub);
-  float ledAmt = (1.0 - smoothstep(0.8, 3.5, rLog / CELL)) * smoothstep(2.2, 4.5, CELL / logPerPx);
-  col *= mix(vec3(1.0), led * 1.3, ledAmt * 0.9 * (1.0 - 0.7 * sharp));
+  // The grid only shows once a cell spans ~4 output px; finer, it aliases into moiré.
+  float ledAmt = (1.0 - smoothstep(0.8, 3.5, rLog / CELL)) * smoothstep(4.0, 6.5, CELL / logPerPx);
+  col *= mix(vec3(1.0), led * 1.3, ledAmt * uLed * (1.0 - 0.7 * sharp));
   col = col * (1.0 + uCut * 1.1) + uCut * 0.06;
-  vec2 v = s * vec2(0.85, 1.15);
-  col *= 1.0 - 0.42 * dot(v, v);
+  vec2 v = s0 * vec2(0.85, 1.15);
+  col *= 1.0 - uVig * dot(v, v);
   col *= 1.0 - (0.035 - 0.035 * sin(coord.y * 0.9 - uTime * 55.0));
   col += (hash(coord + frameSeed * 1.31) - 0.5) * 0.06;
   col *= 1.0 - uOut;
@@ -705,7 +567,7 @@ void main() {
           gl.enableVertexAttribArray(aLoc);
           gl.vertexAttribPointer(aLoc, 2, gl.FLOAT, false, 0, 0);
           var loc = {};
-          "uSrc uRes uTime uAim uZoom uRot uFocus uFocusRect uBlur uP uTrue uCut uOut uSeed uInv"
+          "uSrc uRes uTime uAim uZoom uRot uFocus uFocusRect uBlur uP uTrue uCut uOut uSeed uInv uVig uCA uLed uCurve"
             .split(" ")
             .forEach(function (n) {
               loc[n] = gl.getUniformLocation(prog, n);
@@ -773,12 +635,16 @@ void main() {
               len = Math.max(0.001, sh.until - start);
             var sway = Math.sin(i * 1.7 + local * 0.9) * 0.012;
             var tilt = sh.tilt || [0.1, -0.15, 0.02],
+              tiltTo = sh.tiltTo || tilt,
               zoom = sh.zoom || [1.1, 1.3];
             return {
               center: sh.center || [W / 2, H / 2],
-              rot: [tilt[0] + sway, tilt[1] - sway * 0.7, tilt[2] + sway * 0.4],
+              // An orbit: the tilt eases from `tilt` to `tiltTo` across the shot.
+              rot: [0, 1, 2].map(function (k) {
+                return lerp(tilt[k], tiltTo[k], smoother(local / len)) + sway * [1, -0.7, 0.4][k];
+              }),
               zoom: lerp(zoom[0], zoom[1], smoother(local / len)),
-              blur: sh.blur == null ? 0.9 : sh.blur,
+              blur: sh.blur == null ? 0.45 : sh.blur,
               pal: sh.palette ? [].concat.apply([], sh.palette.map(hex)) : null,
               trueAmt: sh.palette ? 0 : 1,
               inv: sh.invert ? 1 : 0,
@@ -833,7 +699,7 @@ void main() {
             var t = now(),
               at = camAt(t),
               cam = at.cam;
-            var rack = opts.rack == null ? 0.7 : opts.rack;
+            var rack = opts.rack == null ? 0.3 : opts.rack;
             var still = [cam.center[0], cam.center[1], 0, 0];
             var rect = [0, 0, 0, 0],
               wsum = 0;
@@ -912,6 +778,10 @@ void main() {
             gl.uniform1f(loc.uOut, fs.out);
             gl.uniform1f(loc.uSeed, fs.seed);
             gl.uniform1f(loc.uInv, cam.inv);
+            gl.uniform1f(loc.uVig, opts.vignette == null ? 1.0 : opts.vignette);
+            gl.uniform1f(loc.uCA, opts.aberration == null ? 2.2 : opts.aberration);
+            gl.uniform1f(loc.uLed, opts.led == null ? 0.45 : opts.led);
+            gl.uniform1f(loc.uCurve, opts.curve == null ? 0.15 : opts.curve);
             gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
             fs = null;
             return true;
@@ -954,34 +824,34 @@ void main() {
     <script>
       HFFilmedScreen.mount({
         canvas: document.querySelectorAll(".hf-filmed-screen"),
-        rack: 0.8,
         shots: [
           {
-            until: 3.6,
-            palette: ["#07050a", "#2a1405", "#8a4a10", "#ffb340", "#fff1d6"],
-            tilt: [0.13, -0.2, 0.025],
-            zoom: [1.05, 1.3],
-            blur: 0.95,
-            center: [900, 520],
-            focus: () => document.getElementById("a-hl"),
-          },
-          {
-            until: 6.9,
+            until: 2.2,
             palette: null,
-            tilt: [-0.1, 0.2, -0.025],
-            zoom: [1.05, 1.18],
-            blur: 0.9,
-            center: [960, 540],
-            focus: (t, local) => document.getElementById(local < 1.7 ? "b-num" : "b-bars"),
+            tilt: [0.06, 0.24, -0.02],
+            tiltTo: [0.08, 0.14, -0.012],
+            zoom: [1.28, 1.38],
+            blur: 0.8,
+            center: [960, 480],
+            focus: () => document.getElementById("box"),
           },
           {
-            until: 10,
-            palette: ["#02040a", "#06183a", "#1f5fa8", "#7fd6ff", "#effaff"],
-            tilt: [0.08, 0.24, 0.02],
-            zoom: [1.3, 1.15],
-            blur: 1.0,
-            center: [960, 520],
-            focus: (t) => document.getElementById(t < 7.8 ? "c1" : t < 8.6 ? "c2" : "c3"),
+            until: 8,
+            palette: null,
+            glide: 1.0,
+            tilt: [0.1, 0.14, -0.012],
+            tiltTo: [0.06, -0.24, 0.02],
+            zoom: [2.1, 2.5],
+            center: [960, 560],
+            // The newest letter on screen; before the first one, the caret.
+            focus: (t) => {
+              const at = window.__typedAt;
+              let i = -1;
+              while (i + 1 < at.length && at[i + 1] <= t) i++;
+              return i < 0
+                ? document.getElementById("caret")
+                : document.querySelectorAll("#q span.c")[i];
+            },
           },
         ],
       });

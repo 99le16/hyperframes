@@ -1,10 +1,12 @@
 # filmed-screen
 
 Your scene, filmed off a screen. The live DOM is captured through HTML-in-Canvas every frame and
-shaded by one WebGL pass: a tilted screen plane in perspective, depth of field that follows an
-element you name, chromatic fringing, LED sub-pixels, a per-shot colour grade, bloom, vignette and
-grain. Shots glide into each other and focus racks smoothly between elements. The element in focus stays sharp: inside its box the pass turns off
-blur, LED-cell snapping and fringing, and fades back in over ~160 px around it.
+shaded by one WebGL pass: a gently curved screen tilted in perspective, depth of field that follows
+an element you name, chromatic fringing, LED sub-pixels, a vignette, a per-shot colour grade, bloom
+and grain. Shots glide or orbit into each other and focus racks smoothly between elements, fast
+enough to follow text as it is typed. The element in focus stays sharp: inside its box the pass
+turns off blur and LED-cell snapping, keeps only a trace of fringing, and fades back in over
+~160 px around it.
 
 Ported from the virtual-camera pass in [ff-tracking](https://github.com/mrsarac/ff-tracking)
 (`lens.sksl`), with one change to its maths: each colour channel is weighted by its own sample in
@@ -66,8 +68,9 @@ HFFilmedScreen.mount({
 | palette    | null               | Five hex colours, dark → light. `null` keeps true colour.                                          |
 | invert     | false              | Flips brightness and keeps hue, so light pages read as dark screens.                               |
 | tilt       | [0.1, -0.15, 0.02] | Screen plane rotation `[x, y, roll]` in radians.                                                   |
+| tiltTo     | tilt               | Rotation to end the shot on; the tilt eases between the two, for an orbit.                         |
 | zoom       | [1.1, 1.3]         | Eased across the shot.                                                                             |
-| blur       | 0.9                | Depth-of-field strength; ~0.6–1.2 reads as a phone camera.                                         |
+| blur       | 0.45               | Depth-of-field strength; ~1 reads as a shallow phone camera.                                       |
 | center     | canvas centre      | Where the camera points when nothing is in focus.                                                  |
 | focus      | —                  | `(t, local) → Element \| {x,y,w,h} \| array`; the last entry is the focus.                         |
 | transition | "glide"            | `"glide"` eases camera, grade and colour mode in from the previous shot; `"cut"` cuts with a tear. |
@@ -75,13 +78,17 @@ HFFilmedScreen.mount({
 
 ## Mount options
 
-| option  | default | notes                                                                   |
-| ------- | ------- | ----------------------------------------------------------------------- |
-| canvas  | —       | Element, list or selector. The first canvas not already filmed is used. |
-| shots   | —       | The shot list above.                                                    |
-| rack    | 0.7     | Seconds a focus change takes to settle.                                 |
-| fadeOut | true    | Fades to black over the last 0.4 s of the owning composition.           |
-| zIndex  | 10      | z-index of the lens output canvas.                                      |
+| option     | default | notes                                                                   |
+| ---------- | ------- | ----------------------------------------------------------------------- |
+| canvas     | —       | Element, list or selector. The first canvas not already filmed is used. |
+| shots      | —       | The shot list above.                                                    |
+| rack       | 0.3     | Seconds a focus change takes to settle.                                 |
+| vignette   | 1.0     | Edge darkening; 0 turns it off.                                         |
+| aberration | 2.2     | Chromatic fringing, as a multiple of the base amount.                   |
+| led        | 0.45    | Strength of the LED sub-pixel grid.                                     |
+| curve      | 0.15    | Screen curvature; 0 is flat. The frame's corners stay in place.         |
+| fadeOut    | true    | Fades to black over the last 0.4 s of the owning composition.           |
+| zIndex     | 10      | z-index of the lens output canvas.                                      |
 
 Pass `document.querySelectorAll(...)` from your own snippet rather than a selector string. The
 library initialises once per page, so its own `document` belongs to whichever copy loaded first;
