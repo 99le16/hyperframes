@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -63,6 +63,46 @@ test("the extracted audio scratch file does not outlive the run", () => {
     );
     assert.equal(existsSync(join(project, "audio.mp3")), false);
     assert.equal(existsSync(join(project, "transcript.json")), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// The no-speech guard must measure the scratch audio before the run deletes it;
+// measured after deletion it reads nothing and a hallucinated transcript passes.
+test("a silent clip with scratch audio still trips the no-speech guard", () => {
+  const root = mkdtempSync(join(tmpdir(), "embedded-captions-transcribe-"));
+  try {
+    const cliDir = join(root, "hf", "packages", "cli", "dist");
+    mkdirSync(cliDir, { recursive: true });
+    writeFileSync(join(cliDir, "cli.js"), STUB_CLI);
+    const project = join(root, "project");
+    mkdirSync(project);
+    execFileSync(
+      "ffmpeg",
+      [
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "anullsrc=r=44100:cl=mono",
+        "-t",
+        "1",
+        join(project, "source.mp4"),
+      ],
+      { stdio: "ignore" },
+    );
+    const run = spawnSync(
+      process.execPath,
+      [fileURLToPath(new URL("./transcribe.cjs", import.meta.url)), project],
+      {
+        encoding: "utf8",
+        env: { ...process.env, HYPERFRAMES_ROOT: join(root, "hf"), TRANSCRIBE_ENGINE: "whisper" },
+      },
+    );
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(existsSync(join(project, "audio.mp3")), false);
+    assert.match(run.stderr, /NEAR-SILENT AUDIO/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

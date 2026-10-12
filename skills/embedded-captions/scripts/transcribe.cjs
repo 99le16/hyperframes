@@ -283,6 +283,8 @@ function main() {
     }
   }
 
+  // Measure before the scratch audio is removed; ffmpeg cannot read a deleted file.
+  const meanDb = meanVolumeDb(audio);
   if (audioIsScratch) fs.rmSync(audio, { force: true });
 
   const text = words
@@ -310,7 +312,6 @@ function main() {
   // No-speech guard: whisper returns confident hallucinations over silence (e.g. the
   // whole clip as "Thank you."). The decision gate REFUSES "no speech" — operationalize
   // it so an agent trusting the transcript can't sail past the gate.
-  const meanDb = meanVolumeDb(audio);
   if (meanDb != null && meanDb < -45) {
     console.error(
       `\n[transcribe] ⚠ NEAR-SILENT AUDIO — mean ${meanDb.toFixed(1)} dB (real speech ≈ -16..-26 dB).`,
