@@ -23,5 +23,9 @@
       "target": "compositions/components/filmed-screen.html",
       "type": "hyperframes:snippet"
     }
-  ]
+  ],
+  "preview": {
+    "video": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/components/filmed-screen.mp4",
+    "poster": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/components/filmed-screen.png"
+  }
 }
