@@ -110,6 +110,7 @@ export interface CompiledComposition {
   videos: VideoElement[];
   audios: AudioElement[];
   images: ImageElement[];
+  droppedMediaIds: Set<string>;
   unresolvedCompositions: UnresolvedElement[];
   /** Assets that resolve outside projectDir. Keys are the path used in HTML, values are absolute filesystem paths. */
   externalAssets: Map<string, string>;
@@ -2145,7 +2146,7 @@ export async function compileForRender(
   // within one composition file: two scenes declaring `<video id="clip">` — or
   // two bare `<video>`s, both auto-numbered `hf-video-0` — collapsed into one
   // entry and injected frames onto whichever element came first. See #3340.
-  const { videos, audios, images } = collectRenderMedia(html);
+  const { videos, audios, images, droppedMediaIds } = collectRenderMedia(html);
 
   // Advisory video checks (sparse keyframes, VFR). Fire-and-forget — these spawn
   // ffprobe subprocesses and should not block compilation since they only produce warnings.
@@ -2198,6 +2199,7 @@ export async function compileForRender(
     videos,
     audios,
     images,
+    droppedMediaIds,
     unresolvedCompositions,
     externalAssets,
     width,

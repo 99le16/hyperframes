@@ -200,6 +200,8 @@ export interface RenderMedia {
   videos: VideoElement[];
   audios: AudioElement[];
   images: ImageElement[];
+  /** Ids of clips in the document that never play; the browser probe must not add them back. */
+  droppedMediaIds: Set<string>;
 }
 
 /**
@@ -213,21 +215,25 @@ export interface RenderMedia {
 export function collectRenderMedia(html: string): RenderMedia {
   const windows = collectHostWindows(html);
   const windowFor = (id: string): HostWindow => windows.get(id) ?? ROOT_WINDOW;
+  const droppedMediaIds = new Set<string>();
 
   const videos: VideoElement[] = [];
   for (const video of parseVideoElements(html)) {
     const absolute = toAbsoluteWindow(video.start, video.end, windowFor(video.id));
-    if (absolute) {
-      videos.push(
-        startAtPlayed({ ...video, start: absolute.start, end: absolute.end }, absolute.played),
-      );
+    if (!absolute) {
+      droppedMediaIds.add(video.id);
+      continue;
     }
+    videos.push(
+      startAtPlayed({ ...video, start: absolute.start, end: absolute.end }, absolute.played),
+    );
   }
 
   const images: ImageElement[] = [];
   for (const image of parseImageElements(html)) {
     const absolute = toAbsoluteWindow(image.start, image.end, windowFor(image.id));
     if (absolute) images.push({ ...image, start: absolute.start, end: absolute.end });
+    else droppedMediaIds.add(image.id);
   }
 
   // A <video data-has-audio> track is reported as "<renderId>-audio"; strip the
@@ -239,7 +245,10 @@ export function collectRenderMedia(html: string): RenderMedia {
     // unbounded track must stay unbounded rather than collapse onto its start.
     const authoredEnd = audio.end > 0 ? audio.end : Infinity;
     const absolute = toAbsoluteWindow(audio.start, authoredEnd, windowFor(elementId));
-    if (!absolute) continue;
+    if (!absolute) {
+      droppedMediaIds.add(elementId);
+      continue;
+    }
     audios.push(
       startAtPlayed(
         { ...audio, start: absolute.start, end: Number.isFinite(absolute.end) ? absolute.end : 0 },
@@ -248,5 +257,5 @@ export function collectRenderMedia(html: string): RenderMedia {
     );
   }
 
-  return { videos, audios, images };
+  return { videos, audios, images, droppedMediaIds };
 }

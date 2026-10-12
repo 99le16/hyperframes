@@ -258,6 +258,28 @@ describe("collectRenderMedia in-point hosts", () => {
     expect(audios.find((a) => a.id === "fast")).toMatchObject({ start: 5, end: 12, mediaStart: 4 });
   });
 
+  it("reports the clips a split scene's in-point cuts away", async () => {
+    const host = (timing: string) =>
+      `<div data-composition-id="scene" data-composition-src="scene.html" ${timing}></div>`;
+    const compiled = await compileProject({
+      "index.html":
+        `<!doctype html><html><body>` +
+        `<div id="root" data-composition-id="main" data-start="0" data-duration="12" data-width="1280" data-height="720">` +
+        host(`data-start="0" data-duration="5"`) +
+        host(`data-start="5" data-duration="7" data-playback-start="5"`) +
+        `</div></body></html>`,
+      "scene.html":
+        `<template><div data-composition-id="scene" data-width="1280" data-height="720">` +
+        `<audio id="early" src="early.m4a" data-start="1" data-duration="3"></audio>` +
+        `</div></template>`,
+    });
+
+    expect(compiled.audios.map(({ id, start, end }) => ({ id, start, end }))).toEqual([
+      { id: "early", start: 1, end: 4 },
+    ]);
+    expect([...compiled.droppedMediaIds]).toEqual(["early__hf2"]);
+  });
+
   it("changes nothing for a host without an in-point", () => {
     const scene = (inPoint: string) =>
       `<div data-composition-id="inline" data-start="3" data-duration="4"${inPoint}>` +

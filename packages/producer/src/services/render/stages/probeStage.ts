@@ -211,7 +211,7 @@ function adoptRuntimeMediaStart(
             (audio) => audio.type === "video" && audio.id === `${el.id}-audio`,
           ),
         ]
-      : composition.audios.filter((audio) => audio.id === el.id);
+      : composition.audios.filter((audio) => audio.type !== "video" && audio.id === el.id);
   for (const entry of entries) entry.mediaStart += shift;
 }
 
@@ -605,7 +605,7 @@ export async function runProbeStage(input: ProbeStageInput): Promise<ProbeStageR
                   existing.loop = true;
                 }
               }
-            } else {
+            } else if (!compiled.droppedMediaIds.has(el.id)) {
               // New video discovered from browser
               composition.videos.push({
                 id: el.id,
@@ -650,7 +650,7 @@ export async function runProbeStage(input: ProbeStageInput): Promise<ProbeStageR
                   existing.volume = el.volume;
                 }
               }
-            } else {
+            } else if (!compiled.droppedMediaIds.has(el.id)) {
               composition.audios.push({
                 id: el.id,
                 src,
@@ -681,7 +681,7 @@ export async function runProbeStage(input: ProbeStageInput): Promise<ProbeStageR
                   existing.end = projectedEnd;
                 }
               }
-            } else {
+            } else if (!compiled.droppedMediaIds.has(el.id)) {
               composition.images.push({
                 id: el.id,
                 src,

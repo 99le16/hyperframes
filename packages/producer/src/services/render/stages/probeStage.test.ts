@@ -271,6 +271,7 @@ function makeProbeInput(overrides: {
       videos: [],
       audios: [],
       images: [],
+      droppedMediaIds: new Set<string>(),
       unresolvedCompositions: [],
       externalAssets: new Map(),
       width: 1920,
@@ -449,6 +450,67 @@ describe("runProbeStage — forceScreenshot threading", () => {
       expect(input.composition.audios[0]?.mediaStart).toBe(expected);
     },
   );
+
+  it("does not add back clips the collector dropped", async () => {
+    resetRetryMocks();
+    const common = { start: 1, end: 4, duration: 3, mediaStart: 0, volume: 1, muted: false };
+    browserMediaResults = [
+      { ...common, id: "early", tagName: "audio", src: "early.m4a" },
+      { ...common, id: "early__hf2", tagName: "audio", src: "early.m4a" },
+      { ...common, id: "clip__hf2", tagName: "video", src: "clip.mp4" },
+      { ...common, id: "pic__hf2", tagName: "image", src: "pic.png" },
+    ];
+    const { runProbeStage } = await import("./probeStage.js");
+    const input = makeProbeInput({});
+    input.composition.audios.push({
+      id: "early",
+      src: "early.m4a",
+      start: 1,
+      end: 4,
+      mediaStart: 0,
+      layer: 0,
+      type: "audio",
+    });
+    input.compiled.droppedMediaIds = new Set(["early__hf2", "clip__hf2", "pic__hf2"]);
+
+    await runProbeStage(input);
+
+    expect(input.composition.audios.map((audio) => audio.id)).toEqual(["early"]);
+    expect(input.composition.videos).toEqual([]);
+    expect(input.composition.images).toEqual([]);
+  });
+
+  it("moves an audio's start without moving a video track that shares its id", async () => {
+    resetRetryMocks();
+    browserMediaResults = [
+      {
+        id: "v-audio",
+        tagName: "audio",
+        src: "a.m4a",
+        start: 0,
+        end: 6,
+        duration: 6,
+        mediaStart: 4,
+        loop: false,
+        hasAudio: false,
+        volume: 1,
+        muted: false,
+      },
+    ];
+    const { runProbeStage } = await import("./probeStage.js");
+    const input = makeProbeInput({});
+    input.composition.audios.push(
+      { id: "v-audio", src: "a.m4a", start: 0, end: 6, mediaStart: 2, layer: 0, type: "audio" },
+      { id: "v-audio", src: "v.mp4", start: 0, end: 6, mediaStart: 0, layer: 0, type: "video" },
+    );
+    input.compiled.html =
+      `<video id="v" src="v.mp4" data-start="0" data-duration="6" data-has-audio="true"></video>` +
+      `<audio id="v-audio" src="a.m4a" data-start="0" data-duration="6" data-playback-start="2"></audio>`;
+
+    await runProbeStage(input);
+
+    expect(input.composition.audios.map((audio) => audio.mediaStart)).toEqual([4, 0]);
+  });
 
   it("reconciles a nested source's selected runtime URL before media-type preflight", async () => {
     resetRetryMocks();
