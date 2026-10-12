@@ -1140,6 +1140,35 @@ describe("windowed rendering of a long input", () => {
   );
 
   it.skipIf(!HAS_BROWSER)(
+    "a pitch shifter keeps the last 90 ms of its input",
+    async () => {
+      const input = join(dir, "ps.wav");
+      const frames = Math.round(0.4 * SR);
+      writeWav(input, new Float32Array(frames).fill(0.3), SR, 1, true);
+      const out = join(dir, "ps-out.wav");
+      const chain: HfAudioFxChain = {
+        version: 1,
+        nodes: [
+          {
+            type: "pitchshift",
+            id: "p",
+            enabled: true,
+            params: { ...defaultAudioFxParams("pitchshift"), semitones: 7, mix: 1 },
+          },
+        ],
+      };
+      await applyAudioFxChain(input, chain, out, { trackId: "ps" });
+      const samples = readWav(out).samples;
+      // The shifter reads up to a grain behind its write head, so the last 90 ms of the clip comes
+      // out after the input ends. A steady level stays steady, so quiet there is dropped audio.
+      expect(samples.length).toBeGreaterThan(frames);
+      expect(sliceRms(samples, 0.31, 0.4)).toBeGreaterThan(0.2);
+      expect(sliceRms(samples, 0.4, 0.45)).toBeGreaterThan(0.1);
+    },
+    120_000,
+  );
+
+  it.skipIf(!HAS_BROWSER)(
     "bakes a volume envelope on the file's own clock across window boundaries",
     async () => {
       const input = join(dir, "env.wav");

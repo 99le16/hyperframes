@@ -208,7 +208,8 @@ class HfBitcrush extends AudioWorkletProcessor {
     const mix = p.mix ?? 1;
     for (let ch = 0; ch < i.length; ch++) {
       const inp = i[ch], out = o[ch];
-      if (this.held[ch] === undefined) this.held[ch] = 0;
+      // Primed from the input: a counter seeded mid-hold would otherwise play 0 until it wraps.
+      if (this.held[ch] === undefined) this.held[ch] = Math.round(inp[0] * levels) / levels;
       // The hold counter runs from the file's first sample, so a node built part-way in starts where it would be.
       if (this.holds[ch] === undefined) this.holds[ch] = this.start % step;
       for (let n = 0; n < inp.length; n++) {
