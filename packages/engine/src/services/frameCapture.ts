@@ -9,6 +9,7 @@
  */
 
 import {
+  CDPSession,
   type Browser,
   type Page,
   type Protocol,
@@ -1414,6 +1415,18 @@ async function constructCaptureSession(
 
   const page = await browser.newPage();
   onPageCreated(page);
+  // Keep network diagnostics without retaining Chrome's default 200 MB of
+  // response bodies. Use Puppeteer's existing session; each CDP session has
+  // its own inspector buffer. This applies only to pages owned by capture.
+  const frame = page.mainFrame();
+  // Puppeteer exposes this getter at runtime but omits it from public Frame
+  // types. Keep capture working if a future version removes that access.
+  if ("client" in frame && frame.client instanceof CDPSession) {
+    await frame.client.send("Network.enable", {
+      maxTotalBufferSize: 32 * 1024 * 1024,
+      maxResourceBufferSize: 16 * 1024 * 1024,
+    });
+  }
   // Polyfill esbuild's keepNames helper inside the page.
   //
   // The engine is published as raw TypeScript (`packages/engine/package.json`
