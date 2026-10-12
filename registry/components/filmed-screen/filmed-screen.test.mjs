@@ -56,7 +56,7 @@ function page() {
       vfxResolver = () => {
         const prior = priorResolver ? priorResolver() : false;
         vfxCaptures++;
-        return true || prior;
+        return vfxCaptures > 0 || prior;
       };
       sandbox.__hf_page_composite_resolve = vfxResolver;
     }
