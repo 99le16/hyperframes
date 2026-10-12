@@ -182,6 +182,7 @@ test("a kept range starting on a 30 fps frame keeps that frame", { skip: !HAS_FF
         "stream=nb_read_packets",
         "-of",
         "csv=p=0",
+        "--",
         output,
       ],
       { encoding: "utf8" },
