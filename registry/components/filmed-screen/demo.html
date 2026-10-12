@@ -1,0 +1,990 @@
+<!doctype html>
+<!--
+  filmed-screen demo. Three scenes in the style of other compositions — a code editor, an
+  analytics card and a chat thread — cross-fade inside one filmed screen. Each gets its own
+  shot and grade; the camera glides between them and racks focus to whatever just changed.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Filmed Screen Demo</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #050608;
+      }
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+      }
+      .scene {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 1920px;
+        height: 1080px;
+        opacity: 0;
+        font-family: Inter, "Helvetica Neue", Arial, "DejaVu Sans", sans-serif;
+        color: #e8ecf3;
+      }
+      .mono {
+        font-family: "JetBrains Mono", ui-monospace, Menlo, "DejaVu Sans Mono", monospace;
+      }
+
+      /* A — code editor */
+      .editor {
+        position: absolute;
+        left: 260px;
+        top: 170px;
+        width: 1400px;
+        height: 740px;
+        border-radius: 22px;
+        background: #0f1218;
+        border: 2px solid #232836;
+        overflow: hidden;
+      }
+      .editor .bar {
+        height: 64px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 0 28px;
+        background: #151a23;
+        border-bottom: 2px solid #232836;
+      }
+      .editor .bar i {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #3a4150;
+      }
+      .editor .bar span {
+        margin-left: 18px;
+        font-size: 24px;
+        color: #8a93a6;
+      }
+      .code {
+        padding: 36px 0;
+        font-size: 34px;
+        line-height: 64px;
+      }
+      .code div {
+        padding: 0 44px;
+        white-space: nowrap;
+      }
+      .code .ind b {
+        width: 92px;
+      }
+      .code b {
+        display: inline-block;
+        width: 52px;
+        color: #4a5263;
+        font-weight: 400;
+      }
+      .k {
+        color: #c792ea;
+      }
+      .f {
+        color: #82aaff;
+      }
+      .s {
+        color: #c3e88d;
+      }
+      .n {
+        color: #f78c6c;
+      }
+      .c {
+        color: #5c6577;
+      }
+      #a-hl {
+        background: rgba(255, 196, 92, 0.12);
+        box-shadow: inset 5px 0 #ffc45c;
+      }
+      #a-type {
+        display: inline-block;
+        overflow: hidden;
+        vertical-align: bottom;
+        width: 0;
+      }
+
+      /* B — analytics card */
+      .card {
+        position: absolute;
+        left: 300px;
+        top: 190px;
+        width: 1320px;
+        height: 700px;
+        padding: 64px 72px;
+        border-radius: 28px;
+        background: linear-gradient(160deg, #161b26, #0d1017);
+        border: 2px solid #252b38;
+      }
+      .card h3 {
+        font-size: 34px;
+        font-weight: 600;
+        color: #9aa3b5;
+        letter-spacing: 0.02em;
+      }
+      #b-num {
+        margin-top: 18px;
+        font-size: 168px;
+        font-weight: 800;
+        letter-spacing: -0.04em;
+        color: #fff;
+      }
+      #b-num small {
+        font-size: 54px;
+        font-weight: 600;
+        color: #5ee6a8;
+        margin-left: 24px;
+        letter-spacing: 0;
+      }
+      .bars {
+        position: absolute;
+        left: 72px;
+        right: 72px;
+        bottom: 72px;
+        height: 250px;
+        display: flex;
+        align-items: flex-end;
+        gap: 30px;
+      }
+      .bars div {
+        flex: 1;
+        height: 100%;
+        border-radius: 12px 12px 4px 4px;
+        background: #2b3448;
+        transform-origin: 50% 100%;
+      }
+      #b-top {
+        background: linear-gradient(180deg, #5ee6a8, #1f9e6d);
+      }
+
+      /* C — chat thread */
+      .thread {
+        position: absolute;
+        left: 420px;
+        top: 140px;
+        width: 1080px;
+        height: 800px;
+      }
+      .msg {
+        position: absolute;
+        left: 0;
+        max-width: 820px;
+        padding: 30px 38px;
+        border-radius: 30px;
+        font-size: 40px;
+        line-height: 1.3;
+        opacity: 0;
+      }
+      .msg.them {
+        background: #1c2230;
+        border-bottom-left-radius: 8px;
+      }
+      .msg.me {
+        left: auto;
+        right: 0;
+        background: #2f6bff;
+        border-bottom-right-radius: 8px;
+      }
+      .msg em {
+        display: block;
+        font-style: normal;
+        font-size: 26px;
+        color: #8a93a6;
+        margin-bottom: 8px;
+      }
+      .msg.me em {
+        color: #c8d8ff;
+      }
+      #c1 {
+        top: 40px;
+      }
+      #c2 {
+        top: 270px;
+      }
+      #c3 {
+        top: 500px;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="filmed-screen-demo"
+      data-start="0"
+      data-duration="10"
+      data-width="1920"
+      data-height="1080"
+    >
+      <canvas
+        class="hf-filmed-screen"
+        layoutsubtree
+        width="1920"
+        height="1080"
+        style="position: absolute; left: 0; top: 0; width: 1920px; height: 1080px"
+      >
+        <div
+          class="hf-filmed-screen-scene"
+          style="
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 1920px;
+            height: 1080px;
+            overflow: hidden;
+            background: #0b0d12;
+          "
+        >
+          <section class="scene" id="scene-a">
+            <div class="editor mono">
+              <div class="bar"><i></i><i></i><i></i><span>render.ts</span></div>
+              <div class="code">
+                <div>
+                  <b>1</b><span class="k">import</span> { render } <span class="k">from</span>
+                  <span class="s">"hyperframes"</span>;
+                </div>
+                <div><b>2</b></div>
+                <div>
+                  <b>3</b><span class="k">const</span> video = <span class="k">await</span>
+                  <span class="f">render</span>({
+                </div>
+                <div class="ind"><b>4</b> composition: <span class="s">"./index.html"</span>,</div>
+                <div class="ind"><b>5</b> fps: <span class="n">30</span>,</div>
+                <div id="a-hl" class="ind">
+                  <b>6</b> <span id="a-type">filmedScreen: <span class="k">true</span>,</span>
+                </div>
+                <div><b>7</b>});</div>
+                <div><b>8</b><span class="c">// HTML in, video out.</span></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="scene" id="scene-b">
+            <div class="card">
+              <h3>Renders this week</h3>
+              <div id="b-num">0<small>+18%</small></div>
+              <div class="bars" id="b-bars">
+                <div style="--h: 0.38"></div>
+                <div style="--h: 0.52"></div>
+                <div style="--h: 0.46"></div>
+                <div style="--h: 0.64"></div>
+                <div style="--h: 0.58"></div>
+                <div style="--h: 0.71"></div>
+                <div id="b-top" style="--h: 1"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="scene" id="scene-c">
+            <div class="thread">
+              <div class="msg them" id="c1"><em>Maya</em>Can we get the launch cut by noon?</div>
+              <div class="msg me" id="c2">
+                <em>You</em>Rendering now. Filmed-screen look on the product shots.
+              </div>
+              <div class="msg them" id="c3">
+                <em>Maya</em>That looks like a real camera. Ship it.
+              </div>
+            </div>
+          </section>
+        </div>
+      </canvas>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      const numEl = document.getElementById("b-num");
+      // GSAP does not fire callbacks on seek, so the counter is driven by a property setter.
+      const counter = {
+        set value(v) {
+          numEl.firstChild.nodeValue = Math.round(v).toLocaleString("en-US");
+        },
+        get value() {
+          return 0;
+        },
+      };
+      const bars = gsap.utils.toArray(".bars div");
+
+      tl.to("#scene-a", { opacity: 1, duration: 0.5 }, 0)
+        .from(".editor", { y: 30, duration: 1.2, ease: "power2.out" }, 0)
+        .to("#a-type", { width: 470, duration: 1.1, ease: "steps(23)" }, 1.0)
+        .to("#scene-a", { opacity: 0, duration: 0.6, ease: "power1.inOut" }, 3.4)
+
+        .to("#scene-b", { opacity: 1, duration: 0.6, ease: "power1.inOut" }, 3.4)
+        .fromTo(counter, { value: 0 }, { value: 12480, duration: 1.6, ease: "power2.out" }, 3.6)
+        .fromTo(
+          bars,
+          { scaleY: 0 },
+          {
+            scaleY: (i, el) => Number(el.style.getPropertyValue("--h")),
+            duration: 0.9,
+            ease: "power3.out",
+            stagger: 0.08,
+          },
+          4.4,
+        )
+        .to("#scene-b", { opacity: 0, duration: 0.6, ease: "power1.inOut" }, 6.8)
+
+        .to("#scene-c", { opacity: 1, duration: 0.6, ease: "power1.inOut" }, 6.8)
+        .fromTo(
+          "#c1",
+          { opacity: 0, y: 24 },
+          { opacity: 1, y: 0, duration: 0.45, ease: "power2.out" },
+          7.0,
+        )
+        .fromTo(
+          "#c2",
+          { opacity: 0, y: 24 },
+          { opacity: 1, y: 0, duration: 0.45, ease: "power2.out" },
+          7.8,
+        )
+        .fromTo(
+          "#c3",
+          { opacity: 0, y: 24 },
+          { opacity: 1, y: 0, duration: 0.45, ease: "power2.out" },
+          8.6,
+        )
+        .to({}, { duration: 10 }, 0);
+      window.__timelines["filmed-screen-demo"] = tl;
+      tl.seek(0);
+    </script>
+    <!-- filmed-screen.html library, pasted as an author would -->
+    <script>
+      (function () {
+        // Inside a sub-composition `window` is a scoping Proxy that hands back functions bound,
+        // so identity checks on hooks always fail. Engine hooks go on the real global.
+        var G = globalThis;
+        if (G.HFFilmedScreen) return;
+        var FOCAL = 1.7;
+
+        var FRAG = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc;
+uniform vec2 uRes; uniform float uTime; uniform vec2 uAim; uniform float uZoom; uniform vec3 uRot;
+uniform vec2 uFocus; uniform vec4 uFocusRect; uniform float uBlur; uniform vec3 uP[5]; uniform float uTrue;
+uniform float uCut; uniform float uOut; uniform float uSeed; uniform float uInv;
+out vec4 outColor;
+const float FOCAL = 1.7; const float CELL = 3.0;
+const int TAPS = 36; const int GLOW_TAPS = 16;
+const vec3 LUMA = vec3(0.299, 0.587, 0.114);
+float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+vec3 pal(float x) {
+  float t = clamp(x, 0.0, 1.0) * 4.0;
+  if (t < 1.0) return mix(uP[0], uP[1], t);
+  if (t < 2.0) return mix(uP[1], uP[2], t - 1.0);
+  if (t < 3.0) return mix(uP[2], uP[3], t - 2.0);
+  return mix(uP[3], uP[4], t - 3.0);
+}
+vec3 screenAt(vec2 q) {
+  float inside = step(0.0, q.x) * step(0.0, q.y) * step(q.x, uRes.x) * step(q.y, uRes.y);
+  vec3 c = texture(uSrc, q / uRes).rgb;
+  c = mix(c, clamp(c + (1.0 - 2.0 * dot(c, LUMA)), 0.0, 1.0), uInv);
+  return c * inside;
+}
+mat3 rotation() {
+  float cx = cos(uRot.x); float sx = sin(uRot.x); float cy = cos(uRot.y); float sy = sin(uRot.y);
+  float cz = cos(uRot.z); float sz = sin(uRot.z);
+  mat3 rx = mat3(1.0, 0.0, 0.0,  0.0, cx, sx,  0.0, -sx, cx);
+  mat3 ry = mat3(cy, 0.0, -sy,  0.0, 1.0, 0.0,  sy, 0.0, cy);
+  mat3 rz = mat3(cz, sz, 0.0,  -sz, cz, 0.0,  0.0, 0.0, 1.0);
+  return rz * ry * rx;
+}
+float wt(float l) { return 1.0 + 7.0 * l * l * l; }
+void main() {
+  vec2 res = uRes;
+  vec2 coord = vec2(gl_FragCoord.x, res.y - gl_FragCoord.y);
+  vec2 frameSeed = vec2(uSeed, floor(uTime * 30.0));
+  vec2 px = coord;
+  if (uCut > 0.0) {
+    float band = floor(coord.y / 16.0);
+    float n = hash(vec2(band, frameSeed.x * 3.7 + frameSeed.y));
+    px.x += step(0.93 - 0.18 * uCut, n) * (hash(vec2(band, frameSeed.y + 9.0)) - 0.5) * 220.0 * uCut;
+  }
+  vec2 s = (px - 0.5 * res) / res.y;
+  vec3 d = vec3(s.x, s.y, FOCAL);
+  mat3 R = rotation();
+  vec3 eu = R * vec3(1.0, 0.0, 0.0); vec3 ev = R * vec3(0.0, 1.0, 0.0); vec3 nrm = R * vec3(0.0, 0.0, 1.0);
+  vec3 p0 = vec3(0.0, 0.0, 1.0);
+  float dn = dot(d, nrm);
+  if (dn <= 0.0001) { outColor = vec4(vec3(0.0), 1.0); return; }
+  vec3 hit3 = d * (dot(p0, nrm) / dn);
+  vec2 local = vec2(dot(hit3 - p0, eu), dot(hit3 - p0, ev));
+  float K = FOCAL * res.y / uZoom;
+  vec2 base = uAim + local * K;
+  float z = hit3.z;
+  vec2 fl = (uFocus - uAim) / K;
+  float zf = (p0 + eu * fl.x + ev * fl.y).z;
+  // The focused element stays legible: 1 inside its rect, easing to 0 over ~160 source px.
+  vec2 fd = max(abs(base - (uFocusRect.xy + 0.5 * uFocusRect.zw)) - 0.5 * uFocusRect.zw, 0.0);
+  float sharp = 1.0 - smoothstep(0.0, 160.0, length(fd));
+  float coc = clamp(uBlur * 190.0 * abs(1.0 - zf / z), 0.0, 46.0) * (1.0 - sharp);
+  float logPerPx = 1.0 / uZoom * z;
+  float rLog = coc * logPerPx;
+  vec2 ca = (1.0 - sharp) * s * (0.006 + 0.008 * uCut) * (res.y / uZoom);
+  float snapAmt = smoothstep(0.5 * CELL, 2.0 * CELL, rLog);
+  float spin = hash(coord * 0.37 + frameSeed) * 6.2831;
+  vec3 accC = vec3(0.0); float accGl = 0.0; float accRr = 0.0; float accRl = 0.0; float accBb = 0.0; float accBl = 0.0;
+  float wG = 0.0; float wR = 0.0; float wB = 0.0;
+  for (int i = 0; i < TAPS; i++) {
+    float fi = float(i);
+    float a = fi * 2.39996323 + spin;
+    float r = sqrt((fi + 0.5) / float(TAPS)) * rLog;
+    vec2 q = base + vec2(cos(a), sin(a)) * r;
+    // Snap to LED cells only where blur hides it; snapping sharp text turns glyphs to blocks.
+    vec2 qs = mix(q, (floor(q / CELL) + 0.5) * CELL, snapAmt);
+    vec3 c0 = screenAt(qs); vec3 cr = screenAt(qs + ca); vec3 cb = screenAt(qs - ca);
+    float l0 = dot(c0, LUMA); float lr = dot(cr, LUMA); float lb = dot(cb, LUMA);
+    // Each channel weighted by its own sample, or blurred texture picks up a green cast.
+    float w0 = wt(l0); float wr = wt(lr); float wb = wt(lb);
+    accC += c0 * w0; accGl += l0 * w0; wG += w0;
+    accRr += cr.r * wr; accRl += lr * wr; wR += wr;
+    accBb += cb.b * wb; accBl += lb * wb; wB += wb;
+  }
+  accC /= wG; accGl /= wG; accRr /= wR; accRl /= wR; accBb /= wB; accBl /= wB;
+  // uTrue blends graded and true colour, so a glide between shots can cross-fade the grade.
+  vec3 graded = vec3(pal(accRl).r, pal(accGl).g, pal(accBl).b);
+  float red = clamp((accC.r - max(accC.g, accC.b)) * 1.4, 0.0, 1.0);
+  graded = mix(graded, vec3(1.0, 0.13, 0.10), red);
+  vec3 col = mix(graded, vec3(accRr, accC.g, accBb), uTrue);
+  float glowR = 26.0 * logPerPx + rLog * 0.6;
+  float glow = 0.0; vec3 glowC = vec3(0.0);
+  for (int j = 0; j < GLOW_TAPS; j++) {
+    float fj = float(j);
+    float a = fj * 2.39996323 + spin * 0.5;
+    float r = sqrt((fj + 0.5) / float(GLOW_TAPS)) * glowR;
+    vec3 g = screenAt(base + vec2(cos(a), sin(a)) * r);
+    float l = dot(g, LUMA);
+    glow += l * l; glowC += g * l;
+  }
+  glow /= float(GLOW_TAPS); glowC /= float(GLOW_TAPS);
+  vec3 glowTint = mix(pal(min(1.0, glow * 1.6)) * glow, glowC, uTrue);
+  col += glowTint * 0.6 * (1.0 - 0.6 * sharp);
+  vec2 cu = fract(base / CELL) - 0.5;
+  vec3 sub = 0.5 + 0.5 * cos(6.2831853 * (vec3(cu.x + 0.5) - vec3(0.1667, 0.5, 0.8333)));
+  float rowm = 1.0 - smoothstep(0.28, 0.5, abs(cu.y));
+  float colm = 1.0 - smoothstep(0.36, 0.5, abs(cu.x));
+  vec3 led = rowm * colm * (0.4 + 1.0 * sub);
+  float ledAmt = (1.0 - smoothstep(0.8, 3.5, rLog / CELL)) * smoothstep(2.2, 4.5, CELL / logPerPx);
+  col *= mix(vec3(1.0), led * 1.3, ledAmt * 0.9 * (1.0 - 0.7 * sharp));
+  col = col * (1.0 + uCut * 1.1) + uCut * 0.06;
+  vec2 v = s * vec2(0.85, 1.15);
+  col *= 1.0 - 0.42 * dot(v, v);
+  col *= 1.0 - (0.035 - 0.035 * sin(coord.y * 0.9 - uTime * 55.0));
+  col += (hash(coord + frameSeed * 1.31) - 0.5) * 0.06;
+  col *= 1.0 - uOut;
+  outColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+        var VERT = "#version 300 es\nin vec2 a;\nvoid main(){ gl_Position = vec4(a, 0.0, 1.0); }";
+
+        function clamp(x, a, b) {
+          return Math.min(b, Math.max(a, x));
+        }
+        function hex(h) {
+          var n = parseInt(h.slice(1), 16);
+          return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+        }
+
+        // One owner of the engine's seek + composite hooks, fanning out to every lens on the page.
+        var lenses = [];
+        var lastSeekT = 0,
+          seq = 0,
+          resolvedSeq = -1,
+          myPrepare = null,
+          myResolve = null,
+          preparing = false,
+          resolving = false;
+        function live() {
+          lenses = lenses.filter(function (l) {
+            return l.src.isConnected !== false;
+          });
+          return lenses;
+        }
+        // Co-owners of the composite slot (core's data-vfx-chain among them) re-wrap it on every
+        // seek and read their prior when called, so a stale wrapper of ours is re-entered through
+        // them. Each wrapper keeps its own prior, and a re-entered one returns at once, so the
+        // chain stays a constant depth. In the engine's order (vfx arms inside the seek, this hook
+        // after it returns) every owner runs exactly once per frame.
+        function arm() {
+          if (!live().length) return;
+          if (G.__hf_page_composite_prepare !== myPrepare) {
+            var priorPrepare =
+              typeof G.__hf_page_composite_prepare === "function"
+                ? G.__hf_page_composite_prepare
+                : null;
+            myPrepare = async function () {
+              if (preparing) return false;
+              preparing = true;
+              try {
+                var p = priorPrepare ? await priorPrepare() : false;
+                live().forEach(function (l) {
+                  l.prepare();
+                });
+                return p;
+              } finally {
+                preparing = false;
+              }
+            };
+            G.__hf_page_composite_prepare = myPrepare;
+          }
+          if (G.__hf_page_composite_resolve !== myResolve) {
+            var priorResolve =
+              typeof G.__hf_page_composite_resolve === "function"
+                ? G.__hf_page_composite_resolve
+                : null;
+            myResolve = function () {
+              if (resolving) return false;
+              resolving = true;
+              try {
+                var p = priorResolve ? priorResolve() : false;
+                var ok = false;
+                live().forEach(function (l) {
+                  ok = l.draw() || ok;
+                });
+                resolvedSeq = seq;
+                G.__hf_page_composite_pending = false;
+                return ok || p;
+              } finally {
+                resolving = false;
+              }
+            };
+            G.__hf_page_composite_resolve = myResolve;
+          }
+          G.__hf_page_composite_pending = true;
+        }
+        // Preview and snapshot never call the resolver: wait for a paint, then draw.
+        function previewFrame(my) {
+          setTimeout(function () {
+            if (my !== seq || resolvedSeq >= my) return;
+            live().forEach(function (l) {
+              l.prepare();
+              l.afterPaint(function () {
+                if (my === seq && resolvedSeq < my) l.draw();
+              });
+            });
+          }, 0);
+        }
+        function onSeek(t) {
+          lastSeekT = Number(t) || 0;
+          var my = ++seq;
+          arm();
+          previewFrame(my);
+        }
+        // Renders seek through __hf.seek; snapshot and Studio through __player.renderSeek / seek.
+        // __hf.seek is an accessor that wraps whatever is assigned, so a marker on the function
+        // never survives: remember what is hooked instead, or every poll wraps it again.
+        var hooked = {};
+        function hook(obj, key) {
+          if (hooked[obj + "." + key]) return true;
+          var o = G[obj];
+          if (!o || typeof o[key] !== "function") return false;
+          var orig = o[key];
+          o[key] = function () {
+            var r = orig.apply(this, arguments);
+            onSeek(arguments[0]);
+            return r;
+          };
+          hooked[obj + "." + key] = true;
+          return true;
+        }
+        (function poll(n) {
+          var a = hook("__hf", "seek"),
+            b = hook("__player", "renderSeek"),
+            c = hook("__player", "seek");
+          if (!(a && b && c) && n < 500)
+            setTimeout(function () {
+              poll(n + 1);
+            }, 20);
+        })(0);
+
+        var MOUNTED = "data-filmed-screen-mounted";
+        function mount(opts) {
+          // The library initialises once per page, so its own `document` may be another
+          // sub-composition's scope. The snippet passes its caller-scoped query result; the first
+          // canvas not already filmed is this instance's.
+          var c = opts.canvas;
+          var candidates =
+            typeof c === "string"
+              ? Array.from(document.querySelectorAll(c)).concat(
+                  Array.from(G.document.querySelectorAll(c)),
+                )
+              : c && typeof c.getContext !== "function"
+                ? Array.from(c)
+                : [c];
+          var src = candidates.filter(function (el) {
+            return el && !el.hasAttribute(MOUNTED);
+          })[0];
+          if (!src) throw new Error("[filmed-screen] no unmounted canvas matches " + c);
+          src.setAttribute(MOUNTED, "");
+          var comp = src.closest("[data-composition-id]");
+          var compId = comp && comp.getAttribute("data-composition-id");
+          var DUR = Number(comp && comp.getAttribute("data-duration")) || Infinity;
+          var shots = opts.shots;
+          var W = src.width,
+            H = src.height;
+          var screenEl = src.hasAttribute("layoutsubtree") ? src.firstElementChild : null;
+          var srcCtx = screenEl ? src.getContext("2d") : null;
+
+          // No HTML-in-Canvas or no WebGL2: put the scene back in the page and step aside.
+          function stepAside(why) {
+            if (screenEl) {
+              src.parentNode.insertBefore(screenEl, src);
+              src.remove();
+            }
+            console.warn(
+              "[filmed-screen] " + why + " unavailable; rendering the scene without the lens",
+            );
+            return { destroy: function () {} };
+          }
+          if (screenEl && !(srcCtx && srcCtx.drawElementImage)) return stepAside("HTML-in-Canvas");
+
+          // The filmed scene sits under the lens on purpose. The layout audit reads the flag on each
+          // text element, not its ancestors.
+          // ponytail: elements added after mount miss it; the real fix is the audit skipping
+          // canvas[layoutsubtree] descendants, which are never painted.
+          if (screenEl)
+            [screenEl].concat(Array.from(screenEl.querySelectorAll("*"))).forEach(function (el) {
+              el.setAttribute("data-layout-allow-occlusion", "");
+            });
+
+          var out = document.createElement("canvas");
+          out.width = W;
+          out.height = H;
+          out.className = "hf-filmed-screen-out";
+          out.style.cssText =
+            "position:absolute;left:" +
+            src.offsetLeft +
+            "px;top:" +
+            src.offsetTop +
+            "px;width:" +
+            src.offsetWidth +
+            "px;height:" +
+            src.offsetHeight +
+            "px;z-index:" +
+            (opts.zIndex || 10) +
+            ";pointer-events:none";
+          src.parentNode.insertBefore(out, src.nextSibling);
+
+          var gl = out.getContext("webgl2", { preserveDrawingBuffer: true, antialias: false });
+          if (!gl) {
+            out.remove();
+            return stepAside("WebGL2");
+          }
+          function sh(type, s) {
+            var x = gl.createShader(type);
+            gl.shaderSource(x, s);
+            gl.compileShader(x);
+            if (!gl.getShaderParameter(x, gl.COMPILE_STATUS))
+              throw new Error("[filmed-screen] " + gl.getShaderInfoLog(x));
+            return x;
+          }
+          var prog = gl.createProgram();
+          gl.attachShader(prog, sh(gl.VERTEX_SHADER, VERT));
+          gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FRAG));
+          gl.linkProgram(prog);
+          gl.useProgram(prog);
+          gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+          gl.bufferData(
+            gl.ARRAY_BUFFER,
+            new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]),
+            gl.STATIC_DRAW,
+          );
+          var aLoc = gl.getAttribLocation(prog, "a");
+          gl.enableVertexAttribArray(aLoc);
+          gl.vertexAttribPointer(aLoc, 2, gl.FLOAT, false, 0, 0);
+          var loc = {};
+          "uSrc uRes uTime uAim uZoom uRot uFocus uFocusRect uBlur uP uTrue uCut uOut uSeed uInv"
+            .split(" ")
+            .forEach(function (n) {
+              loc[n] = gl.getUniformLocation(prog, n);
+            });
+          var tex = gl.createTexture();
+          gl.bindTexture(gl.TEXTURE_2D, tex);
+          [gl.TEXTURE_MIN_FILTER, gl.TEXTURE_MAG_FILTER].forEach(function (p) {
+            gl.texParameteri(gl.TEXTURE_2D, p, gl.LINEAR);
+          });
+          [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T].forEach(function (p) {
+            gl.texParameteri(gl.TEXTURE_2D, p, gl.CLAMP_TO_EDGE);
+          });
+          gl.viewport(0, 0, W, H);
+
+          // Seconds on this composition's own timeline, so shots work inside sub-compositions.
+          function now() {
+            var tl =
+              compId &&
+              ((window.__timelines && window.__timelines[compId]) ||
+                (G.__timelines && G.__timelines[compId]));
+            return tl && typeof tl.time === "function" ? tl.time() : lastSeekT;
+          }
+          function shotAt(t) {
+            var start = 0;
+            for (var i = 0; i < shots.length; i++) {
+              if (t < shots[i].until || i === shots.length - 1)
+                return { i: i, shot: shots[i], local: t - start, start: start };
+              start = shots[i].until;
+            }
+          }
+          function rectOf(target) {
+            if (!target) return null;
+            if (!(target instanceof Element)) return target;
+            if (
+              target.checkVisibility &&
+              !target.checkVisibility({ opacityProperty: true, visibilityProperty: true })
+            )
+              return null;
+            var r = target.getBoundingClientRect();
+            if (r.width < 2 || r.height < 2) return null;
+            var o = (screenEl || src).getBoundingClientRect();
+            return {
+              x: ((r.left - o.left) * W) / o.width,
+              y: ((r.top - o.top) * H) / o.height,
+              w: (r.width * W) / o.width,
+              h: (r.height * H) / o.height,
+            };
+          }
+          function smoother(x) {
+            x = clamp(x, 0, 1);
+            return x * x * x * (x * (x * 6 - 15) + 10);
+          }
+          function lerp(a, b, k) {
+            return a + (b - a) * k;
+          }
+          function lerpArr(a, b, k) {
+            return a.map(function (v, i) {
+              return lerp(v, b[i], k);
+            });
+          }
+          // One shot's camera at `local` seconds into it. Everything here is a pure function of time.
+          function shotCam(i, local) {
+            var sh = shots[i],
+              start = i > 0 ? shots[i - 1].until : 0,
+              len = Math.max(0.001, sh.until - start);
+            var sway = Math.sin(i * 1.7 + local * 0.9) * 0.012;
+            var tilt = sh.tilt || [0.1, -0.15, 0.02],
+              zoom = sh.zoom || [1.1, 1.3];
+            return {
+              center: sh.center || [W / 2, H / 2],
+              rot: [tilt[0] + sway, tilt[1] - sway * 0.7, tilt[2] + sway * 0.4],
+              zoom: lerp(zoom[0], zoom[1], smoother(local / len)),
+              blur: sh.blur == null ? 0.9 : sh.blur,
+              pal: sh.palette ? [].concat.apply([], sh.palette.map(hex)) : null,
+              trueAmt: sh.palette ? 0 : 1,
+              inv: sh.invert ? 1 : 0,
+            };
+          }
+          // Shots glide into each other by default: camera, grade and colour mode ease over
+          // `glide` seconds. `transition: "cut"` keeps the hard cut and its tear.
+          function camAt(t) {
+            var s = shotAt(t),
+              cam = shotCam(s.i, s.local),
+              sh = s.shot;
+            cam.cut = 0;
+            if (s.i > 0 && sh.transition === "cut") {
+              cam.cut = Math.max(0, 1 - s.local * 15);
+            } else if (s.i > 0) {
+              var glide = sh.glide == null ? 1.2 : sh.glide;
+              if (s.local < glide) {
+                var prevLen = shots[s.i - 1].until - (s.i > 1 ? shots[s.i - 2].until : 0);
+                var p = shotCam(s.i - 1, prevLen + s.local),
+                  k = smoother(s.local / glide);
+                if (!p.pal) p.pal = cam.pal;
+                if (!cam.pal) cam.pal = p.pal;
+                ["zoom", "blur", "trueAmt", "inv"].forEach(function (key) {
+                  cam[key] = lerp(p[key], cam[key], k);
+                });
+                cam.center = lerpArr(p.center, cam.center, k);
+                cam.rot = lerpArr(p.rot, cam.rot, k);
+                if (cam.pal) cam.pal = lerpArr(p.pal, cam.pal, k);
+              }
+            }
+            return { s: s, cam: cam };
+          }
+          function focusRectAt(t, fallback) {
+            var s = shotAt(Math.max(0, t)),
+              sh = s.shot;
+            var picked = sh.focus ? sh.focus(Math.max(0, t), s.local) : null;
+            var rects = []
+              .concat(picked || [])
+              .map(rectOf)
+              .filter(Boolean);
+            var f = rects[rects.length - 1];
+            return f ? [f.x - 8, f.y - 6, f.w + 16, f.h + 12] : fallback;
+          }
+          // Focus racks instead of snapping: over the last `rack` seconds, take the target each shot
+          // named at that moment, measure where it sits in the DOM now, and Hann-average the boxes.
+          // A new target eases in on an S-curve, and with no state kept, any seek order gives the
+          // same frame.
+          var RACK_TAPS = 12;
+          var fs = null,
+            awaitingPaint = false;
+          function prepare() {
+            var t = now(),
+              at = camAt(t),
+              cam = at.cam;
+            var rack = opts.rack == null ? 0.7 : opts.rack;
+            var still = [cam.center[0], cam.center[1], 0, 0];
+            var rect = [0, 0, 0, 0],
+              wsum = 0;
+            for (var i = 0; i < RACK_TAPS; i++) {
+              var w = 0.5 - 0.5 * Math.cos((2 * Math.PI * (i + 0.5)) / RACK_TAPS);
+              var r = focusRectAt(t - (rack * i) / (RACK_TAPS - 1), still);
+              for (var j = 0; j < 4; j++) rect[j] += r[j] * w;
+              wsum += w;
+            }
+            rect = rect.map(function (v) {
+              return v / wsum;
+            });
+            var focus = [rect[0] + rect[2] / 2, rect[1] + rect[3] / 2];
+            fs = {
+              t: t,
+              cam: cam,
+              rect: rect,
+              focus: focus,
+              aim: [focus[0] * 0.65 + cam.center[0] * 0.35, focus[1] * 0.65 + cam.center[1] * 0.35],
+              out:
+                opts.fadeOut === false || !isFinite(DUR) ? 0 : clamp((t - (DUR - 0.4)) / 0.4, 0, 1),
+              seed: at.s.i * 31 + Math.floor(at.s.local * 30),
+            };
+          }
+          function draw() {
+            // A composition that isn't on screen yet (or any more) has no paint record to capture.
+            if (
+              src.checkVisibility &&
+              !src.checkVisibility({ opacityProperty: true, visibilityProperty: true })
+            )
+              return false;
+            if (!fs) prepare();
+            if (screenEl) {
+              try {
+                srcCtx.clearRect(0, 0, W, H);
+                srcCtx.drawElementImage(screenEl, 0, 0);
+              } catch (e) {
+                // Before the scene's first paint there is nothing to capture yet. That is a wait,
+                // not a failure: ask for a paint and draw again when it lands.
+                if (/paint record/i.test(e.message)) {
+                  if (!awaitingPaint) {
+                    awaitingPaint = true;
+                    src.addEventListener(
+                      "paint",
+                      function () {
+                        awaitingPaint = false;
+                        draw();
+                      },
+                      { once: true },
+                    );
+                    try {
+                      if (src.requestPaint) src.requestPaint();
+                    } catch (_) {}
+                  }
+                  return false;
+                }
+                console.error("[filmed-screen] capture failed: " + e.message);
+                return false;
+              }
+            }
+            var cam = fs.cam;
+            gl.bindTexture(gl.TEXTURE_2D, tex);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
+            gl.uniform1i(loc.uSrc, 0);
+            gl.uniform2f(loc.uRes, W, H);
+            gl.uniform1f(loc.uTime, fs.t);
+            gl.uniform2f(loc.uAim, fs.aim[0], fs.aim[1]);
+            gl.uniform1f(loc.uZoom, cam.zoom);
+            gl.uniform3f(loc.uRot, cam.rot[0], cam.rot[1], cam.rot[2]);
+            gl.uniform2f(loc.uFocus, fs.focus[0], fs.focus[1]);
+            gl.uniform4f(loc.uFocusRect, fs.rect[0], fs.rect[1], fs.rect[2], fs.rect[3]);
+            gl.uniform1f(loc.uBlur, cam.blur);
+            gl.uniform3fv(loc.uP, cam.pal || new Array(15).fill(0));
+            gl.uniform1f(loc.uTrue, cam.trueAmt);
+            gl.uniform1f(loc.uCut, cam.cut);
+            gl.uniform1f(loc.uOut, fs.out);
+            gl.uniform1f(loc.uSeed, fs.seed);
+            gl.uniform1f(loc.uInv, cam.inv);
+            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+            fs = null;
+            return true;
+          }
+          function afterPaint(go) {
+            if (!screenEl) return go();
+            var done = false;
+            function once() {
+              if (!done) {
+                done = true;
+                go();
+              }
+            }
+            src.addEventListener("paint", once, { once: true });
+            try {
+              if (src.requestPaint) src.requestPaint();
+            } catch (e) {}
+            setTimeout(once, 250);
+          }
+          var lens = { src: src, prepare: prepare, draw: draw, afterPaint: afterPaint };
+          lenses.push(lens);
+          // A lens whose canvas leaves the page is dropped on the next frame; destroy() also frees
+          // its GL context. The seek hooks stay: they are shared by every lens on the page.
+          return {
+            destroy: function () {
+              lenses = lenses.filter(function (l) {
+                return l !== lens;
+              });
+              var lose = gl.getExtension("WEBGL_lose_context");
+              if (lose) lose.loseContext();
+              out.remove();
+              src.removeAttribute(MOUNTED);
+            },
+          };
+        }
+
+        G.HFFilmedScreen = { mount: mount };
+      })();
+    </script>
+    <script>
+      HFFilmedScreen.mount({
+        canvas: document.querySelectorAll(".hf-filmed-screen"),
+        rack: 0.8,
+        shots: [
+          {
+            until: 3.6,
+            palette: ["#07050a", "#2a1405", "#8a4a10", "#ffb340", "#fff1d6"],
+            tilt: [0.13, -0.2, 0.025],
+            zoom: [1.05, 1.3],
+            blur: 0.95,
+            center: [900, 520],
+            focus: () => document.getElementById("a-hl"),
+          },
+          {
+            until: 6.9,
+            palette: null,
+            tilt: [-0.1, 0.2, -0.025],
+            zoom: [1.05, 1.18],
+            blur: 0.9,
+            center: [960, 540],
+            focus: (t, local) => document.getElementById(local < 1.7 ? "b-num" : "b-bars"),
+          },
+          {
+            until: 10,
+            palette: ["#02040a", "#06183a", "#1f5fa8", "#7fd6ff", "#effaff"],
+            tilt: [0.08, 0.24, 0.02],
+            zoom: [1.3, 1.15],
+            blur: 1.0,
+            center: [960, 520],
+            focus: (t) => document.getElementById(t < 7.8 ? "c1" : t < 8.6 ? "c2" : "c3"),
+          },
+        ],
+      });
+    </script>
+  </body>
+</html>
