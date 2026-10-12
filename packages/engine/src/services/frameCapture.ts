@@ -1415,12 +1415,9 @@ async function constructCaptureSession(
 
   const page = await browser.newPage();
   onPageCreated(page);
-  // Keep network diagnostics without retaining Chrome's default 200 MB of
-  // response bodies. Use Puppeteer's existing session; each CDP session has
-  // its own inspector buffer. This applies only to pages owned by capture.
+  // Cap the existing session's inspection buffer; new sessions have separate buffers.
   const frame = page.mainFrame();
-  // Puppeteer exposes this getter at runtime but omits it from public Frame
-  // types. Keep capture working if a future version removes that access.
+  // Frame.client is runtime-only, so keep capture working when it is absent.
   if ("client" in frame && frame.client instanceof CDPSession) {
     await frame.client.send("Network.enable", {
       maxTotalBufferSize: 32 * 1024 * 1024,
