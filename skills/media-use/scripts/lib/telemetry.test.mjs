@@ -1,16 +1,24 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { optedOut } from "./telemetry.mjs";
 
-// optedOut() also reads env vars; pin them to a neutral state for the whole
-// file and restore everything (env + shared config) afterwards.
-const ENV_KEYS = ["HYPERFRAMES_NO_TELEMETRY", "DO_NOT_TRACK", "CI", "NODE_ENV"];
+// optedOut() reads ~/.hyperframes/config.json and env vars. Point HOME at a temp
+// dir so the run never touches the real config, and pin the env opt-outs to a
+// neutral state; restore both afterwards.
+const ENV_KEYS = [
+  "HOME",
+  "USERPROFILE",
+  "HYPERFRAMES_NO_TELEMETRY",
+  "DO_NOT_TRACK",
+  "CI",
+  "NODE_ENV",
+];
 const savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
-const configPath = join(homedir(), ".hyperframes", "config.json");
-const savedConfig = existsSync(configPath) ? readFileSync(configPath, "utf8") : null;
+const home = mkdtempSync(join(tmpdir(), "mu-telemetry-"));
+const configPath = join(home, ".hyperframes", "config.json");
 
 function writeConfig(contents) {
   if (contents === null) {
@@ -23,6 +31,7 @@ function writeConfig(contents) {
 
 test.before(() => {
   for (const key of ENV_KEYS) delete process.env[key];
+  process.env.HOME = process.env.USERPROFILE = home;
 });
 
 test.after(() => {
@@ -30,7 +39,7 @@ test.after(() => {
     if (savedEnv[key] === undefined) delete process.env[key];
     else process.env[key] = savedEnv[key];
   }
-  writeConfig(savedConfig);
+  rmSync(home, { recursive: true, force: true });
 });
 
 test("optedOut is false with no config and no opt-out env", () => {
