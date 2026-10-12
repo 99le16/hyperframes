@@ -30,6 +30,7 @@
     "src/tests",
     "src/runtime",
     "**/*.test.ts",
+    "**/*.test-helpers.ts",
     "src/parsers/test-utils.ts"
   ]
 }
