@@ -119,22 +119,32 @@ describe.skipIf(!hasBrowser)("video frame transport in Chrome", () => {
     expect((await pixels())[0]?.rgba).toEqual([255, 0, 0, 255]);
   }, 5000);
 
-  it("preserves PNG alpha and permits GPU texture uploads", async () => {
-    const translucent = await frameDataUri("rgba(255,0,0,0.5)");
-    await injectVideoFramesBatch(page, [{ videoId: "a", dataUri: translucent }]);
-    expect((await pixels())[0]?.rgba).toEqual([255, 0, 0, 128]);
-    expect(
-      await page.evaluate(() => {
-        const canvas = document.createElement("canvas");
-        const gl = canvas.getContext("webgl");
-        const img = document.querySelector("img");
-        if (!gl || !img) throw new Error("No GPU texture source");
-        gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
-        return gl.getError();
-      }),
-    ).toBe(0);
-  });
+  it.each(["HTTP", "about:blank"])(
+    "preserves PNG alpha and GPU uploads from %s",
+    async (source) => {
+      if (source === "about:blank") {
+        const content = await page.content();
+        await page.close();
+        page = await browser.newPage();
+        await page.setContent(content);
+        expect(page.url()).toBe("about:blank");
+      }
+      const translucent = await frameDataUri("rgba(255,0,0,0.5)");
+      await injectVideoFramesBatch(page, [{ videoId: "a", dataUri: translucent }]);
+      expect((await pixels())[0]?.rgba).toEqual([255, 0, 0, 128]);
+      expect(
+        await page.evaluate(() => {
+          const canvas = document.createElement("canvas");
+          const gl = canvas.getContext("webgl");
+          const img = document.querySelector("img");
+          if (!gl || !img) throw new Error("No GPU texture source");
+          gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+          return gl.getError();
+        }),
+      ).toBe(0);
+    },
+  );
 
   it("releases failed frames and preserves the video-specific decode error", async () => {
     await expect(
