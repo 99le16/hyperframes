@@ -11,5 +11,9 @@
       "target": "compositions/components/mk-usage-arc.html",
       "type": "hyperframes:snippet"
     }
-  ]
+  ],
+  "preview": {
+    "video": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/components/mk-usage-arc.mp4",
+    "poster": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/components/mk-usage-arc.png"
+  }
 }

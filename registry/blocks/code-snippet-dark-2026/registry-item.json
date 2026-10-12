@@ -21,5 +21,9 @@
       "target": "assets/background.jpeg",
       "type": "hyperframes:asset"
     }
-  ]
+  ],
+  "preview": {
+    "video": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/code-snippet-dark-2026.mp4",
+    "poster": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/code-snippet-dark-2026.png"
+  }
 }

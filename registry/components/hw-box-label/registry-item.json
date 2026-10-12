@@ -46,5 +46,9 @@
       "default": "calm",
       "drives": "boil amp/rot as authored pairs over the family-locked frameDrop 3; seed locked"
     }
-  ]
+  ],
+  "preview": {
+    "video": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/components/hw-box-label.mp4",
+    "poster": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/components/hw-box-label.png"
+  }
 }

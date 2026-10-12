@@ -16,5 +16,9 @@
       "target": "compositions/lt-bold-block.html",
       "type": "hyperframes:composition"
     }
-  ]
+  ],
+  "preview": {
+    "video": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/lt-bold-block.mp4",
+    "poster": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/lt-bold-block.png"
+  }
 }

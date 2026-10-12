@@ -16,5 +16,9 @@
       "target": "assets/fonts/Caveat-700-latin.woff2",
       "type": "hyperframes:asset"
     }
-  ]
+  ],
+  "preview": {
+    "video": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/components/hw-underline.mp4",
+    "poster": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/components/hw-underline.png"
+  }
 }

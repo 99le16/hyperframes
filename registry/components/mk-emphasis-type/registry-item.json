@@ -11,5 +11,9 @@
       "target": "compositions/components/mk-emphasis-type.html",
       "type": "hyperframes:snippet"
     }
-  ]
+  ],
+  "preview": {
+    "video": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/components/mk-emphasis-type.mp4",
+    "poster": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/components/mk-emphasis-type.png"
+  }
 }

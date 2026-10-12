@@ -201,5 +201,19 @@ Include:
 - when to use it, its useful duration range, and any known pitfalls.
 
 External contributors should attach the preview MP4. A maintainer will publish
-the final Catalog media. HeyGen contributors can use
-`scripts/upload-docs-images.sh` after preview review.
+the final Catalog media. HeyGen contributors with CDN access publish every item
+that still lacks a poster or video, then record the live URLs in the manifests.
+Start from an empty `docs/images/catalog/`: the upload publishes every file in
+it, so a stale local render would replace a published one.
+
+```bash
+npx tsx scripts/generate-catalog-previews.ts --missing
+bash scripts/upload-docs-images.sh
+npx tsx scripts/backfill-block-previews.ts
+```
+
+The poster is taken 3 seconds in (or at 60% of a shorter composition). A
+`demo.html` whose words or shapes are mid-transition at that moment names a
+better frame with `data-poster-time="<seconds>"` on its root composition. An
+item whose poster is already published keeps it until it is re-rendered with
+`--only <name>` and uploaded again.

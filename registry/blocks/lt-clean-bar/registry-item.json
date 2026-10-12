@@ -16,5 +16,9 @@
       "target": "compositions/lt-clean-bar.html",
       "type": "hyperframes:composition"
     }
-  ]
+  ],
+  "preview": {
+    "video": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/lt-clean-bar.mp4",
+    "poster": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/lt-clean-bar.png"
+  }
 }

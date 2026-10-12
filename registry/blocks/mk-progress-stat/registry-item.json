@@ -16,5 +16,9 @@
       "target": "compositions/mk-progress-stat.html",
       "type": "hyperframes:composition"
     }
-  ]
+  ],
+  "preview": {
+    "video": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/mk-progress-stat.mp4",
+    "poster": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/mk-progress-stat.png"
+  }
 }

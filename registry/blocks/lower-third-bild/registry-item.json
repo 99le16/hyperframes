@@ -38,5 +38,9 @@
       "target": "compositions/assets/fonts/BarlowCondensed-ExtraBold.woff2",
       "type": "hyperframes:asset"
     }
-  ]
+  ],
+  "preview": {
+    "video": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/lower-third-bild.mp4",
+    "poster": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/lower-third-bild.png"
+  }
 }

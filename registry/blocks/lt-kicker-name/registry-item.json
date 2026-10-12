@@ -13,5 +13,9 @@
       "target": "compositions/lt-kicker-name.html",
       "type": "hyperframes:composition"
     }
-  ]
+  ],
+  "preview": {
+    "video": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/lt-kicker-name.mp4",
+    "poster": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/lt-kicker-name.png"
+  }
 }

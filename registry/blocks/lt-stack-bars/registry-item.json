@@ -13,5 +13,9 @@
       "target": "compositions/lt-stack-bars.html",
       "type": "hyperframes:composition"
     }
-  ]
+  ],
+  "preview": {
+    "video": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/lt-stack-bars.mp4",
+    "poster": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/lt-stack-bars.png"
+  }
 }

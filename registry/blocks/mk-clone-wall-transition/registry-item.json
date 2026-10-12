@@ -16,5 +16,9 @@
       "target": "compositions/mk-clone-wall-transition.html",
       "type": "hyperframes:composition"
     }
-  ]
+  ],
+  "preview": {
+    "video": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/mk-clone-wall-transition.mp4",
+    "poster": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/mk-clone-wall-transition.png"
+  }
 }

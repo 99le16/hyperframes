@@ -32,5 +32,9 @@
       "default": "plain",
       "drives": "stroke texture of the drawn path (soft = slight blur; sharp = micro-dash dry marker; spray = seeded deterministic dot scatter) — textured types draw on via a mask clone so the texture itself never animates"
     }
-  ]
+  ],
+  "preview": {
+    "video": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/components/hw-boil.mp4",
+    "poster": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/components/hw-boil.png"
+  }
 }

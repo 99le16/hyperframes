@@ -11,5 +11,9 @@
       "target": "compositions/components/yt-circle-pointer.html",
       "type": "hyperframes:snippet"
     }
-  ]
+  ],
+  "preview": {
+    "video": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/components/yt-circle-pointer.mp4",
+    "poster": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/components/yt-circle-pointer.png"
+  }
 }

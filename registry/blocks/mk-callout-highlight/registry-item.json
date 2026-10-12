@@ -16,5 +16,9 @@
       "target": "compositions/mk-callout-highlight.html",
       "type": "hyperframes:composition"
     }
-  ]
+  ],
+  "preview": {
+    "video": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/mk-callout-highlight.mp4",
+    "poster": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/mk-callout-highlight.png"
+  }
 }

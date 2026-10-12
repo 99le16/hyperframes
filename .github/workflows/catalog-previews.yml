@@ -20,6 +20,7 @@ on:
       # exercises it.
       - "scripts/registry-target-paths.mjs"
       - "scripts/catalog-preview-temp.ts"
+      - "scripts/catalog-preview-media.ts"
       - ".github/workflows/catalog-previews.yml"
 
 concurrency:
@@ -92,7 +93,7 @@ jobs:
           # silent — the wrong-shaped block renders blank, not red.
           RENDERER_CHANGED=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA"...HEAD \
             -- scripts/generate-catalog-previews.ts scripts/registry-target-paths.mjs \
-               scripts/catalog-preview-temp.ts)
+               scripts/catalog-preview-temp.ts scripts/catalog-preview-media.ts)
           if [ -n "$RENDERER_CHANGED" ]; then
             CHANGED_ITEMS=$(printf '%s\n' $CHANGED_ITEMS \
               code-snippet-dark-modern code-snippet-apple-terminal-pro | sort -u)

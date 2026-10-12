@@ -16,5 +16,9 @@
       "target": "compositions/mk-placeholder-grid.html",
       "type": "hyperframes:composition"
     }
-  ]
+  ],
+  "preview": {
+    "video": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/mk-placeholder-grid.mp4",
+    "poster": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/mk-placeholder-grid.png"
+  }
 }

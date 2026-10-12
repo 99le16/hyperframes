@@ -13,5 +13,9 @@
       "target": "compositions/lt-soft-pill.html",
       "type": "hyperframes:composition"
     }
-  ]
+  ],
+  "preview": {
+    "video": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/lt-soft-pill.mp4",
+    "poster": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/lt-soft-pill.png"
+  }
 }

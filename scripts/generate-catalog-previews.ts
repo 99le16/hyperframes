@@ -17,6 +17,7 @@
  *   npx tsx scripts/generate-catalog-previews.ts --only data-chart    # single item
  *   npx tsx scripts/generate-catalog-previews.ts --type block         # blocks only
  *   npx tsx scripts/generate-catalog-previews.ts --skip-video         # thumbnails only
+ *   npx tsx scripts/generate-catalog-previews.ts --missing            # only items with no published poster or video
  */
 
 import {
@@ -49,6 +50,15 @@ import { withHostedRefs } from "./catalog-script-inlining.ts";
 import type { RegistryItem } from "../packages/core/src/index.js";
 import { openOpaqueCapture } from "./preview-capture.js";
 import { MISSING_ADAPTER } from "./verify-catalog-payloads.js";
+import {
+  declaredPreview,
+  liveUrls,
+  posterTime,
+  previewUrls,
+  unpublishedFields,
+  type PreviewField,
+  type PreviewKind,
+} from "./catalog-preview-media.ts";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
@@ -63,7 +73,7 @@ if (!process.env.PRODUCER_HYPERFRAME_MANIFEST_PATH) {
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-export type ItemKind = "block" | "component";
+export type ItemKind = PreviewKind;
 
 export interface CatalogItem {
   name: string;
@@ -449,8 +459,8 @@ async function generateThumbnail(item: CatalogItem, projectDir: string): Promise
   const framesDir = join(projectDir, "_thumb_frames");
   const { fileServer, session, duration } = await openOpaqueCapture({ projectDir, width, height });
   try {
-    // Capture after the treatment appears, capped for long compositions.
-    const captureTime = Math.min(3.0, duration * 0.6);
+    const entryHtml = readFileSync(join(item.sourceDir, item.entryFile), "utf-8");
+    const captureTime = posterTime(entryHtml, duration);
     const result = await captureFrame(session, 0, captureTime);
     execFileSync(
       "ffmpeg",
@@ -536,6 +546,7 @@ interface CliArgs {
   only: string | null;
   type: ItemKind | null;
   skipVideo: boolean;
+  missing: boolean;
 }
 
 function parseKind(value: string): ItemKind {
@@ -562,6 +573,7 @@ const valueFlags = new Map<string | undefined, FlagSetter>([
 /** Apply the flag at the head of argv and return how many tokens it used. */
 function applyFlag(args: CliArgs, flag: string | undefined, next: string | undefined): number {
   if (flag === "--skip-video") args.skipVideo = true;
+  if (flag === "--missing") args.missing = true;
   const setValue = valueFlags.get(flag);
   if (!setValue || !next) return 1;
   setValue(args, next);
@@ -569,7 +581,7 @@ function applyFlag(args: CliArgs, flag: string | undefined, next: string | undef
 }
 
 function parseArgs(): CliArgs {
-  const args: CliArgs = { only: null, type: null, skipVideo: false };
+  const args: CliArgs = { only: null, type: null, skipVideo: false, missing: false };
   for (let i = 2; i < process.argv.length; ) {
     i += applyFlag(args, process.argv[i], process.argv[i + 1]);
   }
@@ -592,12 +604,15 @@ function reportItemFailure(item: CatalogItem, err: unknown): void {
   );
 }
 
-async function generateItem(item: CatalogItem, skipVideo: boolean): Promise<void> {
+/** What one item's run renders. */
+type Job = { item: CatalogItem; fields: PreviewField[] };
+
+async function generateItem({ item, fields }: Job): Promise<void> {
   console.log(`[${item.kind}] ${item.name}`);
   const projectDir = await prepareProjectDir(item);
   try {
-    await generateThumbnail(item, projectDir);
-    if (!skipVideo) await generateVideo(item, projectDir);
+    if (fields.includes("poster")) await generateThumbnail(item, projectDir);
+    if (fields.includes("video")) await generateVideo(item, projectDir);
   } catch (err) {
     reportItemFailure(item, err);
   } finally {
@@ -605,15 +620,42 @@ async function generateItem(item: CatalogItem, skipVideo: boolean): Promise<void
   }
 }
 
+function manifestPreviewOf(item: CatalogItem) {
+  const manifest = JSON.parse(readFileSync(join(item.sourceDir, "registry-item.json"), "utf-8"));
+  return declaredPreview(manifest.preview);
+}
+
+/**
+ * Only the fields with no file at the URL the item declares or at the catalog
+ * CDN path: a published video is never rendered over to fill a missing poster.
+ */
+async function unpublishedJobs(items: CatalogItem[]): Promise<Job[]> {
+  const checked = items.map((item) => ({ item, declared: manifestPreviewOf(item) }));
+  const live = await liveUrls(
+    checked.flatMap(({ item, declared }) => previewUrls(item.kind, item.name, declared)),
+  );
+  const isLive = (url: string) => live.has(url);
+  return checked.map(({ item, declared }) => ({
+    item,
+    fields: unpublishedFields(item.kind, item.name, declared, isLive),
+  }));
+}
+
 async function main(): Promise<void> {
-  const { only, type, skipVideo } = parseArgs();
-  const items = discoverItems(type, only);
+  const { only, type, skipVideo, missing } = parseArgs();
+  const discovered = discoverItems(type, only);
+  const planned = missing
+    ? await unpublishedJobs(discovered)
+    : discovered.map((item): Job => ({ item, fields: ["poster", "video"] }));
+  const jobs = planned
+    .map((job) => ({ ...job, fields: job.fields.filter((f) => !(skipVideo && f === "video")) }))
+    .filter((job) => job.fields.length > 0);
 
   console.log(
-    `Generating catalog previews for ${items.length} item(s)${skipVideo ? " (thumbnails only)" : " + videos"}...\n`,
+    `Generating catalog previews for ${jobs.length} item(s)${skipVideo ? " (thumbnails only)" : " + videos"}...\n`,
   );
 
-  for (const item of items) await generateItem(item, skipVideo);
+  for (const job of jobs) await generateItem(job);
 
   console.log("\nDone.");
 }

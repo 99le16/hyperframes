@@ -16,5 +16,9 @@
       "target": "compositions/yt-vertical-fill.html",
       "type": "hyperframes:composition"
     }
-  ]
+  ],
+  "preview": {
+    "video": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/yt-vertical-fill.mp4",
+    "poster": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/yt-vertical-fill.png"
+  }
 }

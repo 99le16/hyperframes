@@ -75,5 +75,9 @@
         { "value": "transparent", "label": "Transparent" }
       ]
     }
-  ]
+  ],
+  "preview": {
+    "video": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/components/text-match-cut.mp4",
+    "poster": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/components/text-match-cut.png"
+  }
 }

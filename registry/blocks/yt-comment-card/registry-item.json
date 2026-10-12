@@ -16,5 +16,9 @@
       "target": "compositions/yt-comment-card.html",
       "type": "hyperframes:composition"
     }
-  ]
+  ],
+  "preview": {
+    "video": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/yt-comment-card.mp4",
+    "poster": "https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/yt-comment-card.png"
+  }
 }
