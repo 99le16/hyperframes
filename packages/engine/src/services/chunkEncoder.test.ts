@@ -1880,6 +1880,7 @@ describe.skipIf(!HAS_FFMPEG)("buildEncoderArgs SDR colour", () => {
         "frame=color_range,color_space,color_primaries,color_transfer",
         "-of",
         "csv=p=0",
+        "--",
         out,
       ]);
       expect(tags.stdout.toString().trim()).toBe("tv,bt709,bt709,bt709");
