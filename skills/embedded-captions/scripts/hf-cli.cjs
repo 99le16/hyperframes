@@ -25,6 +25,8 @@ function hfCli(checkout) {
     const cli = path.join(dir, "packages/cli/dist/cli.js");
     if (fs.existsSync(cli)) return cli;
   }
+  const standalone = path.join(__dirname, "standalone-cli.cjs");
+  if (fs.existsSync(standalone)) return standalone;
   throw new Error(
     "HyperFrames CLI unavailable: install the full plugin or set HYPERFRAMES_ROOT to a built checkout.",
   );
