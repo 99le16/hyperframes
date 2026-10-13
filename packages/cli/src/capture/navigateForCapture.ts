@@ -72,18 +72,7 @@ export interface PageReadyPage {
 }
 
 export interface WaitForPageReadyOptions {
-  /**
-   * Wall-clock ceiling shared by the idle waits and the readyState poll —
-   * each wait gets only the time still left. Pass the remaining capture
-   * budget (min'd with 15_000) so the settle cannot outrun the stage.
-   */
   timeoutMs?: number;
-  /**
-   * "always" pays one bounded idle wait up front — the post-click settle,
-   * where a navigation or consent XHR is expected. "after-load" skips that
-   * wait and idles only when the poll actually saw a loading document — a
-   * cheap guard for stages that already settled the page.
-   */
   networkIdle?: "always" | "after-load";
 }
 
@@ -96,18 +85,11 @@ export async function waitForPageReady(
   const remaining = () => Math.max(0, deadline - Date.now());
   const idle = () =>
     page
-      // concurrency: 2 matches the networkidle2 semantic navigation already
-      // uses, so one held-open request (long-poll, beacon) cannot block it.
       .waitForNetworkIdle({ idleTime: 500, timeout: remaining(), concurrency: 2 })
       .catch(() => {});
 
   if (networkIdle === "always" && remaining() > 0) await idle();
 
-  // Poll the document out of a still-loading or mid-navigation state. The
-  // bound is wall clock, not iteration count: each evaluate races the
-  // remaining deadline, so a hung execution-context wait (~30s, or the
-  // protocol timeout) cannot stretch the settle. Degradable protocol/stage
-  // timeouts rethrow so the stage can degrade like the rest of capture.
   let waitedOutLoad = false;
   while (remaining() > 0) {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -131,7 +113,5 @@ export async function waitForPageReady(
     }
   }
 
-  // A document we had to wait out keeps fetching once parsed — settle those
-  // requests too, inside the same deadline.
   if (waitedOutLoad && remaining() > 0) await idle();
 }
