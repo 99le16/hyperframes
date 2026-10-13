@@ -20,8 +20,7 @@ const RENDER_MIME: Record<string, string> = {
   ".webm": "video/webm",
   ".mov": "video/quicktime",
 };
-// x264/x265 CRF runs 0-51; VP9's runs 0-63.
-const CRF_MAX: Record<string, number> = { mp4: 51, webm: 63 };
+const CRF_MAX_BY_FORMAT: Record<string, number> = { mp4: 51, webm: 63 };
 const RENDER_EXTENSIONS = Object.keys(RENDER_MIME);
 const RENDER_ARTIFACT_EXTENSIONS = [...RENDER_EXTENSIONS, ".meta.json"];
 
@@ -109,7 +108,6 @@ export function registerRenderRoutes(api: Hono, adapter: StudioApiAdapter): void
       // window.__hfVariables — same channel as `hyperframes render --variables`.
       variables?: Record<string, unknown>;
       gpu?: boolean;
-      // Encoder CRF override, same as `hyperframes render --crf`. Lower keeps more detail.
       crf?: unknown;
     };
     const VALID_FORMATS = new Set(["mp4", "webm", "mov"]);
@@ -150,10 +148,9 @@ export function registerRenderRoutes(api: Hono, adapter: StudioApiAdapter): void
       variables = body.variables;
     }
 
-    // Like variables, a CRF the user typed must not be silently dropped. MOV (ProRes) has no CRF.
     let crf: number | undefined;
     if (body.crf !== undefined && body.crf !== null && format !== "mov") {
-      const max = CRF_MAX[format] ?? 51;
+      const max = CRF_MAX_BY_FORMAT[format] ?? 51;
       if (!Number.isInteger(body.crf) || (body.crf as number) < 0 || (body.crf as number) > max) {
         return c.json({ error: `crf must be an integer from 0 to ${max} for ${format}` }, 400);
       }
