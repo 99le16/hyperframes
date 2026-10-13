@@ -23,7 +23,6 @@ import {
   getCapturePerfSummary,
   initializeSession,
   prepareCaptureSessionForReuse,
-  resolveHeadlessShellPath,
   shouldDisableBrowserPoolForParallelWorker,
   spawnStreamingEncoder,
   type BeforeCaptureHook,
@@ -327,9 +326,6 @@ async function openSegmentedSession(input: CaptureSegmentedStageInput): Promise<
   const captureOptions = input.buildCaptureOptions();
   const ownBrowser = shouldDisableBrowserPoolForParallelWorker({
     parallel: (input.workerCount ?? 1) > 1,
-    platform: process.platform,
-    deviceScaleFactor: captureOptions.deviceScaleFactor,
-    headlessShellPath: resolveHeadlessShellPath(captureCfg),
   });
   return createCaptureSession(
     input.fileServer.url,
