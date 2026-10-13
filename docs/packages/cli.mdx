@@ -853,6 +853,8 @@ npx hyperframes snapshot my-project --at 1.5,4.3 --against ref.mp4
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `--at`                  | Timestamps in seconds, comma-separated (`3.0,10.5,18.0`)                                                                                                           |
 | `--frames`              | Evenly spaced frames instead (default 5)                                                                                                                            |
+| `--range <start,end>`   | Spread `--frames` across this interval only, in root-timeline seconds, with no end-of-timeline frame added                                                          |
+| `--composition <id>`    | Spread `--frames` across the visible interval of the element with this `data-composition-id`. Use one of `--at`, `--range` or `--composition`.                      |
 | `--output, -o`          | Where the PNGs go (default `<project>/snapshots`)                                                                                                                   |
 | `--end` / `--no-end`    | Always add a readable end-of-timeline frame (default: on). `--no-end` captures only your `--at` times.                                                              |
 | `--zoom`                | Crop to a CSS selector or an exact `x,y,w,h` region, using a raised device scale factor. Layout is untouched — never CSS zoom or a resized viewport. A selector that matches nothing is an error. |
