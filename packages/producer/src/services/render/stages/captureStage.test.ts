@@ -80,7 +80,9 @@ describe("disk capture capacity", () => {
     expect(estimateDiskCaptureBytes(10, captureOptions)).toBe(100_000);
   });
 
-  it("allows for the larger frames of quality-100 jpeg", () => {
+  it("allows for the larger frames of jpeg above draft quality", () => {
+    expect(estimateDiskCaptureBytes(10, { ...captureOptions, quality: 80 })).toBe(100_000);
+    expect(estimateDiskCaptureBytes(10, { ...captureOptions, quality: 95 })).toBe(200_000);
     expect(estimateDiskCaptureBytes(10, { ...captureOptions, quality: 100 })).toBe(200_000);
   });
 
