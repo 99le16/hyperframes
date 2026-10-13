@@ -1333,13 +1333,9 @@ describe("processCompositionAudio", () => {
   }, 30_000);
 
   it("renumbers timestamps between apad and atrim on the mixed output", async () => {
-    // Regression: `apad` then `atrim` is the portable pad-to-length shape --
     // #2769 moved off `apad=whole_dur=` because some builds reject that option.
-    // But on FFmpeg 5.x-8.0.x the padded samples carry timestamps `atrim`
-    // misreads, so a delayed branch sounds at t=0 and, past three branches, the
-    // last one vanishes from the mix. `asetpts=N/SR/TB` between the two rebuilds
-    // the timestamps from the sample count and costs no portability, since all
-    // three filters exist in every build we support.
+    // Keep the portable apad/asetpts/atrim shape on the mixed output so the
+    // final stream has the requested duration and consistent timestamps.
     const baseDir = mkdtempSync(join(tmpdir(), "hf-audio-base-"));
     const workDir = mkdtempSync(join(tmpdir(), "hf-audio-work-"));
     tempDirs.push(baseDir, workDir);
