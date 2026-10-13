@@ -59,10 +59,12 @@ export const QUARANTINED = {};
 
 /**
  * Every run of every case: each shard's run plus the re-runs of the cases it flipped. `scope`, for a run of
- * part of the grid, limits the base branch's passing count to the cases that ran.
+ * part of the grid, limits the base branch's passing count to the cases that ran. A case removed from the grid
+ * on purpose leaves the head's baseline.json in the same change: it is listed as retired and no longer counted.
  */
 // fallow-ignore-next-line complexity
 export function gate(base, head, runs, quarantine = QUARANTINED, scope = null) {
+  const counted = (id) => Object.hasOwn(head.cases, id) && (!scope || scope.has(id));
   const seen = new Map();
   for (const r of runs) seen.set(r.id, [...(seen.get(r.id) ?? []), entry(r)]);
   const all = [...seen].map(([id, entries]) => {
@@ -81,7 +83,7 @@ export function gate(base, head, runs, quarantine = QUARANTINED, scope = null) {
       return { id, fixer, passed: c?.passed ?? null, runs: c?.entries.map(accurate) ?? [] };
     }),
     basePassing: Object.entries(base.cases).filter(
-      ([id, e]) => !Object.hasOwn(quarantine, id) && (!scope || scope.has(id)) && accurate(e),
+      ([id, e]) => !Object.hasOwn(quarantine, id) && counted(id) && accurate(e),
     ).length,
     headPassing: passing.length,
     headSmooth: passing.filter((c) => mostlySmooth(c.entries)).length,
@@ -92,7 +94,8 @@ export function gate(base, head, runs, quarantine = QUARANTINED, scope = null) {
     newlyPassing: passing.filter((c) => !c.basePassed).map((c) => c.id),
     unbanked: passing.filter((c) => !accurate(head.cases[c.id])).map((c) => c.id),
     overclaimed: cases.filter((c) => !c.passed && accurate(head.cases[c.id])).map((c) => c.id),
-    missing: Object.keys(base.cases).filter((id) => (!scope || scope.has(id)) && !seen.has(id)),
+    missing: Object.keys(base.cases).filter((id) => counted(id) && !seen.has(id)),
+    retired: Object.keys(base.cases).filter((id) => !Object.hasOwn(head.cases, id)),
   };
   const reasons = [
     result.regressed.length &&
@@ -131,6 +134,7 @@ export function comment(g) {
     ),
     ...list("Marked passing in baseline.json but failing", g.overclaimed),
     ...list("In the base grid but not run", g.missing),
+    ...list("Retired: removed from baseline.json with the grid, not counted", g.retired),
     `**Quarantined, measured but not gated** (${g.quarantined.length})`,
     ...g.quarantined.map(
       (q) =>

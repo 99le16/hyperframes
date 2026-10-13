@@ -27,13 +27,16 @@ export function localAsset(url) {
 
 // Studio has corner handles only (ResizeHandle is nw|ne|sw|se); its edge strips crop, so there is no edge resize.
 const GESTURES = ["move", "resize", "rotate", "crop", "nudge"];
+// Trimmed from 2061 cases: across 444 historical result snapshots, zoom 200, the pct and center placements and nested keyframed
+// cases never failed where a kept case with the same gesture, GSAP mode and playhead did not. Drag paths and
+// sequences still cover pct, center and zoom 200.
 const AXES = {
   // idle: GSAP loaded and a paused timeline tweens another element; the target itself is plain CSS.
   gsap: ["none", "idle", "tween", "hold"],
-  placement: ["px", "pct", "center", "xpercent"],
+  placement: ["px", "xpercent"],
   rotation: [0, 30],
   nesting: ["root", "nested"],
-  zoom: [50, 100, 200],
+  zoom: [50, 100],
 };
 
 // Timelines with keyframes at `times` (0, 2 and 3 s unless set) on the property each animates; `css` is it in CSS.
@@ -102,7 +105,7 @@ function keyframedCases() {
     gsap: Object.keys(KEYFRAMED),
     placement: ["px"],
     rotation: AXES.rotation,
-    nesting: AXES.nesting,
+    nesting: ["root"],
     zoom: AXES.zoom,
     gesture: GESTURES,
   }).flatMap((c) => {
