@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
-import { lstatSync, readFileSync, unlinkSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readFileSync,
+  unlinkSync,
+} from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pinProjectRecord, realFilePath } from "../helpers/safePath.js";
 import type { ArtifactRecord, RenderRecord, VideoState } from "./videoState.js";
@@ -117,15 +125,21 @@ function restoreCleaned(state: VideoState, item: PendingArtifactCleanup): void {
 }
 
 function stillPendingAfterUnlink(item: PendingArtifactCleanup): boolean {
+  let descriptor: number | undefined;
   try {
-    const stat = lstatSync(item.path);
+    descriptor = openSync(item.path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const stat = fstatSync(descriptor);
     if (!stat.isFile() || stat.isSymbolicLink()) return false;
-    const hash = createHash("sha256").update(readFileSync(item.path)).digest("hex");
+    const hash = createHash("sha256").update(readFileSync(descriptor)).digest("hex");
     if (hash !== item.hash) return false;
+    const current = lstatSync(item.path);
+    if (current.dev !== stat.dev || current.ino !== stat.ino) return false;
     unlinkSync(item.path);
     return false;
   } catch (error) {
     return (error as NodeJS.ErrnoException).code !== "ENOENT";
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
   }
 }
 
