@@ -9,7 +9,7 @@ vi.mock("../telemetry/events.js", () => ({
 }));
 
 import { contrastRatio, parseColorRGBA } from "./contrast-bg.js";
-import { createCheckCommand } from "./check.js";
+import { createCheckCommand, parseCheckRange } from "./check.js";
 import { trackCommandFailures } from "../utils/command-failure-tracking.js";
 import type { CommandDef } from "citty";
 
@@ -2258,4 +2258,114 @@ describe("dense motion-overlap re-sampling", () => {
     expect(driver.collectOverlap).toHaveBeenCalled();
     expect(report.layout.findings.some((f) => f.code === "content_overlap")).toBe(true);
   });
+});
+
+describe("scoped check", () => {
+  it("bounds all runtime seeks, including dense overlap and transition samples", async () => {
+    const times: number[] = [];
+    const overlapTimes: number[] = [];
+    const driver = fakeDriver({
+      getDuration: async () => 10,
+      getTransitionBoundaries: async () => [1, 7.9, 9],
+      seek: async (t) => {
+        times.push(t);
+      },
+      seekGeometry: async (t) => {
+        times.push(t);
+        overlapTimes.push(t);
+      },
+    });
+    const { report } = await runScenario(driver, { range: [7.8, 8.2], atTransitions: true });
+    expect(times.length).toBeGreaterThan(3);
+    expect(times.every((t) => t >= 7.8 && t <= 8.2)).toBe(true);
+    expect(times).toContain(7.9);
+    expect(overlapTimes.every((time) => (String(time).split(".")[1]?.length ?? 0) <= 3)).toBe(true);
+    expect(report.scope?.range).toEqual([7.8, 8.2]);
+  });
+  it("keeps the full-check failure when the only error is hidden by filtering", async () => {
+    const driver = fakeDriver({
+      collectLayout: async () => [layoutIssue("error")],
+      matchComponents: async (_c, f) => f.map(() => false),
+    });
+    const { report } = await runScenario(driver, {
+      components: ["#selected"],
+      collapseStatic: false,
+    });
+    expect(report.ok).toBe(false);
+    expect(report.layout.findings).toHaveLength(0);
+    expect(report.layout.errorCount).toBe(1);
+    expect(report.runtime.findings).toHaveLength(0);
+    expect(report.scope?.hiddenFindings).toBe(1);
+  });
+  it.each([
+    {
+      flag: "--caption-zone",
+      options: {
+        range: [1, 2] as [number, number],
+        captionZone: { x0: 0, y0: 0.5, x1: 1, y1: 0.7 },
+      },
+    },
+    {
+      flag: "--frame-check",
+      options: { range: [0, 1] as [number, number], frameCheck: {} },
+    },
+  ])(
+    "refuses $flag when none of its gate samples lie within --range",
+    async ({ flag, options }) => {
+      const { report } = await runScenario(fakeDriver({ getDuration: async () => 4 }), options);
+      expect(report.ok).toBe(false);
+      expect(report.browserSkipped).toBe(true);
+      expect(report.runtime.findings).toEqual([
+        expect.objectContaining({ message: expect.stringContaining(`No ${flag} seek samples`) }),
+      ]);
+    },
+  );
+  it("marks a motion spec disabled when a range skips whole-timeline assertions", async () => {
+    const motion: MotionSpecResolution = {
+      kind: "valid",
+      path: "/project/index.motion.json",
+      spec: { assertions: [] },
+    };
+    const { report } = await runScenario(
+      fakeDriver({ getDuration: async () => 4 }),
+      { range: [1, 2] },
+      { motion },
+    );
+    expect(report.motion).toEqual(
+      expect.objectContaining({
+        enabled: false,
+        specPath: "/project/index.motion.json",
+        samples: 0,
+      }),
+    );
+  });
+  it("rejects a range outside the film rather than passing an empty check", async () => {
+    const { report } = await runScenario(fakeDriver({ getDuration: async () => 2 }), {
+      range: [3, 4],
+    });
+    expect(report.ok).toBe(false);
+    expect(report.browserSkipped).toBe(true);
+    expect(report.runtime.findings[0]?.message).toContain("2 seconds");
+  });
+});
+
+it("validates range syntax before running a check", () => {
+  expect(parseCheckRange("7.8,8.2")).toEqual([7.8, 8.2]);
+  expect(parseCheckRange("7.8:8.2")).toEqual([7.8, 8.2]);
+  for (const value of ["", "1", "1,1", "2,1", "-1,2", "NaN,2", "1,Infinity", ",2", "1,2,3"])
+    expect(() => parseCheckRange(value)).toThrow();
+});
+
+it("applies transition sample limits within the requested range", async () => {
+  const driver = fakeDriver({
+    getDuration: async () => 10,
+    getTransitionBoundaries: async () => [0, 1, 2, 3, 4, 5, 6, 7.8, 7.9, 8, 9, 10],
+  });
+  const { report } = await runScenario(driver, {
+    range: [7.8, 8],
+    atTransitions: true,
+    maxTransitionSamples: 2,
+  });
+  expect(report.layout.transitionSamples).toEqual([7.8, 8]);
+  expect(report.layout.transitionSamplesDropped).toBe(3);
 });

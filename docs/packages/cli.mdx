@@ -713,7 +713,7 @@ did, in one command and one browser session.
 
 ```bash
 npx hyperframes check [dir]
-npx hyperframes check [dir] --json         # {ok, browserSkipped, lint, runtime, layout, motion, contrast, hdr, snapshots}
+npx hyperframes check [dir] --json         # {ok, browserSkipped, scope, lint, runtime, layout, motion, contrast, hdr, snapshots}
 npx hyperframes check [dir] --snapshots
 npx hyperframes check [dir] --at 1.5,4,7.25
 npx hyperframes check [dir] --strict       # warnings fail too
@@ -729,6 +729,11 @@ When the browser never ran (lint errors, a linter crash, or a browser launch
 failure), `browserSkipped` is `true` and the `layout`, `motion` and `contrast`
 sections are empty, not clean.
 
+Scoped checks add `scope` to the JSON report with the requested range and
+components, hidden-finding count, and scope notes. Component filtering changes
+the returned finding arrays only; section counts, `ok`, and the exit code still
+cover every finding from the full check.
+
 | Flag                                         | Description                                                                                                                 |
 | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `--json`                                     | One aggregated envelope. Every finding carries a selector, `data-*` identity, source file, bbox, and sample time.           |
@@ -737,6 +742,8 @@ sections are empty, not clean.
 | `--at`                                       | Explicit timestamps in seconds, comma-separated                                                                             |
 | `--at-transitions`                           | Also sample every tween start and end, to catch transient overlaps at transition seams                                       |
 | `--max-transition-samples`                   | Cap the transition-derived samples. When it truncates, the omitted count is reported. Default: unlimited.                    |
+| `--range <start,end>`                        | Sample only this interval, in global seconds. Lint stays project-wide; whole-timeline motion and `sweep_static` are skipped. |
+| `--components <selectors>`                   | Report only findings that involve these elements or their descendants. Counts, `ok` and the exit code still cover all.      |
 | `--max-issues`                               | Findings to print or return after static collapse (default 80)                                                              |
 | `--collapse-static` / `--no-collapse-static` | Fold a repeated static finding into one row (default: on)                                                                    |
 | `--tolerance`                                | Allowed overflow in px before reporting (default 2)                                                                         |
@@ -748,6 +755,10 @@ sections are empty, not clean.
 | `--layout`                                   | Layout knobs, currently `proseCoverageFloor=0.05` (0–1, default 0.15)                                                       |
 | `--browser-gpu` / `--no-browser-gpu`         | Hardware GPU capture, or deterministic SwiftShader (default: auto-detect)                                                   |
 | `--proxy` / `--no-proxy`                     | Auto-transcode browser-hostile codecs before checking (default: on)                                                        |
+
+`--caption-zone` and `--frame-check` refuse a ranged check when none of their
+configured seek samples falls inside `--range`; a requested gate never silently
+passes without running.
 
 Contrast failures are errors, and each one reports the sampled foreground and
 background colours, the measured ratio against the required one, and a
