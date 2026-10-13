@@ -1,3 +1,4 @@
+import type { CheckDeadline } from "./checkDeadline.js";
 import type { ProjectLintResult } from "./lintProject.js";
 import type { LayoutIssue, LayoutOverflow, LayoutRect } from "./layoutAudit.js";
 import type { Canvas, MotionFrame } from "./motionAudit.js";
@@ -8,6 +9,8 @@ import type { HdrAutoPromotion } from "@hyperframes/engine";
 
 export interface CheckOptions {
   samples: number;
+  range?: [number, number];
+  components?: string[];
   at?: number[];
   atTransitions: boolean;
   maxTransitionSamples?: number;
@@ -50,6 +53,12 @@ export interface LayoutOptions {
 
 export type CheckSeverity = "error" | "warning" | "info";
 
+export interface SeekClock {
+  id: number;
+  time: number;
+  done: boolean;
+}
+
 export interface CheckBbox {
   x: number;
   y: number;
@@ -64,6 +73,7 @@ export interface CheckAnchor {
   bbox: CheckBbox;
   time: number;
   times?: number[];
+  componentMatch?: boolean;
 }
 
 export interface CheckFinding extends CheckAnchor {
@@ -180,6 +190,7 @@ export type MotionSpecResolution =
 
 export interface CheckAuditDriver {
   initialize(contrast: boolean): Promise<void>;
+  matchComponents?(components: string[], findings: CheckFinding[]): Promise<boolean[]>;
   getDuration(): Promise<number>;
   /** True when the root composition explicitly declares that it is intentionally timeline-free. */
   hasNoTimelineDeclaration(): Promise<boolean>;
@@ -199,6 +210,7 @@ export interface CheckAuditDriver {
   /** Frozen-sweep guard (#U10): an opaque fingerprint of the seeked visual state, from
    * motion-signature.browser.js (shared with motion-sample's liveness). Legacy name kept. */
   collectLayoutGeometry(): Promise<string>;
+  collectSeekClock(): Promise<SeekClock[]>;
   /** rotation_pivot_drift: every rotatable element's bbox center/size/angle at
    * the current seeked state. Accumulated across the grid — see checkPipeline. */
   collectRotationSample(time: number): Promise<RotationSample[]>;
@@ -264,6 +276,12 @@ export interface CheckSection<T extends CheckFinding = CheckFinding> {
 }
 
 export interface CheckReport {
+  scope?: {
+    range?: [number, number];
+    components?: string[];
+    hiddenFindings: number;
+    notes: string[];
+  };
   ok: boolean;
   strict: boolean;
   browserSkipped: boolean;
@@ -296,6 +314,7 @@ export interface CheckDependencies {
     project: ProjectDir,
     options: CheckOptions,
     motion: MotionSpecResolution,
+    deadline?: CheckDeadline,
   ): Promise<CheckBrowserResult>;
   writeSnapshot(
     projectDir: string,
@@ -307,6 +326,7 @@ export interface CheckDependencies {
     project: ProjectDir,
     options: CheckOptions,
     requests: CheckFindingCropRequest[],
+    deadline?: CheckDeadline,
   ): Promise<string[]>;
   inspectHdrAutoPromotion?(project: ProjectDir): Promise<CheckReport["hdr"]["autoPromotion"]>;
 }
