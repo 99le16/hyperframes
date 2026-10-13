@@ -1,6 +1,7 @@
+import { Translate } from "@phosphor-icons/react";
 import { useStudioTranslation } from "../i18n/StudioI18nProvider";
 import { normalizeStudioLanguage } from "../i18n/studioLanguage";
-import { Select, Tooltip } from "./ui";
+import { IconButton, Menu, MenuRadioGroup, MenuRadioItem } from "./ui";
 
 const OPTIONS = [
   { value: "en", label: "English" },
@@ -8,22 +9,28 @@ const OPTIONS = [
 ];
 
 export function LanguageSwitcher() {
-  const { t, instance, language, controlled, canSwitchLanguage } = useStudioTranslation();
+  const { t, instance, language, canSwitchLanguage } = useStudioTranslation();
   if (!canSwitchLanguage) return null;
+  const label = t("language.label");
   return (
-    <Tooltip label={t("language.scope")} side="bottom">
-      <div className="w-24 shrink-0">
-        <Select
-          label={t("language.label")}
-          value={language}
-          options={OPTIONS}
-          disabled={controlled}
-          onCommit={(next) => {
-            const supported = normalizeStudioLanguage(next);
-            if (supported) void instance.changeLanguage(supported);
-          }}
-        />
-      </div>
-    </Tooltip>
+    <Menu
+      align="end"
+      aria-label={label}
+      trigger={<IconButton aria-label={label} icon={<Translate size={16} />} />}
+    >
+      <MenuRadioGroup
+        value={language}
+        onValueChange={(next: string) => {
+          const supported = normalizeStudioLanguage(next);
+          if (supported) void instance.changeLanguage(supported);
+        }}
+      >
+        {OPTIONS.map((option) => (
+          <MenuRadioItem key={option.value} value={option.value} closeOnClick>
+            <span lang={option.value}>{option.label}</span>
+          </MenuRadioItem>
+        ))}
+      </MenuRadioGroup>
+    </Menu>
   );
 }

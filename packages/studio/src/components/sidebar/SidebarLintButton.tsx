@@ -45,9 +45,11 @@ export function SidebarLintButton({
                 : "ml-1 min-w-[16px] rounded-full bg-amber-500/20 px-1 text-[9px] font-bold text-warning-ink"
             }
           >
-            {findingCount}
+            <span aria-hidden="true">{findingCount}</span>
             <span className="sr-only">
-              {hasError ? t("sidebar.findingsWithErrors") : t("sidebar.findingsWarningsOnly")}
+              {t(hasError ? "sidebar.findingsWithErrors" : "sidebar.findingsWarningsOnly", {
+                count: findingCount,
+              })}
             </span>
           </span>
         )}

@@ -13,6 +13,7 @@ import {
 interface StudioLanguageContextValue {
   instance: i18n;
   controlled: boolean;
+  showLanguageSwitcher: boolean;
 }
 const StudioLanguageContext = createContext<StudioLanguageContextValue | null>(null);
 const english = createStudioI18n();
@@ -23,6 +24,8 @@ export interface StudioI18nProviderProps {
   language?: StudioLanguage;
   detectBrowserLanguage?: boolean;
   persistLanguage?: boolean;
+  /** Shows the header language menu. Hidden while `language` controls the choice. */
+  showLanguageSwitcher?: boolean;
 }
 
 function initialLanguage(props: StudioI18nProviderProps): StudioLanguage {
@@ -37,7 +40,13 @@ function initialLanguage(props: StudioI18nProviderProps): StudioLanguage {
 }
 
 export function StudioI18nProvider(props: StudioI18nProviderProps) {
-  const { children, instance: supplied, language, persistLanguage = false } = props;
+  const {
+    children,
+    instance: supplied,
+    language,
+    persistLanguage = false,
+    showLanguageSwitcher = false,
+  } = props;
   const [owned] = useState(() => supplied ?? createStudioI18n(initialLanguage(props)));
   const instance = supplied ?? owned;
   useEffect(() => {
@@ -55,7 +64,9 @@ export function StudioI18nProvider(props: StudioI18nProviderProps) {
     };
   }, [instance, language, persistLanguage]);
   return (
-    <StudioLanguageContext.Provider value={{ instance, controlled: language !== undefined }}>
+    <StudioLanguageContext.Provider
+      value={{ instance, controlled: language !== undefined, showLanguageSwitcher }}
+    >
       <I18nextProvider i18n={instance} defaultNS="studio">
         {children}
       </I18nextProvider>
@@ -80,7 +91,6 @@ export function useStudioTranslation() {
     t,
     instance,
     language: normalizeStudioLanguage(instance.resolvedLanguage ?? instance.language) ?? "en",
-    controlled: context?.controlled ?? false,
-    canSwitchLanguage: context !== null,
+    canSwitchLanguage: Boolean(context?.showLanguageSwitcher && !context.controlled),
   };
 }

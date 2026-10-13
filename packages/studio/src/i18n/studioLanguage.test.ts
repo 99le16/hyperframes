@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { detectStudioLanguage, normalizeStudioLanguage } from "./studioLanguage";
 import { createStudioI18n } from "./createStudioI18n";
+import { PANEL_DEFINITIONS, PANEL_IDS } from "../components/dock/panelRegistry";
 import en from "./locales/en.json";
 import zhCN from "./locales/zh-CN.json";
 
@@ -30,6 +31,9 @@ describe("Studio language resolution", () => {
       expect(chinese.trim(), key).not.toBe("");
       expect(chinese.match(/{{[^}]+}}/g) ?? [], key).toEqual(english.match(/{{[^}]+}}/g) ?? []);
     }
+  });
+  it("keeps English panel labels identical to the dock registry titles", () => {
+    for (const id of PANEL_IDS) expect(en[`panels.${id}`], id).toBe(PANEL_DEFINITIONS[id].title);
   });
   it("renders synchronously, interpolates, and falls back when a translation is missing", () => {
     const instance = createStudioI18n("zh-CN");

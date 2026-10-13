@@ -7,7 +7,6 @@ import { createStudioI18n } from "./createStudioI18n";
 import { StudioI18nBoundary, StudioI18nProvider, useStudioTranslation } from "./StudioI18nProvider";
 import { readStudioLanguage, writeStudioLanguage } from "./studioLanguage";
 import { LanguageSwitcher } from "../components/LanguageSwitcher";
-import { isTypingTarget } from "../utils/typingTarget";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | null = null;
@@ -74,7 +73,7 @@ it("preserves an enclosing provider through the complete-app boundary", () => {
   expect(host.querySelector("span")?.textContent).toBe("导出");
 });
 
-it("starts embedded Studio in English without reading browser preferences or writing storage", () => {
+it("starts embedded Studio in English without a switcher, browser preferences or storage", () => {
   writeStudioLanguage("zh-CN");
   const host = mount(
     <StudioI18nBoundary>
@@ -84,9 +83,33 @@ it("starts embedded Studio in English without reading browser preferences or wri
   );
   expect(host.querySelector("span")?.textContent).toBe("Export");
   expect(readStudioLanguage()).toBe("zh-CN");
-  const control = host.querySelector('[role="combobox"]');
-  expect(control).not.toBeNull();
-  expect(isTypingTarget(control)).toBe(true);
+  expect(host.querySelector('[aria-label="Interface language"]')).toBeNull();
+});
+
+it("switches language from the standalone header menu", async () => {
+  const host = mount(
+    <StudioI18nProvider showLanguageSwitcher>
+      <Probe />
+      <LanguageSwitcher />
+    </StudioI18nProvider>,
+  );
+  const trigger = host.querySelector('[aria-label="Interface language"]');
+  if (!trigger) throw new Error("language menu not rendered");
+  const init = { bubbles: true, cancelable: true, composed: true, detail: 1 };
+  await act(async () => {
+    trigger.dispatchEvent(new PointerEvent("pointerdown", { ...init, pointerType: "mouse" }));
+    trigger.dispatchEvent(new MouseEvent("mousedown", init));
+    trigger.dispatchEvent(new PointerEvent("pointerup", { ...init, pointerType: "mouse" }));
+    trigger.dispatchEvent(new MouseEvent("mouseup", init));
+    trigger.dispatchEvent(new MouseEvent("click", init));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  const chinese = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+    (item) => item.textContent === "简体中文",
+  );
+  await act(async () => chinese?.click());
+  expect(host.querySelector("span")?.textContent).toBe("导出");
+  expect(host.querySelector('[aria-label="界面语言"]')).not.toBeNull();
 });
 
 it("persists a manual selection and restores it on the next mount ahead of the browser locale", async () => {
@@ -122,14 +145,14 @@ it("detects Simplified Chinese when no preference is saved", () => {
 it("honors host-controlled language over saved preferences, including updates", async () => {
   writeStudioLanguage("zh-CN");
   const view = (language: "en" | "zh-CN") => (
-    <StudioI18nProvider language={language} persistLanguage>
+    <StudioI18nProvider language={language} persistLanguage showLanguageSwitcher>
       <Probe />
       <LanguageSwitcher />
     </StudioI18nProvider>
   );
   const host = mount(view("en"));
   expect(host.querySelector("span")?.textContent).toBe("Export");
-  expect(host.querySelector('[role="combobox"]')?.hasAttribute("disabled")).toBe(true);
+  expect(host.querySelector('[aria-label="Interface language"]')).toBeNull();
   await act(async () => {
     root?.render(view("zh-CN"));
   });

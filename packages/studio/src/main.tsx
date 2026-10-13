@@ -143,7 +143,7 @@ createRoot(document.getElementById("root")!).render(
     <IconContext.Provider value={readIconTokens()}>
       <StudioErrorBoundary>
         <ShowThemeToggle.Provider value>
-          <StudioI18nProvider detectBrowserLanguage persistLanguage>
+          <StudioI18nProvider detectBrowserLanguage persistLanguage showLanguageSwitcher>
             <StandaloneStudio />
           </StudioI18nProvider>
         </ShowThemeToggle.Provider>

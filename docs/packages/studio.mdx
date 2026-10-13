@@ -132,14 +132,14 @@ sidebar lint button). Panel contents, timeline editing controls, and diagnostics
 remain in English in this first batch. The interface language does not change
 composition text, captions, or audio.
 
-Use the language selector in the header to switch immediately. Studio restores
+Use the language menu in the header to switch immediately. Studio restores
 an explicit choice from `hf-studio-language` in local storage, otherwise uses the
 first supported browser language and falls back to English. Traditional Chinese
 locales do not select Simplified Chinese automatically. Storage is optional;
 switching still works when it is unavailable.
 
-Embedded Studio defaults to English and does not read browser preferences, write
-local storage, or change the host document language. Wrap it in
+Embedded Studio defaults to English, shows no language menu, and does not read
+browser preferences, write local storage, or change the host document language. Wrap it in
 `StudioI18nProvider` to select a language or supply an isolated instance:
 
 ```tsx
@@ -154,7 +154,8 @@ export function Editor() {
 }
 ```
 
-`language` is controlled by the host; the selector is disabled while it is set.
+`language` is controlled by the host, so the menu stays hidden while it is set.
+Pass `showLanguageSwitcher` to let users pick a language inside embedded Studio.
 For host-driven runtime switching, create an instance with
 `createStudioI18n("zh-CN")`, pass it as `instance`, and call its `changeLanguage`
 method. Each provider owns an independent instance by default. Browser detection
