@@ -7,7 +7,7 @@ import { TraceMap, originalPositionFor } from "@jridgewell/trace-mapping";
 import type { BundleScriptProvenance } from "../../core/src/compiler/htmlBundler";
 import type { ElementRef, Snippet } from "./types";
 import { sourceDependencies, type SourceRange } from "./sourceDependencies";
-import { PREVIEW_IGNORED_DIRS } from "@hyperframes/core/project-folders";
+import { PREVIEW_IGNORED_DIRS } from "../../core/src/projectFolders";
 
 interface Chunk {
   file: string;
