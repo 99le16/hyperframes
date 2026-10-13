@@ -96,11 +96,23 @@ export default defineCommand({
       description:
         "Unique component selector, or JSON target {selector|hfId|ref}; runtime inspection",
     },
-    at: { type: "string", description: "Global second; runtime inspection" },
-    range: { type: "string", description: "Global start,end (half-open); runtime inspection" },
-    boundary: { type: "string", description: "Global boundary: crossing, start, end, instant" },
-    generation: { type: "string" },
-    offset: { type: "string" },
+    at: { type: "string", description: "Global second; requires the inspector service" },
+    range: {
+      type: "string",
+      description: "Global start,end (half-open); requires the inspector service",
+    },
+    boundary: {
+      type: "string",
+      description: "Global boundary second; requires the inspector service",
+    },
+    generation: {
+      type: "string",
+      description: "Inspector generation for a continued runtime query",
+    },
+    offset: {
+      type: "string",
+      description: "Group offset for a continued runtime query",
+    },
 
     json: { type: "boolean", description: "Output as JSON", default: false },
   },
@@ -123,7 +135,9 @@ export default defineCommand({
         throw new Error(
           "Runtime timeline queries require HF_INSPECT_URL from the existing inspector service.",
         );
-      const info = await fetch(`${url}/info`).then((r) => r.json());
+      const info = await fetch(`${url}/info`, { signal: AbortSignal.timeout(5000) }).then((r) =>
+        r.json(),
+      );
       const { realpathSync } = await import("node:fs");
       const { dirname } = await import("node:path");
       if (realpathSync(info.project) !== realpathSync(dirname(project.indexPath)))

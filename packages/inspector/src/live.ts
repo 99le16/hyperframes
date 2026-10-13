@@ -5,7 +5,7 @@ import { mapInspection } from "./mapInspection";
 import type { BundleScriptProvenance } from "../../core/src/compiler/htmlBundler";
 import type { InspectRequest, RuntimeResponse, Snippet } from "./types";
 
-const runtime = () => readFileSync(new URL("./inspection.js", import.meta.url), "utf8");
+const runtime = () => readFileSync(new URL(`./inspection.${"js"}`, import.meta.url), "utf8");
 export function prepareLiveInspection(
   project: string,
   html: string,
@@ -40,7 +40,6 @@ export function prepareLiveInspection(
         raw.results.length !== request.targets.length
       )
         throw new Error("invalid_live_query");
-      // The live path never seeks or silently switches to a different page.
       if (request.time !== undefined) throw new Error("live_query_does_not_seek");
       const result = mapInspection(
         raw,

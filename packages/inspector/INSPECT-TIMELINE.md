@@ -14,12 +14,12 @@ preserves full event times. `boundary` separately labels `crosses`, `starts`, `e
 zero-duration `instant`, with a 1e-7-second endpoint tolerance.
 
 Results are short text grouped by component, containing event time, target, properties and
-source locations. `generation` and `offset` provide 60-event continuation. Refs expire on source
+source locations. `generation` and `offset` provide 60-group continuation. Refs expire on source
 changes/page disposal. Component inspection can retrieve complete source blocks from those refs.
 Overlapping targets/properties are reported as facts, never diagnosed as errors.
 
 HF's existing timing resolver handles explicit HF item windows. GSAP parent-chain intervals
-expand repeat/yoyo/timeScale, excluding repeatDelay. Stagger/internal timeline intervals are expanded per target, so gaps are not reported as active. Root HF timelines
+expand repeat/yoyo/timeScale, including repeatDelay. Stagger/internal timeline intervals are expanded per target, so gaps are not reported as active. Root HF timelines
 are normally paused and use the player's global clock. No extra host offset is added to the
 auto-nested GSAP parent chain.
 

@@ -3,6 +3,7 @@ import { findRootCompositionElement } from "./compositionDimension";
 import { readElementRateSpec, readMediaStart } from "./playbackRate";
 import { timeAtSourceTime } from "../speedRamp";
 import type { ElementRef, Target } from "./inspectionTypes";
+import { isElementNode } from "./domRealm";
 export interface TimelineRequest {
   component?: Target;
   at?: number;
@@ -31,9 +32,11 @@ export interface Interval {
   start: number;
   end: number;
 }
-export function classify(interval: Interval, q: TimelineRequest): string | null {
+function classify(interval: Interval, q: TimelineRequest): string | null {
   const { start, end } = interval;
   const near = (a: number, b: number) => Math.abs(a - b) <= 1e-7;
+  const before = (a: number, b: number) => a < b && !near(a, b);
+  const beforeOrAt = (a: number, b: number) => a < b || near(a, b);
   if (q.boundary != null) {
     const t = q.boundary;
     if (near(start, end) && near(start, t)) return "instant";
@@ -46,15 +49,15 @@ export function classify(interval: Interval, q: TimelineRequest): string | null 
       ? near(start, q.at)
         ? "instant"
         : null
-      : start <= q.at && end > q.at
+      : beforeOrAt(start, q.at) && before(q.at, end)
         ? "active"
         : null;
   if (q.range)
     return near(start, end)
-      ? start >= q.range[0] && start < q.range[1]
+      ? beforeOrAt(q.range[0], start) && before(start, q.range[1])
         ? "instant"
         : null
-      : start < q.range[1] && end > q.range[0]
+      : before(start, q.range[1]) && before(q.range[0], end)
         ? "intersects"
         : null;
   return near(start, end) ? "instant" : "scheduled";
@@ -86,7 +89,7 @@ function cycles(a: TimedAnimation, input: Interval[], warnings: Set<string>): In
     }
   return result;
 }
-export function globalIntervals(
+function globalIntervals(
   a: TimedAnimation,
   root: TimedAnimation,
   warnings: Set<string>,
@@ -202,9 +205,7 @@ export function inspectTimelineRuntime(
       }
       const pieces = internal?.getChildren?.(true, true, false) ?? [a];
       for (const piece of pieces) {
-        const targets = (piece.targets?.() ?? []).filter(
-          (el): el is Element => el instanceof Element,
-        );
+        const targets = (piece.targets?.() ?? []).filter(isElementNode);
         if (!targets.some((el) => scope === el || scope.contains(el))) continue;
         const properties = Object.keys(piece.vars ?? {}).filter(
           (k) => !reserved.has(k) && !k.startsWith("on"),

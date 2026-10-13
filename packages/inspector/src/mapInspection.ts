@@ -1,4 +1,4 @@
-import { Sources, mergeSnippets } from "./sources";
+import { Sources, markupSnippet, mergeSnippets } from "./sources";
 import type { InspectRequest, RuntimeResponse, Snippet } from "./types";
 const coverage = [
   "GSAP associations observed since page initialization; callback-created animations may require an explicit time query.",
@@ -35,7 +35,7 @@ export function mapInspection(
         );
     }
     for (const el of result.elements) {
-      const snippet = sources.markup(el, index);
+      const snippet = markupSnippet(sources, el, index);
       if (snippet) collected.push(snippet);
     }
     for (const id of result.css) {
@@ -94,7 +94,6 @@ export function mapInspection(
     debugAvailable: true,
     elapsedMs: Math.round(performance.now() - start),
   };
-  // Code blocks are atomic. A continuation repeats this query with generation and nextOffset.
   const offset = request.offset ?? 0;
   if (!Number.isInteger(offset) || offset < 0)
     throw new Error("offset must be a non-negative integer");

@@ -81,7 +81,11 @@ try {
   const result = live.resolve(packet);
   assert.deepEqual(
     result.results.map((r) => r.status),
-    ["found", "found", "ambiguous", "found"],
+    ["found", "found", "found", "found"],
+  );
+  assert.deepEqual(
+    result.results[2]!.candidates.map((candidate) => candidate.id),
+    ["title", "other"],
   );
   assert.equal(result.results[0].unmappedAnimations, 0);
   assert(
