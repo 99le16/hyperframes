@@ -761,6 +761,8 @@
       // boundary, while htmlBundler keeps parallel module/classic-script paths.
       "packages/inspector/tests/browser.ts",
       "packages/inspector/tests/film.ts",
+      "packages/inspector/tests/timeline.ts",
+      "packages/inspector/tests/timelineCompositions.ts",
       "packages/core/src/compiler/htmlBundler.ts",
     ],
   },
@@ -1030,6 +1032,12 @@
       "packages/inspector/src/server.ts",
       "packages/core/src/runtime/inspection.ts",
       "packages/inspector/tests/film.ts",
+      "packages/inspector/src/mapInspection.ts",
+      "packages/inspector/src/live.ts",
+      "packages/inspector/src/elementMap.js",
+      "packages/inspector/src/sourceDependencies.ts",
+      "packages/core/src/runtime/timelineInspection.ts",
+      "packages/cli/src/commands/timeline.ts",
     ],
   },
 }

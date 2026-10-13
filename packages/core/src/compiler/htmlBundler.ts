@@ -831,20 +831,18 @@ function stripJsCommentsParserSafe(
 ): string {
   if (!source) return source;
   try {
-    const result = transformSync(source, { loader: "js", minify: false, legalComments: "none" });
+    const result = transformSync(source, {
+      loader: "js",
+      minify: false,
+      legalComments: "none",
+      ...(provenance
+        ? { sourcemap: "external" as const, sourcefile: "hf-authored-bundle.js" }
+        : {}),
+    });
     if (provenance) {
-      const mapped = transformSync(source, {
-        loader: "js",
-        minify: false,
-        legalComments: "none",
-        sourcemap: "external",
-        sourcefile: "hf-authored-bundle.js",
-      });
-      if (mapped.code.trim() === result.code.trim()) {
-        const sourceURL = `hf-inspect-${createHash("sha256").update(source).digest("hex")}.js`;
-        provenance({ input: source, output: result.code.trim(), sourceMap: mapped.map, sourceURL });
-        return `${result.code.trim()}\n//# sourceURL=${sourceURL}`;
-      }
+      const sourceURL = `hf-inspect-${createHash("sha256").update(source).digest("hex")}.js`;
+      provenance({ input: source, output: result.code.trim(), sourceMap: result.map, sourceURL });
+      return `${result.code.trim()}\n//# sourceURL=${sourceURL}`;
     }
     return result.code.trim();
   } catch {

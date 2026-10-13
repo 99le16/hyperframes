@@ -21,7 +21,7 @@ const server = createServer(async (req, res) => {
     );
     return;
   }
-  if (req.method !== "POST" || req.url !== "/inspect") {
+  if (req.method !== "POST" || !["/inspect", "/timeline", "/element-map"].includes(req.url ?? "")) {
     res.writeHead(404).end();
     return;
   }
@@ -33,12 +33,19 @@ const server = createServer(async (req, res) => {
       if (size > 64_000) throw new Error("request_too_large");
       chunks.push(chunk);
     }
-    const request: InspectRequest = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    res.end(JSON.stringify(await inspector.inspect(request)));
+    const request: InspectRequest = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+    if (req.url === "/element-map") res.end(JSON.stringify(await inspector.elementMap()));
+    else if (req.url === "/timeline") res.end(JSON.stringify(await inspector.timeline(request)));
+    else res.end(JSON.stringify(await inspector.inspect(request)));
   } catch (error) {
-    res
-      .writeHead(400)
-      .end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+    res.writeHead(error instanceof Error && error.message === "no-composition" ? 404 : 400).end(
+      JSON.stringify({
+        error: error instanceof Error ? error.message : String(error),
+        ...(error instanceof Error && error.message === "no-composition"
+          ? { code: "no-composition" }
+          : {}),
+      }),
+    );
   }
 });
 server.listen(Number(process.argv[3] ?? 0), "127.0.0.1", () => {

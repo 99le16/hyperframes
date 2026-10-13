@@ -62,9 +62,13 @@ try {
   });
   assert.deepEqual(
     ambiguity.results.map((r) => r.status),
-    ["ambiguous", "missing", "found"],
+    ["found", "missing", "found"],
   );
-  checks.push("ambiguity/partial success/optional within");
+  assert.equal(ambiguity.results[0].candidates.length, 2);
+  assert(ambiguity.snippets.some((s) => s.targets.includes(0) && s.code.includes("tl.to(element")));
+  const overlapping = await inspector.inspect({ targets: [{ selector: "#scene-a, #title" }] });
+  assert.equal(overlapping.results[0].animations, single.results[0].animations);
+  checks.push("class groups, overlapping scopes, partial success and optional within");
   const ref = cold.results[0].candidates[0].ref;
   const same = await inspector.inspect({ targets: [{ ref }] });
   assert.equal(same.results[0].status, "found");

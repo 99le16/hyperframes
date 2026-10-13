@@ -1,3 +1,9 @@
+import {
+  inspectTimelineRuntime,
+  type TimelineRequest,
+  type TimedAnimation,
+  type TimelineRuntimeResult,
+} from "./timelineInspection";
 import type {
   ElementRef,
   RuntimeAnimation,
@@ -23,7 +29,12 @@ interface Gsap {
 }
 interface InspectorWindow extends Omit<Window, "__timelines" | "gsap"> {
   gsap?: Gsap;
-  __hfInspection?: { query: (q: RuntimeQuery) => RuntimeResponse; dispose: () => void };
+  __hfInspection?: {
+    query: (q: RuntimeQuery) => RuntimeResponse;
+    timeline: (q: TimelineRequest) => TimelineRuntimeResult;
+    dispose: () => void;
+  };
+  __timelines?: Record<string, TimedAnimation>;
 }
 const animation = (value: unknown): value is Animation =>
   !!value &&
@@ -191,16 +202,34 @@ export function installInspection(win: InspectorWindow, generation: string, limi
         } catch {
           return { ...base, status: "invalid-selector" };
         }
-        if (elements.length !== 1)
+        if (elements.length === 0)
           return {
             ...base,
-            status: elements.length ? "ambiguous" : "missing",
+            status: "missing",
             candidates: elements.slice(0, 20).map(describe),
             truncated: elements.length > 20,
           };
-        const targetElement = elements[0]!;
-        const descendants = q.descendants ? [...targetElement.querySelectorAll("*")] : [];
-        const scope = [targetElement, ...descendants.slice(0, 1000)];
+        const selected = new Set<Element>();
+        let truncated = false;
+        const add = (el: Element) => {
+          if (selected.has(el)) return;
+          if (selected.size >= 1001) {
+            truncated = true;
+            return;
+          }
+          selected.add(el);
+        };
+        for (const element of elements) {
+          add(element);
+          if (q.descendants) {
+            for (const child of element.querySelectorAll("*")) {
+              add(child);
+              if (truncated) break;
+            }
+          }
+          if (truncated) break;
+        }
+        const scope = [...selected];
         const animations = (gsap?.getTweensOf?.(scope) ?? []).map((tw): RuntimeAnimation => {
           const attachmentStacks: string[] = [];
           const visited = new Set<Animation>();
@@ -236,14 +265,47 @@ export function installInspection(win: InspectorWindow, generation: string, limi
         return {
           ...base,
           status: "found",
-          candidates: [describe(targetElement)],
+          candidates: elements.slice(0, 1001).map(describe),
           elements: scope.map(describe),
           animations,
           css,
-          truncated: descendants.length > 1000,
+          truncated,
         };
       });
       return { results, recorded: count, recordLimitReached: count >= limit, hooked: !!gsap };
+    },
+    timeline(q: TimelineRequest): TimelineRuntimeResult {
+      let scope: Element = document.documentElement;
+      if (q.component) {
+        const found = api.query({ targets: [q.component], descendants: false, cssRules: [] })
+          .results[0];
+        if (!found) return { status: "missing", candidates: [], events: [], warnings: [] };
+        if (found.status !== "found")
+          return { status: found.status, candidates: found.candidates, events: [], warnings: [] };
+        const [only, ...others] = found.candidates;
+        if (!only || others.length > 0)
+          return { status: "ambiguous", candidates: found.candidates, events: [], warnings: [] };
+        const el = refs.get(only.ref)?.deref();
+        if (!el) return { status: "stale-ref", candidates: [], events: [], warnings: [] };
+        scope = el;
+      }
+      const registered = Object.values(win.__timelines ?? {});
+      const roots = registered.filter(
+        (root) =>
+          !registered.some(
+            (other) =>
+              other !== root && (other.getChildren?.(true, false, true) ?? []).includes(root),
+          ),
+      );
+      return inspectTimelineRuntime(
+        q,
+        roots,
+        scope,
+        describe,
+        (a) => records.get(a) ?? null,
+        reserved,
+        win.__timelines ?? {},
+      );
     },
     dispose() {
       disposed = true;
