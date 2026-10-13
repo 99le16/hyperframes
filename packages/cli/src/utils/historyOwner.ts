@@ -46,6 +46,7 @@ export interface Owner {
     exclusive?: boolean,
   ): Promise<{ id: string; startedAt: number }>;
   end(id: string): Promise<HistoryEntry | null>;
+  checkpoint(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -162,6 +163,7 @@ function previewOwner(route: (path: string) => string): Owner {
       json(`/window/${id}/close`, {})
         .then((closed) => closed.entry as HistoryEntry | null)
         .catch(async () => (await list()).find((entry) => entry.id === id) ?? null),
+    checkpoint: async () => void (await json("/checkpoint", {})),
     close: async () => {},
   };
 }
@@ -201,6 +203,7 @@ async function directOwner(projectDir: string): Promise<{ owner: Owner; turn: Tu
       // Opening filed every earlier write; the turn's own writes are filed to it when the next open passes it.
       begin: async () => ({ id: randomUUID(), startedAt: historyDeps.now() }),
       end: async (id) => history.list().find((entry) => entry.id === id) ?? null,
+      checkpoint: () => history.checkpoint(),
       close: () => history.close(),
     },
   };
