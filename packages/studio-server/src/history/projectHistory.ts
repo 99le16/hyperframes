@@ -82,6 +82,7 @@ export interface ProjectHistoryOptions {
   ownerWaitMs?: number;
   /** A CLI turn's window from an earlier open: writes since, within its idle limit, become the entry with its id. */
   closedWindow?: ClosedWindow;
+  closedWindowAfterOwnership?: () => ClosedWindow | undefined;
   undoScope?: "own" | "everyone";
   pruneGoneProjectsBudgetMs?: number;
 }
@@ -1288,7 +1289,8 @@ export async function openProjectHistory(options: ProjectHistoryOptions): Promis
   );
   try {
     const blobs = await openBlobStore(join(options.historyRoot, projectId, "blobs"));
-    const engine = new Engine(options, projectId, blobs);
+    const closedWindow = options.closedWindowAfterOwnership?.() ?? options.closedWindow;
+    const engine = new Engine({ ...options, closedWindow }, projectId, blobs);
     await engine.queue(async () => {
       await engine.start();
       engine.hearWrites();

@@ -157,42 +157,48 @@ function previewOwner(route: (path: string) => string): Owner {
   };
 }
 
-async function directOwner(projectDir: string, turn: Turn | null): Promise<Owner> {
+async function directOwner(projectDir: string): Promise<{ owner: Owner; turn: Turn | null }> {
+  let turn: Turn | null = null;
   const history = await openProjectHistory({
     projectDir,
     historyRoot: historyDeps.historyRoot,
     now: () => historyDeps.now(),
     pruneGoneProjectsBudgetMs: 1000,
     ownerWaitMs: historyDeps.ownerWaitMs,
-    // A turn begun through a preview that has since stopped is still the agent's, until its idle limit.
-    ...(turn && {
-      closedWindow: {
-        id: turn.id,
-        who: turn.who,
-        label: turn.label,
-        startedAt: turn.startedAt,
-        lastWriteAt: turn.lastWriteAt,
-        idleMs: historyDeps.turnIdleMs,
-      },
-    }),
+    closedWindowAfterOwnership: () => {
+      turn = readTurn(projectDir);
+      return turn
+        ? {
+            id: turn.id,
+            who: turn.who,
+            label: turn.label,
+            startedAt: turn.startedAt,
+            lastWriteAt: turn.lastWriteAt,
+            idleMs: historyDeps.turnIdleMs,
+          }
+        : undefined;
+    },
   });
   return {
-    via: "direct",
-    list: async () => history.list(),
-    peek: async (point) => history.peek(point),
-    blob: (hash) => history.readBlob(hash),
-    undo: (id, who, mode) => history.undo(id, { who, ...(mode && { mode }) }),
-    restore: (point, who) => history.restore(point, who),
-    pin: async (id, pinned) => history.pin(id, pinned),
-    // Opening filed every earlier write; the turn's own writes are filed to it when the next open passes it.
-    begin: async () => ({ id: randomUUID(), startedAt: historyDeps.now() }),
-    end: async (id) => history.list().find((entry) => entry.id === id) ?? null,
-    close: () => history.close(),
+    turn,
+    owner: {
+      via: "direct",
+      list: async () => history.list(),
+      peek: async (point) => history.peek(point),
+      blob: (hash) => history.readBlob(hash),
+      undo: (id, who, mode) => history.undo(id, { who, ...(mode && { mode }) }),
+      restore: (point, who) => history.restore(point, who),
+      pin: async (id, pinned) => history.pin(id, pinned),
+      // Opening filed every earlier write; the turn's own writes are filed to it when the next open passes it.
+      begin: async () => ({ id: randomUUID(), startedAt: historyDeps.now() }),
+      end: async (id) => history.list().find((entry) => entry.id === id) ?? null,
+      close: () => history.close(),
+    },
   };
 }
 
 /** One owner: a preview that keeps this project's history, else the engine, which refuses a second opener. */
-async function connect(projectDir: string, turn: Turn | null): Promise<Owner> {
+async function connect(projectDir: string): Promise<{ owner: Owner; turn: Turn | null }> {
   const server = await historyDeps.findServer(projectDir);
   if (server) {
     const route = (path: string) => studioApiUrl(server, `history${path}`);
@@ -201,9 +207,9 @@ async function connect(projectDir: string, turn: Turn | null): Promise<Owner> {
       (response) => response.status,
       () => 404,
     );
-    if (status !== 404) return previewOwner(route);
+    if (status !== 404) return { owner: previewOwner(route), turn: readTurn(projectDir) };
   }
-  return directOwner(projectDir, turn);
+  return directOwner(projectDir);
 }
 
 /** Runs `task` with the project's history. ponytail: with no preview, a command mid-turn splits the turn in two. */
@@ -212,8 +218,7 @@ export async function withOwner<T>(
   task: (owner: Owner, turn: Turn | null, projectDir: string) => Promise<T>,
 ): Promise<T> {
   const { dir: projectDir } = resolveProject(dir);
-  const turn = readTurn(projectDir);
-  const owner = await connect(projectDir, turn);
+  const { owner, turn } = await connect(projectDir);
   try {
     return await task(owner, turn, projectDir);
   } finally {

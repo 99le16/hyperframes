@@ -522,6 +522,53 @@ describe("hyperframes history, refusals", () => {
     ]);
   });
 
+  it("serializes concurrent begin --exclusive claims under the history owner lock", async () => {
+    const { dir } = project();
+    const historyRoot = tempDir("hf-history-cli-root-");
+    const held = await openProjectHistory({ projectDir: dir, historyRoot });
+    const home = join(historyRoot, held.projectId);
+    const bothWaiting = new Promise<void>((resolveWaiting) => {
+      const inspect = () => {
+        if (readdirSync(home).filter((name) => name.startsWith("owner.pid-")).length < 2) return;
+        watcher.close();
+        resolveWaiting();
+      };
+      const watcher = watch(home, inspect);
+      onTestFinished(() => watcher.close());
+      inspect();
+    });
+    const cli = resolve(fileURLToPath(import.meta.url), "..", "..", "cli.ts");
+    const begin = (who: string) => {
+      const child = spawn(
+        "bun",
+        ["run", cli, "history", "begin", "--who", who, "--label", who, "--exclusive", "--dir", dir],
+        {
+          env: {
+            ...process.env,
+            HYPERFRAMES_HISTORY_ROOT: historyRoot,
+            HYPERFRAMES_SKIP_UPDATE_CHECK: "1",
+            HYPERFRAMES_NO_TELEMETRY: "1",
+          },
+        },
+      );
+      onTestFinished(() => void child.kill());
+      return new Promise<{ code: number | null; error: string }>((done) => {
+        let error = "";
+        child.stderr.on("data", (chunk) => (error += chunk));
+        child.on("exit", (code) => done({ code, error: error.trim() }));
+      });
+    };
+    const results = [begin("codex"), begin("claude")];
+    await bothWaiting;
+    await held.close();
+
+    const settled = await Promise.all(results);
+    expect(settled.map((result) => result.code).sort()).toEqual([0, 2]);
+    expect(settled.find((result) => result.code === 2)?.error).toMatch(
+      /'s turn is open; it has to end before yours begins$/,
+    );
+  });
+
   it("end --who refuses another agent's turn, and --if-open succeeds with none open", async () => {
     const { hf, json } = project();
     await hf();
