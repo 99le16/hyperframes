@@ -1,5 +1,4 @@
 // fallow-ignore-file unused-file
-import { dirname, join } from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import puppeteer from "puppeteer-core";
 import { testProcessIsAlive, testProcessDescendants } from "./processTestUtils.js";
@@ -37,8 +36,12 @@ console.log = (...args: unknown[]) => {
 };
 const launch = puppeteer.launch.bind(puppeteer);
 puppeteer.launch = async (options) => {
-  const browser = await launch({ ...options, userDataDir: join(dirname(pidFile), "profile") });
-  const pid = browser.process()?.pid;
+  const browser = await launch(options);
+  const browserProcess = browser.process();
+  const profile = browserProcess?.spawnargs.find((arg) => arg.startsWith("--user-data-dir="));
+  if (!profile) throw new Error("Browser did not expose its profile");
+  writeFileSync(`${pidFile}.profile`, profile.slice("--user-data-dir=".length));
+  const pid = browserProcess?.pid;
   if (!pid) throw new Error("Browser did not expose its process");
   writeFileSync(pidFile, String(pid));
   const newPage = browser.newPage.bind(browser);
@@ -64,4 +67,38 @@ puppeteer.launch = async (options) => {
   };
   return browser;
 };
+if (process.env.HF_TEST_DISTINCT_PROFILES === "1") {
+  const { ensureBrowser } = await import("../browser/manager.js");
+  const { launchManagedBrowser, closeManagedBrowser } = await import("../browser/launch.js");
+  const { executablePath } = await ensureBrowser();
+  const options = {
+    executablePath,
+    headless: true,
+    args: ["--no-sandbox"],
+  } as const;
+  const first = await launchManagedBrowser(puppeteer, {
+    ...options,
+    args: [...options.args],
+  });
+  try {
+    const firstProfile = readFileSync(`${pidFile}.profile`, "utf8");
+    const firstPid = first.process()?.pid;
+    if (!firstPid) throw new Error("First browser has no process");
+    const second = await launchManagedBrowser(puppeteer, {
+      ...options,
+      args: [...options.args],
+    });
+    try {
+      writeFileSync(`${pidFile}.first-alive`, String(testProcessIsAlive(firstPid)));
+      writeFileSync(
+        `${pidFile}.profiles`,
+        JSON.stringify([firstProfile, readFileSync(`${pidFile}.profile`, "utf8")]),
+      );
+    } finally {
+      await closeManagedBrowser(second);
+    }
+  } finally {
+    await closeManagedBrowser(first);
+  }
+}
 await import("../cli.js");

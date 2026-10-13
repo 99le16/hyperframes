@@ -27,7 +27,9 @@ const treeSchema = {
     descendants: { elements: { type: "uint32" } },
   },
 } as const;
+const profilesSchema = { elements: { type: "string" } } as const;
 const parser = new Ajv();
+const parseProfiles = parser.compileParser<JTDDataType<typeof profilesSchema>>(profilesSchema);
 const parseReport = parser.compileParser<JTDDataType<typeof reportSchema>>(reportSchema);
 const parseTree = parser.compileParser<JTDDataType<typeof treeSchema>>(treeSchema);
 
@@ -75,7 +77,13 @@ it.skipIf(process.platform !== "linux")(
   60_000,
 );
 
-async function runWitness(inspectLinuxTree: boolean): Promise<void> {
+it(
+  "managed launches own distinct profiles while the first browser is alive",
+  () => runWitness(false, true),
+  60_000,
+);
+
+async function runWitness(inspectLinuxTree: boolean, inspectProfiles = false): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), "hf-check-deadline-"));
   const pidFile = join(dir, "browser.pid");
   writeHangProject(dir);
@@ -94,7 +102,11 @@ async function runWitness(inspectLinuxTree: boolean): Promise<void> {
       dir,
     ],
     {
-      env: { ...process.env, HF_TEST_BROWSER_PID_FILE: pidFile },
+      env: {
+        ...process.env,
+        HF_TEST_BROWSER_PID_FILE: pidFile,
+        HF_TEST_DISTINCT_PROFILES: inspectProfiles ? "1" : "0",
+      },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
@@ -129,7 +141,12 @@ async function runWitness(inspectLinuxTree: boolean): Promise<void> {
       await stopTestProcesses(child, [...descendants, ...(pid === undefined ? [] : [pid])]);
     }
     if (terminationFailure !== undefined) throw terminationFailure;
-    await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 100,
+    });
   });
   expect(await done, output).toBe(1);
   const report = parseReport(stdout.slice(stdout.indexOf('{\n  "ok"')));
@@ -144,6 +161,13 @@ async function runWitness(inspectLinuxTree: boolean): Promise<void> {
   );
   const browserPid = readPid(pidFile);
   expect(testProcessIsAlive(browserPid)).toBe(false);
+  if (inspectProfiles) {
+    expect(readFileSync(`${pidFile}.first-alive`, "utf8")).toBe("true");
+    const profiles = parseProfiles(readFileSync(`${pidFile}.profiles`, "utf8"));
+    expect(profiles).toHaveLength(2);
+    expect(new Set(profiles).size).toBe(2);
+  }
+  expect(readFileSync(`${pidFile}.profile`, "utf8")).not.toBe(join(dir, "profile"));
   expect(readFileSync(`${pidFile}.report-browser-alive`, "utf8")).toBe("false");
   expect(readFileSync(`${pidFile}.script`, "utf8")).toBe("started");
   if (inspectLinuxTree) {
