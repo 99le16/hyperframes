@@ -197,7 +197,7 @@
     },
     "packages/inspector": {
       "name": "@hyperframes/inspector",
-      "version": "0.8.127",
+      "version": "0.8.140",
       "dependencies": {
         "@hyperframes/core": "workspace:*",
         "@jridgewell/trace-mapping": "^0.3.29",

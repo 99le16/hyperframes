@@ -60,6 +60,15 @@ export const componentOutputSchema = object(
   },
   ["visualState"],
 );
+const declaredValue = object({
+  kind: { type: "string", enum: ["literal", "relative", "expression", "unknown"] },
+  value: { oneOf: [number, string, { type: "null" }] },
+});
+const animationValues = object({
+  basis: { type: "string", enum: ["authored-tween"] },
+  properties: array(object({ property: string, from: declaredValue, to: declaredValue })),
+  ease: declaredValue,
+});
 export const timelineOutputSchema = object({
   text: string,
   generation: string,
@@ -67,16 +76,20 @@ export const timelineOutputSchema = object({
   status: string,
   candidates: array(element),
   events: array(
-    object({
-      kind: { type: "string", enum: ["animation", "item"] },
-      relation: string,
-      component: nullable(element),
-      targets: array(element),
-      properties: array(string),
-      start: number,
-      end: number,
-      sources: array(object({ file: string, line: number })),
-    }),
+    object(
+      {
+        kind: { type: "string", enum: ["animation", "item"] },
+        relation: string,
+        component: nullable(element),
+        targets: array(element),
+        properties: array(string),
+        values: animationValues,
+        start: number,
+        end: number,
+        sources: array(object({ file: string, line: number })),
+      },
+      ["values"],
+    ),
   ),
   eventCount: number,
   groupCount: number,

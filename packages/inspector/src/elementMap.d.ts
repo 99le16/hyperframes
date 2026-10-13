@@ -14,7 +14,7 @@ export interface ElementNode {
   media: string | null;
   relative: string;
   groupSelector: string;
-  siblingMatches: string[];
+  siblingMatchCount: number;
   children: number[];
 }
 export interface ElementDom {

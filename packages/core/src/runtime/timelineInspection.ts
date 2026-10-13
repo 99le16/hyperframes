@@ -1,3 +1,4 @@
+import { animationValues, type AnimationValues } from "./timelineValues";
 import { createRuntimeStartTimeResolver } from "./startResolver";
 import { findRootCompositionElement } from "./compositionDimension";
 import { readElementRateSpec, readMediaStart } from "./playbackRate";
@@ -126,6 +127,7 @@ export interface TimelineEvent extends Interval {
   component: ElementRef | null;
   targets: ElementRef[];
   properties: string[];
+  values?: AnimationValues;
   stack: string | null;
 }
 export interface TimelineRuntimeResult {
@@ -210,6 +212,7 @@ export function inspectTimelineRuntime(
         const properties = Object.keys(piece.vars ?? {}).filter(
           (k) => !reserved.has(k) && !k.startsWith("on"),
         );
+        const values = animationValues(piece.vars ?? {}, properties);
         const localIntervals = internal
           ? globalIntervals(
               a,
@@ -243,7 +246,8 @@ export function inspectTimelineRuntime(
                 e.start === interval.start &&
                 e.end === interval.end &&
                 e.component?.ref === describe(owner).ref &&
-                e.properties.join() === properties.join(),
+                e.properties.join() === properties.join() &&
+                JSON.stringify(e.values) === JSON.stringify(values),
             );
             if (existing) {
               for (const target of targets.map(describe))
@@ -257,6 +261,7 @@ export function inspectTimelineRuntime(
                 component: describe(owner),
                 targets: targets.map(describe),
                 properties,
+                values,
                 stack,
               });
           }

@@ -53,6 +53,12 @@ test("does not group a subset under an overbroad selector", () => {
   assert.doesNotMatch(result.text, /×2/);
 });
 
+test("a class superset prevents grouping under an overbroad class selector", () => {
+  const result = map('<i class="dot">A</i><i class="dot">A</i><i class="dot accent">A</i>');
+  assert.doesNotMatch(result.text, /×2/);
+  assert.equal(result.coveredCount, 4);
+});
+
 test("grouped subtrees retain descendants and scoped positions", () => {
   const result = map('<div class="card"><i>A</i><i>B</i></div>'.repeat(3));
   assert.equal(result.coveredCount, 10);
