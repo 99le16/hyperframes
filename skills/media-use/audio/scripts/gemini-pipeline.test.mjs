@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 
@@ -80,7 +81,7 @@ fs.writeFileSync(path.join(args[args.indexOf('--dir')+1], 'transcript.json'), JS
         [
           "--import",
           preload,
-          new URL("./audio.mjs", import.meta.url).pathname,
+          fileURLToPath(new URL("./audio.mjs", import.meta.url)),
           "--hyperframes",
           dir,
           "--only",

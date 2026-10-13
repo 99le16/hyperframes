@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
 import { runInNewContext } from "node:vm";
@@ -81,7 +82,7 @@ test("records locally made music as generated once it is ready", () => {
         bgm_mode: "detached-single",
       }),
     );
-    const script = new URL("./wait-bgm.mjs", import.meta.url).pathname;
+    const script = fileURLToPath(new URL("./wait-bgm.mjs", import.meta.url));
     const args = ["--audio-meta", join(dir, "audio_meta.json"), "--hyperframes", dir];
 
     const run = spawnSync(process.execPath, [script, ...args, "--timeout-ms", "1000"], {

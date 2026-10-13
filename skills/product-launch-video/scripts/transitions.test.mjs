@@ -3,11 +3,15 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const workflowScripts = [
-  ["product-launch-video", new URL("./transitions.mjs", import.meta.url).pathname],
-  ["pr-to-video", new URL("../../pr-to-video/scripts/transitions.mjs", import.meta.url).pathname],
+  ["product-launch-video", fileURLToPath(new URL("./transitions.mjs", import.meta.url))],
+  [
+    "pr-to-video",
+    fileURLToPath(new URL("../../pr-to-video/scripts/transitions.mjs", import.meta.url)),
+  ],
 ];
 
 function runInject(script, rootId) {

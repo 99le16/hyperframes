@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-const script = new URL("./audio.mjs", import.meta.url).pathname;
+const script = fileURLToPath(new URL("./audio.mjs", import.meta.url));
 
 // The header of this adapter declares it "intentionally identical across the
 // reusing skills" — pin that contract so a fix landing in one copy can't

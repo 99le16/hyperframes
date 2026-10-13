@@ -3,11 +3,12 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { validateFrameHtml } from "./lib/frame-contract.mjs";
 
-const scriptDir = dirname(new URL(import.meta.url).pathname);
+const scriptDir = dirname(fileURLToPath(import.meta.url));
 const buildFrameScript = join(scriptDir, "build-frame.mjs");
 const assembleScript = join(scriptDir, "assemble-index.mjs");
 const transitionsScript = join(scriptDir, "transitions.mjs");

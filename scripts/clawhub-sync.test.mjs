@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { syncSkills } from "./clawhub-sync.mjs";
 
 const TAKEN = (version) =>
@@ -135,7 +136,7 @@ describe("ClawHub skill sync", () => {
     try {
       writeFileSync(join(bin, "clawhub"), "#!/bin/sh\necho 'Error: not logged in' >&2\nexit 1\n");
       chmodSync(join(bin, "clawhub"), 0o755);
-      const script = new URL("./clawhub-sync.mjs", import.meta.url).pathname;
+      const script = fileURLToPath(new URL("./clawhub-sync.mjs", import.meta.url));
       const result = spawnSync(process.execPath, [script], {
         encoding: "utf8",
         env: {

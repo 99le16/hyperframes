@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-const assembleScript = new URL("./assemble-index.mjs", import.meta.url).pathname;
+const assembleScript = fileURLToPath(new URL("./assemble-index.mjs", import.meta.url));
 const HAS_FFMPEG =
   spawnSync("ffmpeg", ["-version"], { stdio: "ignore" }).status === 0 &&
   spawnSync("ffprobe", ["-version"], { stdio: "ignore" }).status === 0;
