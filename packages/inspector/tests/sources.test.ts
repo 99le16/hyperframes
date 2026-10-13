@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Sources, mergeSnippets, fingerprint } from "../src/sources";
@@ -9,6 +9,24 @@ import {
 } from "../../core/src/compiler/htmlBundler";
 
 describe("source records", () => {
+  it("ignores the generated folders Studio's preview signature ignores", () => {
+    const dir = mkdtempSync(join(tmpdir(), "inspect-source-"));
+    try {
+      writeFileSync(join(dir, "index.html"), "<div></div>");
+      const before = fingerprint(dir);
+      for (const folder of [".waveform-cache", ".thumbnails", ".transcode-cache", ".cache"]) {
+        mkdirSync(join(dir, folder));
+        writeFileSync(join(dir, folder, "peaks.json"), "[1,2,3]");
+      }
+      expect(fingerprint(dir)).toBe(before);
+      writeFileSync(join(dir, "data.json"), "{}");
+      expect(fingerprint(dir)).not.toBe(before);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+
   it("keeps original multiline blocks and deduplicates targets without reformatting", () => {
     const dir = mkdtempSync(join(tmpdir(), "inspect-source-"));
     try {
