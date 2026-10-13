@@ -32,7 +32,6 @@ export type {
   CutoverResult,
   PublishSdkSession,
 } from "./sdkEditTransaction";
-
 function sdkFamilyEnabled(family: StudioSdkOperationFamily): boolean {
   const configured = Object.prototype.hasOwnProperty.call(
     studioAvailability,
@@ -54,7 +53,6 @@ function trackCutoverResult(
     failedCutover(result.error, family, context);
   }
 }
-
 /** True when targetPath isn't the composition the SDK session models. */
 function wrongCompositionFile(deps: CutoverDeps, targetPath: string): boolean {
   return deps.compositionPath != null && targetPath !== deps.compositionPath;
@@ -166,7 +164,6 @@ export async function sdkTimingPersist(
     return failedCutover(error, "timing", { hfId, opCount: 1 });
   }
 }
-
 export async function sdkTimingBatchPersist(
   changes: Array<{
     hfId: string;
@@ -235,7 +232,6 @@ type SdkGsapTweenOp =
   | { kind: "add"; target: string; spec: GsapTweenSpec }
   | { kind: "set"; animationId: string; properties: Partial<GsapTweenSpec> }
   | { kind: "remove"; animationId: string };
-
 export function sdkGsapTweenPersist(
   targetPath: string,
   op: SdkGsapTweenOp,
@@ -287,7 +283,6 @@ export function sdkGsapTweenPersist(
     });
   });
 }
-
 async function dispatchGsapOpAndPersist(
   family: "gsap-animation" | "gsap-keyframe",
   targetPath: string,
@@ -338,7 +333,6 @@ async function dispatchGsapOpAndPersist(
     return failedCutover(error, family, { opCount: 1 });
   }
 }
-
 export function sdkGsapKeyframePersist(
   targetPath: string,
   animationId: string,

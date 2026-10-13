@@ -212,9 +212,10 @@ describe("video state", () => {
 
   it("rejects a state file symlink outside the project", async () => {
     const f = await fixture();
-    const outside = join(tmpdir(), `hf-state-outside-${Date.now()}.json`);
+    const outsideDir = mkdtempSync(join(tmpdir(), "hf-state-outside-"));
+    const outside = join(outsideDir, "video-state.json");
     cleanups.unshift(async () => {
-      rmSync(outside, { force: true });
+      rmSync(outsideDir, { recursive: true, force: true });
     });
     writeFileSync(outside, "untouched");
     const path = join(f.projectDir, ".hyperframes/video-state.json");

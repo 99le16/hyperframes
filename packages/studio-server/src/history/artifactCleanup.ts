@@ -140,13 +140,14 @@ export function finishArtifactCleanup(projectDir: string, state: VideoState): vo
   );
   state.pendingArtifactCleanup = (state.pendingArtifactCleanup ?? []).filter((item) => {
     if (!managedPath(projectDir, item.path, item.kind)) return false;
+    const canonicalPath = realFilePath(item.path);
     if (protectedIds.has(item.revision)) {
       restoreCleaned(state, item);
       return false;
     }
     if (state.pendingChanges) return true;
-    if (referenced.has(realFilePath(item.path))) return false;
-    return stillPendingAfterUnlink(item);
+    if (referenced.has(canonicalPath)) return false;
+    return stillPendingAfterUnlink({ ...item, path: canonicalPath });
   });
   updateLatest(state);
 }
