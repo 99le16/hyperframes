@@ -130,7 +130,7 @@ describe("withProjectLock", () => {
     expect(active).toBe(0);
   });
 
-  it("takes over a breaker left by a killed process", async () => {
+  it("refuses a breaker left by a killed process and names the file", async () => {
     const dir = project();
     hold(dir, 2 ** 22 + 12345);
     const breakPath = `${projectLockPath(dir)}.break`;
@@ -152,8 +152,10 @@ describe("withProjectLock", () => {
     );
     expect(outcome.signal === "SIGKILL" || outcome.code !== 0).toBe(true);
     expect(existsSync(breakPath)).toBe(true);
-    expect(await withProjectLock(dir, "check", async () => "ran", locked(300))).toBe("ran");
-    expect(existsSync(breakPath)).toBe(false);
-    expect(existsSync(projectLockPath(dir))).toBe(false);
+    await expect(withProjectLock(dir, "check", async () => "ran", locked(0))).rejects.toThrow(
+      `hyperframes left ${breakPath} (pid ${child.pid}); delete it to continue`,
+    );
+    expect(existsSync(breakPath)).toBe(true);
+    expect(existsSync(projectLockPath(dir))).toBe(true);
   });
 });

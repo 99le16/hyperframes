@@ -36,36 +36,18 @@ function alive(pid: number): boolean {
 const sameHolder = (a: Holder | null, b: Holder) =>
   a?.pid === b.pid && a.startedAt === b.startedAt && a.command === b.command;
 
-function claimExclusive(draft: string, target: string): boolean | undefined {
-  try {
-    linkSync(draft, target);
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    return undefined;
-  }
-}
-
-function takeBreaker(breakPath: string, draft: string): boolean {
-  if (claimExclusive(draft, breakPath)) return true;
-  const existing = readHolder(breakPath);
-  if (!existing || alive(existing.pid) || !sameHolder(readHolder(breakPath), existing))
-    return false;
-  try {
-    unlinkSync(breakPath);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  return claimExclusive(draft, breakPath) === true;
-}
-
 function breakStaleHolder(path: string, current: Holder, holder: Holder): boolean {
   const breakPath = `${path}.break`;
   const breakDraft = `${breakPath}.${holder.pid}.${holder.startedAt}`;
   let acquired = false;
   writeFileSync(breakDraft, JSON.stringify(holder), { flag: "wx" });
   try {
-    if (!takeBreaker(breakPath, breakDraft)) return false;
+    try {
+      linkSync(breakDraft, breakPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+      throw error;
+    }
     if (sameHolder(readHolder(path), current)) {
       try {
         unlinkSync(path);
@@ -112,6 +94,13 @@ export async function withProjectLock<T>(
     const remaining = deadline - Date.now();
     if (remaining <= 0) {
       const current = readHolder(path);
+      const breakPath = `${path}.break`;
+      const breaker = readHolder(breakPath);
+      if ((!current || !alive(current.pid)) && breaker && !alive(breaker.pid)) {
+        throw new ProjectLockTimeout(
+          `hyperframes left ${breakPath} (pid ${breaker.pid}); delete it to continue`,
+        );
+      }
       throw new ProjectLockTimeout(
         `hyperframes ${current?.command ?? "another command"} (pid ${current?.pid ?? "unknown"}) ` +
           `is still using this project after ${Math.round(context.projectLock.waitMs / 1000)}s`,

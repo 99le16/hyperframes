@@ -69,8 +69,9 @@ Ignore event types and roles you do not know; new ones are added without a versi
 
 `check` and `snapshot` take a lock on the project before they start a browser, and release it when
 they finish. A second command waits up to `waitMs` milliseconds for the lock, then fails, naming the
-command and process that hold it. A lock whose process has exited is taken over. The lock is the file
-`.hyperframes/project.lock`.
+command and process that hold it. A lock whose process has exited is taken over. A
+`project.lock.break` left by a killed process is not: the timeout names that file and its process
+id, and says to delete it to continue. The lock is the file `.hyperframes/project.lock`.
 
 Choose `waitMs` below your tool call's own timeout, so a wait ends in the CLI's message rather than
 the harness killing the call.
