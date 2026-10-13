@@ -1,4 +1,4 @@
-import { isNavigationTimeoutError } from "./captureTimeout.js";
+import { isDegradableEvaluateTimeoutError, isNavigationTimeoutError } from "./captureTimeout.js";
 
 export { isNavigationTimeoutError };
 
@@ -63,19 +63,75 @@ export async function navigateForCapture<TResponse>(
 }
 
 export interface PageReadyPage {
-  waitForNetworkIdle(options: { idleTime: number; timeout: number }): Promise<unknown>;
+  waitForNetworkIdle(options: {
+    idleTime: number;
+    timeout: number;
+    concurrency?: number;
+  }): Promise<unknown>;
   evaluate(fn: () => unknown): Promise<unknown>;
 }
 
-export async function waitForPageReady(page: PageReadyPage): Promise<void> {
-  await page.waitForNetworkIdle({ idleTime: 500, timeout: 15_000 }).catch(() => {});
+export interface WaitForPageReadyOptions {
+  /**
+   * Wall-clock ceiling shared by the idle waits and the readyState poll —
+   * each wait gets only the time still left. Pass the remaining capture
+   * budget (min'd with 15_000) so the settle cannot outrun the stage.
+   */
+  timeoutMs?: number;
+  /**
+   * "always" pays one bounded idle wait up front — the post-click settle,
+   * where a navigation or consent XHR is expected. "after-load" skips that
+   * wait and idles only when the poll actually saw a loading document — a
+   * cheap guard for stages that already settled the page.
+   */
+  networkIdle?: "always" | "after-load";
+}
+
+export async function waitForPageReady(
+  page: PageReadyPage,
+  options: WaitForPageReadyOptions = {},
+): Promise<void> {
+  const { timeoutMs = 15_000, networkIdle = "always" } = options;
+  const deadline = Date.now() + timeoutMs;
+  const remaining = () => Math.max(0, deadline - Date.now());
+  const idle = () =>
+    page
+      // concurrency: 2 matches the networkidle2 semantic navigation already
+      // uses, so one held-open request (long-poll, beacon) cannot block it.
+      .waitForNetworkIdle({ idleTime: 500, timeout: remaining(), concurrency: 2 })
+      .catch(() => {});
+
+  if (networkIdle === "always" && remaining() > 0) await idle();
+
+  // Poll the document out of a still-loading or mid-navigation state. The
+  // bound is wall clock, not iteration count: each evaluate races the
+  // remaining deadline, so a hung execution-context wait (~30s, or the
+  // protocol timeout) cannot stretch the settle. Degradable protocol/stage
+  // timeouts rethrow so the stage can degrade like the rest of capture.
   let waitedOutLoad = false;
-  for (let i = 0; i < 30; i++) {
-    const loading = await page.evaluate(() => document.readyState === "loading").catch(() => true);
+  while (remaining() > 0) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const loading = await Promise.race([
+      page
+        .evaluate(() => document.readyState === "loading")
+        .catch((err: unknown) => {
+          if (isDegradableEvaluateTimeoutError(err)) throw err;
+          return true;
+        }),
+      new Promise<true>((resolve) => {
+        timer = setTimeout(() => resolve(true), Math.max(1, remaining()));
+      }),
+    ]).finally(() => {
+      if (timer !== undefined) clearTimeout(timer);
+    });
     if (!loading) break;
     waitedOutLoad = true;
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    if (remaining() > 0) {
+      await new Promise((resolve) => setTimeout(resolve, Math.min(500, remaining())));
+    }
   }
-  if (!waitedOutLoad) return;
-  await page.waitForNetworkIdle({ idleTime: 500, timeout: 15_000 }).catch(() => {});
+
+  // A document we had to wait out keeps fetching once parsed — settle those
+  // requests too, inside the same deadline.
+  if (waitedOutLoad && remaining() > 0) await idle();
 }

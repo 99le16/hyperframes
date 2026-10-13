@@ -130,8 +130,19 @@ export async function captureScrollScreenshots(
     // These overlay content and contaminate screenshots with UI that doesn't
     // belong in video compositions (cookie popups, newsletter modals, etc.)
     // A consent click can reload the page (some CMPs reload once consent is
-    // stored); wait out the reloading document before reading the DOM again.
-    await page
+    // stored); a swapped document reads as a new performance.timeOrigin. Read
+    // it around the sweep so a banner-free page skips the settle and keeps
+    // the old flat-400ms cost — an unreadable (NaN) pair counts as "cannot
+    // prove unchanged" and settles on the safe side.
+    const readTimeOrigin = async (): Promise<number> => {
+      const value: unknown = await page.evaluate(`performance.timeOrigin`).catch((err: unknown) => {
+        if (isDegradableEvaluateTimeoutError(err)) throw err;
+        return undefined;
+      });
+      return typeof value === "number" ? value : Number.NaN;
+    };
+    const originBefore = await readTimeOrigin();
+    const clickedCount = await page
       .evaluate(() => {
         // Click common dismiss/accept buttons
         const selectors = [
@@ -161,22 +172,35 @@ export async function captureScrollScreenshots(
           'button[class*="not-now"]',
           'button[class*="no-thanks"]',
         ];
+        let clicked = 0;
         for (const sel of selectors) {
           try {
             const el = document.querySelector<HTMLElement>(sel);
-            if (el) el.click();
+            if (el) {
+              el.click();
+              clicked++;
+            }
           } catch {
             /* ignore */
           }
         }
+        return clicked;
       })
       .catch((err: unknown) => {
         if (isDegradableEvaluateTimeoutError(err)) {
           throw err;
         }
+        return 0;
       });
     await new Promise((r) => setTimeout(r, 400));
-    await waitForPageReady(page);
+    // Settle only when the sweep clicked a control or the document was
+    // swapped under us — the click reload is the case that needs it (#4923),
+    // and the wait shares the stage's remaining budget.
+    if (clickedCount > 0 || (await readTimeOrigin()) !== originBefore) {
+      await waitForPageReady(page, {
+        timeoutMs: Math.min(15_000, budget.remainingMs?.() ?? 15_000),
+      });
+    }
     await page
       // fallow-ignore-next-line complexity
       .evaluate(() => {

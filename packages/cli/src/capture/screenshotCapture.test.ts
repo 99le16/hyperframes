@@ -367,6 +367,42 @@ describe("captureScrollScreenshots — consent-click page reload (#4923)", () =>
     expect(waitForNetworkIdle).toHaveBeenCalledTimes(1);
   });
 
+  it("skips the settle when nothing was clicked and the document is unchanged", async () => {
+    const dir = tempDir("hf-scroll-no-settle-");
+    // A stable timeOrigin proves the same document before and after the
+    // sweep, so a banner-free page pays the flat 400ms and no idle wait.
+    const evaluate = vi.fn(async (script?: unknown) => {
+      const src = String(script);
+      if (src.includes("performance.timeOrigin")) return 12_345;
+      if (src.includes("el.click()")) return 0;
+      return settledSize(src);
+    });
+    const waitForNetworkIdle = vi.fn(async () => undefined);
+    const { page } = scrollablePage(evaluate, waitForNetworkIdle);
+
+    const files = await captureScrollScreenshots(page, dir);
+
+    expect(files.length).toBeGreaterThan(0);
+    expect(waitForNetworkIdle).not.toHaveBeenCalled();
+  });
+
+  it("settles when the sweep clicked a control even without a reload", async () => {
+    const dir = tempDir("hf-scroll-clicked-");
+    const evaluate = vi.fn(async (script?: unknown) => {
+      const src = String(script);
+      if (src.includes("performance.timeOrigin")) return 12_345;
+      if (src.includes("el.click()")) return 1;
+      return settledSize(src);
+    });
+    const waitForNetworkIdle = vi.fn(async () => undefined);
+    const { page } = scrollablePage(evaluate, waitForNetworkIdle);
+
+    const files = await captureScrollScreenshots(page, dir);
+
+    expect(files.length).toBeGreaterThan(0);
+    expect(waitForNetworkIdle).toHaveBeenCalledTimes(1);
+  });
+
   // Puppeteer's waitForNetworkIdle counts a request only until its response
   // headers arrive, so it resolves while a reloaded document is still
   // parsing. waitForNavigation cannot help there — it deadlocks when armed

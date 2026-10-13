@@ -310,7 +310,13 @@ export async function runCoreExtraction(input: CoreExtractionInput): Promise<Cor
   await runAnimationCapture();
 
   const runHtmlExtraction = async (): Promise<void> => {
-    await waitForPageReady(page1);
+    // The screenshot stage already settles consent-click reloads; this is a
+    // bounded readyState guard — one evaluate on a parsed page — so the
+    // catalog never reads a still-loading or mid-navigation document.
+    await waitForPageReady(page1, {
+      timeoutMs: Math.min(15_000, remainingMs()),
+      networkIdle: "after-load",
+    });
 
     // Catalog all assets (must run before extractHtml which converts img src to data URLs)
     progress("design", "Cataloging assets...");
