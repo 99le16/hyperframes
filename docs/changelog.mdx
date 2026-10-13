@@ -13,7 +13,11 @@ Recent HyperFrames releases, including user-facing features, fixes, and migratio
   description="Released - 2026-10-13"
   tags={["Release", "CLI", "Catalog", "Studio"]}
 >
-Check, snapshot, and render keep each run with its revision, so a later capture does not wipe the earlier record. Studio history stores video state with each edit, and one agent can hold a turn until it ends.
+Check and snapshot save each run in its own folder tied to the revision it came from, and renders clean up evidence from old revisions. Project history keeps `.hyperframes/video-state.json` current after every edit and records which element each edit targeted. Agents sharing a project can refuse to start while another agent's turn is open (`--exclusive`), end only their own turn (`--who`), and end safely when no turn is open (`--if-open`).
+
+## Compatibility notes
+
+- Default snapshots moved from `snapshots/` to `.hyperframes/artifacts/snapshots/<id>/`. Check reports are written to `.hyperframes/artifacts/checks/<id>.json`. A render also writes `.hyperframes/render-outputs.json`. Anything still reading `snapshots/` will find nothing. [#5522](https://github.com/heygen-com/hyperframes/pull/5522)
 
 ## Features
 
@@ -23,7 +27,7 @@ Check, snapshot, and render keep each run with its revision, so a later capture 
 
 ## Fixes
 
-- **Keyframes:** Report unresolved GSAP timing instead of guessing rest poses ([8e4de38be](https://github.com/heygen-com/hyperframes/commit/8e4de38be1bdf098a7469a98ed654a932351f327), [#5526](https://github.com/heygen-com/hyperframes/pull/5526)).
+- **Keyframes:** Report unresolved GSAP timing instead of guessing rest poses ([8e4de38be](https://github.com/heygen-com/hyperframes/commit/8e4de38be1bdf098a7469a98ed654a932351f327), [#5526](https://github.com/heygen-com/hyperframes/pull/5526)). `keyframes --json` can return null for `start`, `end`, `duration`, and `time` when that timing cannot be resolved.
 - **CLI:** Turn off onnxruntime telemetry for Kokoro synthesis ([f25cfbd6b](https://github.com/heygen-com/hyperframes/commit/f25cfbd6bd11d7bb8bd53ea686767c46f8eb146c), [#5425](https://github.com/heygen-com/hyperframes/pull/5425)).
 
 ## Catalog
