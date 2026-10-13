@@ -114,6 +114,8 @@ function installSessionMock(page: ReturnType<typeof fakePage>): void {
   });
   vi.mocked(openSettledCompositionPage).mockImplementation(
     async (_html: string, _url: string, options: OpenSettledCompositionPageOptions) => {
+      options.onBrowser?.(browser);
+      options.onBrowserReady?.();
       await options.beforeNavigate?.(page);
       return { page, browser, renderReadyTimedOut: false };
     },

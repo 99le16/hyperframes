@@ -222,6 +222,7 @@ export async function runBrowserCheck(
       browserGpuMode: options.browserGpuMode ?? resolveCliChromeGpuMode(),
       signal: deadline?.signal,
       onBrowser: deadline?.ownBrowser,
+      onBrowserReady: deadline?.start,
       beforeNavigate: async (page) => {
         wireRuntimeListeners(page, drafts, () => currentTime);
         await deadline?.preparePage(page);
@@ -299,6 +300,7 @@ export async function captureFindingCrops(
       renderReadyWarningSuffix: "capturing finding crops",
       signal: deadline?.signal,
       onBrowser: deadline?.ownBrowser,
+      onBrowserReady: deadline?.start,
       beforeNavigate: (page) => deadline?.preparePage(page),
       browserGpuMode: options.browserGpuMode ?? resolveCliChromeGpuMode(),
     });

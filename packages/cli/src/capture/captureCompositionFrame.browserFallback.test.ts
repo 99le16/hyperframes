@@ -101,6 +101,28 @@ describe("openSettledCompositionPage Windows bundled-browser recovery", () => {
     expect(mocks.launch).not.toHaveBeenCalled();
   });
 
+  it("starts the composition clock after browser launch and before page creation", async () => {
+    const order: string[] = [];
+    const opened = fakeBrowser();
+    mocks.launch.mockImplementationOnce(async () => {
+      order.push("launch");
+      return opened.browser;
+    });
+    opened.browser.newPage.mockImplementationOnce(async () => {
+      order.push("page");
+      return opened.page;
+    });
+    const onBrowserReady = vi.fn(() => {
+      order.push("ready");
+    });
+    await openSettledCompositionPage(HTML, "http://127.0.0.1:3000", {
+      ...OPTIONS,
+      onBrowserReady,
+    });
+    expect(order).toEqual(["launch", "ready", "page"]);
+    expect(onBrowserReady).toHaveBeenCalledOnce();
+  });
+
   it("launches software WebGPU and accepts its adapter when render's opt-in is set", async () => {
     const opened = fakeBrowser();
     mocks.launch.mockResolvedValueOnce(opened.browser);

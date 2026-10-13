@@ -85,6 +85,8 @@ export interface OpenSettledCompositionPageOptions {
   browserGpuMode?: BrowserGpuMode;
   signal?: AbortSignal;
   onBrowser?: (browser: Browser) => void;
+  // Connected composition browser, before page creation or authored scripts.
+  onBrowserReady?: () => void;
   // Runs after the page exists but before page.goto, so console/pageerror/
   // request listeners can attach without missing load-time events.
   beforeNavigate?: (page: Page) => void | Promise<void>;
@@ -252,6 +254,7 @@ export async function openSettledCompositionPage(
     }
 
     options.onBrowser?.(chromeBrowser);
+    options.onBrowserReady?.();
     const page = await chromeBrowser.newPage();
     await installPageFunctionGuard(page);
     await page.setViewport(viewport);

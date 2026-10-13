@@ -17,7 +17,7 @@ export class CheckDeadlineError extends Error {
   }
 }
 
-/** One Node clock spans readiness, sampling and the optional second browser for crops. */
+/** One Node clock starts at the composition browser and spans readiness, sampling and crops. */
 export class CheckDeadline {
   private readonly abort = new AbortController();
   private readonly operations = new Set<Promise<unknown>>();
@@ -27,19 +27,28 @@ export class CheckDeadline {
   private expired: CheckDeadlineError | undefined;
   private timer: NodeJS.Timeout | undefined;
   private readonly expiry: Promise<never>;
+  private rejectExpiry!: (error: CheckDeadlineError) => void;
+  private phase: "waiting" | "started" | "closed" = "waiting";
 
   constructor() {
     this.expiry = new Promise((_, reject) => {
-      this.timer = setTimeout(() => {
-        this.expired = new CheckDeadlineError(this.scripts.at(-1));
-        reject(this.expired);
-        this.abort.abort(this.expired);
-      }, CHECK_DEADLINE_MS);
+      this.rejectExpiry = reject;
     });
   }
 
+  start = (): void => {
+    if (this.phase !== "waiting") return;
+    this.phase = "started";
+    this.timer = setTimeout(() => {
+      this.expired = new CheckDeadlineError(this.scripts.at(-1));
+      this.rejectExpiry(this.expired);
+      this.abort.abort(this.expired);
+    }, CHECK_DEADLINE_MS);
+  };
+
   ownBrowser = (browser: Browser): void => {
     if (this.expired) throw this.expired;
+    if (this.phase === "closed") throw new Error("Check has already finished.");
     this.browsers.add(browser);
   };
 
@@ -71,6 +80,7 @@ export class CheckDeadline {
   }
 
   async close(): Promise<void> {
+    this.phase = "closed";
     clearTimeout(this.timer);
     const closes = await Promise.allSettled([...this.browsers].map(closeManagedBrowser));
     const errors = closes
