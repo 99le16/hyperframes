@@ -737,6 +737,8 @@ sections are empty, not clean.
 | `--at`                                       | Explicit timestamps in seconds, comma-separated                                                                             |
 | `--at-transitions`                           | Also sample every tween start and end, to catch transient overlaps at transition seams                                       |
 | `--max-transition-samples`                   | Cap the transition-derived samples. When it truncates, the omitted count is reported. Default: unlimited.                    |
+| `--range <start,end>`                        | Sample only this interval, in global seconds. Lint stays project-wide; whole-timeline motion and `sweep_static` are skipped. |
+| `--components <selectors>`                   | Report only findings that involve these elements or their descendants. Counts, `ok` and the exit code still cover all.      |
 | `--max-issues`                               | Findings to print or return after static collapse (default 80)                                                              |
 | `--collapse-static` / `--no-collapse-static` | Fold a repeated static finding into one row (default: on)                                                                    |
 | `--tolerance`                                | Allowed overflow in px before reporting (default 2)                                                                         |
