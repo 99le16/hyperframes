@@ -18,7 +18,6 @@ const BOUNDARY_NOTE =
 export interface TimelineReport {
   text: string;
   generation: string;
-  /** Whether the page answering was already loaded, as the components report says. */
   reused: boolean;
   status: string;
   candidates: PageTimeline["candidates"];
@@ -83,7 +82,6 @@ export function formatTimeline(
   };
 }
 
-/** Animations from one source line, owner, relation and property set, on the same elements, read as one group. */
 function groupEvents(events: TimelineEvent[]): TimelineEvent[][] {
   const groups = new Map<string, TimelineEvent[]>();
   for (const event of events) {
@@ -105,7 +103,6 @@ function groupEvents(events: TimelineEvent[]): TimelineEvent[][] {
   return [...groups.values()];
 }
 
-/** T1, T2, ... in order of first mention, shared by every section of one response. */
 function labeler(): Labeler {
   const labels = new Map<string, string>();
   return (ref) => {

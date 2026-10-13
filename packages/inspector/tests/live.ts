@@ -39,12 +39,13 @@ try {
     '<head>\n<meta name="studio-fixture" content="extra-lines">\n',
   );
   live.finalizeDocument(served);
+  let servedDocument = served;
   server = createServer((req, res) => {
     res.setHeader(
       "Content-Type",
       req.url?.endsWith("/gsap.min.js") ? "text/javascript" : "text/html",
     );
-    res.end(req.url?.endsWith("/gsap.min.js") ? readFileSync(vendor) : served);
+    res.end(req.url?.endsWith("/gsap.min.js") ? readFileSync(vendor) : servedDocument);
   });
   await new Promise<void>((r) => server!.listen(0, "127.0.0.1", r));
   browser = await puppeteer.launch({
@@ -104,6 +105,38 @@ try {
   assert(timeline.text.includes("index.html:"), "timeline maps its animations to source lines");
   const map = await live.elementMap(runner);
   assert(map.text.includes("#title") && map.generation === live.generation);
+  const reloadDuringQuery = async (
+    run: (inspection: typeof live, racingRunner: PageRunner) => Promise<unknown>,
+  ) => {
+    const beforeReload = prepareLiveInspection(dir, bundled, provenance, version);
+    const afterReload = prepareLiveInspection(dir, bundled, provenance, version);
+    beforeReload.finalizeDocument(beforeReload.html);
+    afterReload.finalizeDocument(afterReload.html);
+    servedDocument = beforeReload.html;
+    await page.reload();
+    await page.waitForFunction("!!window.__hfInspection");
+    let calls = 0;
+    const racingRunner: PageRunner = {
+      run: async <A, R>(fn: (arg: A) => R, arg: A) => {
+        calls++;
+        if (calls === 2) {
+          servedDocument = afterReload.html;
+          await page.reload();
+          await page.waitForFunction("!!window.__hfInspection");
+        }
+        return page.evaluate(`(${fn.toString()})(${JSON.stringify(arg)})`) as Promise<R>;
+      },
+    };
+    await assert.rejects(run(beforeReload, racingRunner), /preview reloaded/);
+  };
+  await reloadDuringQuery((inspection, racingRunner) => inspection.inspect(racingRunner, request));
+  await reloadDuringQuery((inspection, racingRunner) =>
+    inspection.timeline(racingRunner, { at: 2, component: { selector: "#title" } }),
+  );
+  await reloadDuringQuery((inspection, racingRunner) => inspection.elementMap(racingRunner));
+  servedDocument = served;
+  await page.reload();
+  await page.waitForFunction("!!window.__hfInspection");
   assert.equal(await playhead(), before, "inspection moved the playhead");
   await assert.rejects(live.inspect(runner, { ...request, generation: "old" }), /stale_generation/);
   await assert.rejects(live.inspect(runner, { ...request, time: 3 }), /does_not_seek/);

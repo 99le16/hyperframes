@@ -17,14 +17,9 @@ import { assertGeneration, validateInspectRequest, validateTimelineRequest } fro
 import { Sources, fingerprint } from "./sources";
 import type { InspectRequest, Snippet } from "./types";
 
-/**
- * A preview document prepared for inspection in the browser that shows it. The host loads `html` in its preview and
- * answers queries by handing in a runner for that frame; nothing here launches a browser or moves the player.
- */
 export interface LiveInspection {
   readonly html: string;
   readonly generation: string;
-  /** The HTML the host finally served (it may add scripts after bundling), which line mapping must describe. */
   finalizeDocument(servedHtml: string): void;
   inspect(runner: PageRunner, request: InspectRequest): Promise<ComponentReport>;
   timeline(runner: PageRunner, request: TimelineRequest): Promise<TimelineReport>;
@@ -51,6 +46,7 @@ export function prepareLiveInspection(
   const view: InspectionView = {
     generation,
     sourceVersion,
+    pageGeneration: generation,
     sourceContext() {
       if (!context) {
         const sources = new Sources(project);
@@ -63,7 +59,6 @@ export function prepareLiveInspection(
         throw new Error("stale_preview: the project changed; query again once the preview reloads");
     },
   };
-  /** The runner must reach this generation's document, and the sources must still be the ones it was built from. */
   async function current(runner: PageRunner): Promise<void> {
     if ((await previewGeneration(runner)) !== generation)
       throw new Error("stale_preview: the preview reloaded; query again");
@@ -100,7 +95,6 @@ export function prepareLiveInspection(
   };
 }
 
-/** The generation of the live document a runner reaches, or null when it reaches no prepared preview. */
 export function previewGeneration(runner: PageRunner): Promise<string | null> {
   return runner.run(liveGenerationPage, undefined);
 }

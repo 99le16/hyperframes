@@ -11,18 +11,21 @@ export interface SourceContext {
   map: ReturnType<Sources["mapper"]>;
 }
 
-/** One loaded page of the project, whichever browser holds it. */
 export interface InspectionView {
   readonly generation: string;
   readonly sourceVersion: string;
-  /** The project's source index and the page's line mapping, built on first use. */
+  readonly pageGeneration?: string;
   sourceContext(): SourceContext;
-  /** Rejects when the project's sources changed after the page loaded, so an answer never mixes two versions. */
   assertCurrent(): Promise<void>;
 }
 
 export type ComponentReport = ReturnType<typeof mapInspection>;
 export type ElementMapReport = ElementMap & { sourceVersion: string; generation: string };
+
+function assertPageGeneration(view: InspectionView, actual: string | null) {
+  if (view.pageGeneration !== undefined && actual !== view.pageGeneration)
+    throw new Error("stale_preview: the preview reloaded; query again");
+}
 
 export async function inspectComponents(
   runner: PageRunner,
@@ -41,6 +44,7 @@ export async function inspectComponents(
     descendants: request.descendants ?? true,
     cssRules: sources.cssRules.map(({ id, selector }) => ({ id, selector })),
   });
+  assertPageGeneration(view, raw.generation);
   await view.assertCurrent();
   return mapInspection(raw, request, {
     ...context,
@@ -58,6 +62,7 @@ export async function inspectTimeline(
   reused: boolean,
 ): Promise<TimelineReport> {
   const raw = await runner.run(timelinePage, request);
+  assertPageGeneration(view, raw.generation);
   await view.assertCurrent();
   return formatTimeline(raw, request, {
     generation: view.generation,
@@ -71,7 +76,9 @@ export async function inspectElementMap(
   view: InspectionView,
   file = "index.html",
 ): Promise<ElementMapReport> {
-  const map = formatElementMap(await runner.run(collectElementDom, undefined), { file });
+  const snapshot = await runner.run(collectElementDom, undefined);
+  assertPageGeneration(view, snapshot.generation);
+  const map = formatElementMap(snapshot, { file });
   await view.assertCurrent();
   return { ...map, sourceVersion: view.sourceVersion, generation: view.generation };
 }

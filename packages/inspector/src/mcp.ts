@@ -4,7 +4,6 @@ import { componentsTool, timelineTool as timelineDefinition, toolContent } from 
 const url = process.env.HF_INSPECT_URL;
 if (!url || !/^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(url))
   throw new Error("Set HF_INSPECT_URL to the local HF inspection service URL.");
-// The harness renames these (hf_grep_components, hf_grep_timeline); hosts with their own MCP use the same definitions.
 const tool = { name: "inspect_components", ...componentsTool };
 const timelineTool = { name: "inspect_timeline", ...timelineDefinition };
 const input = createInterface({ input: process.stdin });

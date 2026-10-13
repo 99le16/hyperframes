@@ -5,17 +5,17 @@ import type {
 } from "../../core/src/runtime/timelineInspection";
 import type { RuntimeQuery, RuntimeResponse } from "./types";
 
-/**
- * Runs a function inside the inspected document: Puppeteer's page for headless inspection, the host's preview frame
- * for live inspection. `fn` crosses into the page as source text, so it may not refer to anything outside its body.
- */
 export interface PageRunner {
   run<A, R>(fn: (arg: A) => R, arg: A): Promise<R>;
 }
 
 export interface PageTimeline extends TimelineRuntimeResult {
-  /** At a boundary: for each animation crossing it, the next one on the same target and property. */
   following: TimelineEvent[];
+  generation: string | null;
+}
+
+export interface PageRuntimeResponse extends RuntimeResponse {
+  generation: string | null;
 }
 
 type InspectedWindow = Window & {
@@ -36,7 +36,6 @@ export interface PlayerState {
   duration: number | undefined;
 }
 
-/** Moves the player, so only a page the inspector owns may run it, never a person's preview. */
 export function seekPage(time: number): void {
   const player = (window as InspectedWindow).__player;
   if (!player) throw new Error("player_unavailable");
@@ -48,18 +47,24 @@ export function playerStatePage(): PlayerState {
   return { time: player?.getTime(), duration: player?.getDuration() };
 }
 
-export function queryPage(query: RuntimeQuery): RuntimeResponse {
-  const inspection = (window as InspectedWindow).__hfInspection;
+export function queryPage(query: RuntimeQuery): PageRuntimeResponse {
+  const inspected = window as InspectedWindow;
+  const inspection = inspected.__hfInspection;
   if (!inspection) throw new Error("inspector_unavailable");
-  return inspection.query(query);
+  return {
+    generation: inspected.__hfLiveInspection?.generation ?? null,
+    ...inspection.query(query),
+  };
 }
 
 export function timelinePage(request: TimelineRequest): PageTimeline {
-  const inspection = (window as InspectedWindow).__hfInspection;
+  const inspected = window as InspectedWindow;
+  const inspection = inspected.__hfInspection;
   if (!inspection) throw new Error("inspector_unavailable");
   const result = inspection.timeline(request);
   const following: TimelineEvent[] = [];
-  if (request.boundary === undefined) return { ...result, following };
+  const generation = inspected.__hfLiveInspection?.generation ?? null;
+  if (request.boundary === undefined) return { ...result, following, generation };
   const boundary = request.boundary;
   const schedule = inspection.timeline({ ...request, boundary: undefined });
   for (const crossing of result.events) {
@@ -77,10 +82,9 @@ export function timelinePage(request: TimelineRequest): PageTimeline {
       if (next && !following.includes(next)) following.push(next);
     }
   }
-  return { ...result, following };
+  return { ...result, following, generation };
 }
 
-/** The generation stamped into a live preview when its document was prepared, or null in any other page. */
 export function liveGenerationPage(): string | null {
   return (window as InspectedWindow).__hfLiveInspection?.generation ?? null;
 }

@@ -1,10 +1,5 @@
 import { componentOutputSchema, timelineOutputSchema } from "./outputSchemas";
 
-/**
- * The two inspection tools as every host offers them: one description and one JSON Schema, whichever transport (the
- * stdio MCP here, a host's own MCP) and whichever name prefix the host gives them. What a host adds about its own
- * tools (that inspected source counts as read, say) belongs in that host's guidance, not here.
- */
 export interface InspectionTool {
   readonly description: string;
   readonly inputSchema: Record<string, unknown>;
@@ -145,7 +140,6 @@ export const timelineTool: InspectionTool = {
   outputSchema: timelineOutputSchema,
 };
 
-/** A report as an MCP tool result: the timeline reads as its text, components as their JSON. */
 export function toolContent(tool: "components" | "timeline", report: object & { text?: string }) {
   const text = tool === "timeline" && report.text ? report.text : JSON.stringify(report);
   return { content: [{ type: "text" as const, text }], structuredContent: report };

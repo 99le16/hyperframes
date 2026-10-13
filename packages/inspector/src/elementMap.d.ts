@@ -18,6 +18,7 @@ export interface ElementNode {
   children: number[];
 }
 export interface ElementDom {
+  generation: string | null;
   nodes: ElementNode[];
   limitations: { canvas: number; iframes: number; shadowRoots: number };
 }

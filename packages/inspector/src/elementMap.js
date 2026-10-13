@@ -87,6 +87,7 @@ export function collectElementDom() {
   }
   if (document.body) visit(document.body, null);
   return {
+    generation: window.__hfLiveInspection?.generation ?? null,
     nodes,
     limitations: {
       canvas: nodes.filter((node) => node.tag === "canvas").length,

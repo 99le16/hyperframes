@@ -32,7 +32,6 @@ import { closeServer } from "./pageServer";
 import { Sources, fingerprint } from "./sources";
 import type { InspectRequest, Snippet } from "./types";
 
-// Page functions take and return JSON data, for which Puppeteer's handle unwrapping is the identity.
 const pageRunner = (page: Page): PageRunner => ({
   run: <A, R>(fn: (arg: A) => R, arg: A) =>
     page.evaluate(fn as (arg: unknown) => R, arg) as Promise<R>,
@@ -296,22 +295,21 @@ export class Inspector {
     return this.serialize(async () => {
       if (this.closed) throw new Error("inspector_disposed");
       clearTimeout(this.timer);
-      if (!existsSync(join(this.project, "index.html"))) throw new Error("no-composition");
-      const { session } = await this.ensure();
       try {
+        if (!existsSync(join(this.project, "index.html"))) throw new Error("no-composition");
+        const { session } = await this.ensure();
         return await inspectElementMap(pageRunner(session.page), this.view(session));
       } finally {
         this.idle();
       }
     });
   }
-  /** Test/host diagnostics only; the agent tool does not expose arbitrary page execution. */
   async withPage<T>(fn: (page: Page) => Promise<T>) {
     return this.serialize(async () => {
       if (this.closed) throw new Error("inspector_disposed");
       clearTimeout(this.timer);
-      const { session } = await this.ensure();
       try {
+        const { session } = await this.ensure();
         return await fn(session.page);
       } finally {
         this.idle();

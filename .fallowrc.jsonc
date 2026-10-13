@@ -12,6 +12,7 @@
     // Inspector is a private Bun service with CLI-driven browser contract
     // scripts; its runtime module is bundled by file path into the page.
     "packages/inspector/src/{service,server,mcp}.ts",
+    "packages/inspector/src/liveRuntime.ts",
     "packages/inspector/tests/*.ts",
     "packages/core/src/runtime/inspection.ts",
     "packages/producer/src/regression-harness.ts",
@@ -117,6 +118,12 @@
     "packages/cli/bin/**",
   ],
   "ignoreExports": [
+    // Browser helper public API, paired with elementMap.d.ts and consumed by
+    // external harnesses rather than another workspace package.
+    {
+      "file": "packages/inspector/src/elementMap.js",
+      "exports": ["createElementMap"],
+    },
     // Public player-state types are consumed by package users outside this
     // workspace. Keep the barrel stable even when no in-repo import needs it.
     {
@@ -1038,6 +1045,12 @@
       "packages/inspector/src/sourceDependencies.ts",
       "packages/core/src/runtime/timelineInspection.ts",
       "packages/cli/src/commands/timeline.ts",
+      // Protocol validators and deterministic report formatters enumerate wire
+      // variants explicitly; splitting those branches would scatter one contract.
+      "packages/inspector/src/requests.ts",
+      "packages/inspector/src/timelineReport.ts",
+      "packages/inspector/src/pageQueries.ts",
+      "packages/core/src/runtime/timelineValues.ts",
     ],
   },
 }

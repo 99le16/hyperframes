@@ -67,7 +67,6 @@ export function validateTimelineRequest(request: TimelineRequest): void {
   if (offset && !request.generation) throw new Error("pagination requires generation");
 }
 
-/** A continuation (generation, snippet ids, offset) names the page it was paged from; any other page is stale. */
 export function assertGeneration(requested: string | undefined, current: string): void {
   if (requested && requested !== current)
     throw new Error("stale_generation: query targets again after source changes or idle disposal");
