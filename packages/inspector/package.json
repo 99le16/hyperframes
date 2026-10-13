@@ -3,18 +3,28 @@
   "version": "0.8.127",
   "private": true,
   "type": "module",
-  "exports": "./src/service.ts",
+  "exports": {
+    ".": "./src/service.ts",
+    "./live": "./dist/live.js"
+  },
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "serve": "bun src/server.ts",
-    "mcp": "bun src/mcp.ts"
+    "mcp": "bun src/mcp.ts",
+    "test:timeline": "bun tests/timeline.ts",
+    "test:timeline-compositions": "bun tests/timelineCompositions.ts",
+    "build:live": "node build-live.mjs",
+    "prepack": "node build-live.mjs",
+    "test:live": "bun tests/live.ts",
+    "test:source-release": "bun tests/sourceRelease.ts"
   },
   "dependencies": {
     "@hyperframes/core": "workspace:*",
     "@jridgewell/trace-mapping": "^0.3.29",
     "acorn": "^8.17.0",
     "esbuild": "^0.25.12",
+    "eslint-scope": "^9.1.2",
     "postcss": "^8.5.8",
     "puppeteer-core": "^25.8.0"
   },

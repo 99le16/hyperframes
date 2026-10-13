@@ -6,11 +6,13 @@ import postcss from "postcss";
 import { TraceMap, originalPositionFor } from "@jridgewell/trace-mapping";
 import type { BundleScriptProvenance } from "../../core/src/compiler/htmlBundler";
 import type { ElementRef, Snippet } from "./types";
+import { sourceDependencies, type SourceRange } from "./sourceDependencies";
 
 interface Chunk {
   file: string;
   text: string;
   offset: number;
+  dependencies: (range: SourceRange) => SourceRange[];
   statements: { start: number; end: number; type: string }[];
 }
 interface SourceFile {
@@ -202,7 +204,21 @@ export class Sources {
   private addChunk(file: string, source: string, offset: number) {
     const text = source.trim();
     const lead = source.length - source.trimStart().length;
-    if (text) this.chunks.push({ file, text, offset: offset + lead, statements: statements(text) });
+    if (text) {
+      let ranges: ReturnType<typeof statements> | undefined;
+      let dependencies: ReturnType<typeof sourceDependencies> | undefined;
+      this.chunks.push({
+        file,
+        text,
+        offset: offset + lead,
+        get statements() {
+          return (ranges ??= statements(text));
+        },
+        dependencies(range) {
+          return (dependencies ??= sourceDependencies(text))(range);
+        },
+      });
+    }
   }
   private addCss(file: string, text: string, offset: number) {
     try {
@@ -331,6 +347,16 @@ export class Sources {
           target,
         );
         if (snippet) result.push(snippet);
+        for (const dependency of hit.chunk.dependencies(range)) {
+          const definition = this.slice(
+            hit.chunk.file,
+            hit.chunk.offset + dependency.start,
+            hit.chunk.offset + dependency.end,
+            "animation source dependency",
+            target,
+          );
+          if (definition) result.push(definition);
+        }
       }
       cache.set(stack, result);
       return result;
