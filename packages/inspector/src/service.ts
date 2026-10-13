@@ -1,6 +1,15 @@
 import { createServer, type Server } from "node:http";
 import { randomUUID } from "node:crypto";
-import { readFileSync, realpathSync, statSync, existsSync, readdirSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  existsSync,
+  fstatSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+  readdirSync,
+} from "node:fs";
 import { resolve, join, extname, sep } from "node:path";
 import { homedir } from "node:os";
 import { build } from "esbuild";
@@ -101,22 +110,31 @@ export class Inspector {
           return;
         }
         const file = realpathSync(resolve(this.project, `.${path}`));
-        if (!file.startsWith(this.project + sep) || !statSync(file).isFile()) {
+        if (!file.startsWith(this.project + sep)) {
           res.writeHead(404).end();
           return;
         }
-        const types: Record<string, string> = {
-          ".js": "text/javascript",
-          ".mjs": "text/javascript",
-          ".css": "text/css",
-          ".svg": "image/svg+xml",
-          ".woff2": "font/woff2",
-          ".png": "image/png",
-          ".wav": "audio/wav",
-          ".mp3": "audio/mpeg",
-        };
-        res.setHeader("Content-Type", types[extname(file)] ?? "application/octet-stream");
-        res.end(readFileSync(file));
+        const fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+        try {
+          if (!fstatSync(fd).isFile()) {
+            res.writeHead(404).end();
+            return;
+          }
+          const types: Record<string, string> = {
+            ".js": "text/javascript",
+            ".mjs": "text/javascript",
+            ".css": "text/css",
+            ".svg": "image/svg+xml",
+            ".woff2": "font/woff2",
+            ".png": "image/png",
+            ".wav": "audio/wav",
+            ".mp3": "audio/mpeg",
+          };
+          res.setHeader("Content-Type", types[extname(file)] ?? "application/octet-stream");
+          res.end(readFileSync(fd));
+        } finally {
+          closeSync(fd);
+        }
       } catch {
         res.writeHead(404).end();
       }

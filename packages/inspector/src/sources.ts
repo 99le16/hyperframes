@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readFileSync, readdirSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 import { createHash } from "node:crypto";
 import { parse, type Node } from "acorn";
@@ -127,18 +127,21 @@ export class Sources {
   }[] = [];
   constructor(readonly project: string) {
     for (const path of sourceFiles(project)) {
-      if (
-        statSync(path).size > 2_000_000 ||
-        /(?:^|\/)(?:vendor|lib)\//.test(relative(project, path))
-      )
-        continue;
       const file = relative(project, path);
-      const text = readFileSync(path, "utf8");
+      if (/(?:^|\/)(?:vendor|lib)\//.test(file)) continue;
+      const fd = openSync(path, "r");
+      let text: string;
+      try {
+        if (fstatSync(fd).size > 2_000_000) continue;
+        text = readFileSync(fd, "utf8");
+      } finally {
+        closeSync(fd);
+      }
       this.files.set(file, { text, lines: starts(text) });
       if (/\.m?js$/.test(file)) this.addChunk(file, text, 0);
       if (/\.css$/.test(file)) this.addCss(file, text, 0);
       if (/\.html$/.test(file)) {
-        for (const m of text.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi))
+        for (const m of text.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi))
           if (!/\bsrc\s*=/.test(m[1])) this.addChunk(file, m[2], m.index + m[0].indexOf(">") + 1);
         for (const m of text.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi))
           this.addCss(file, m[1], m.index + m[0].indexOf(">") + 1);
