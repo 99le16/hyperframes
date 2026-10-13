@@ -484,7 +484,7 @@ describe("captureScrollScreenshots — consent-click page reload (#4923)", () =>
     const dir = tempDir("hf-scroll-reload-");
     const { page, evaluate, waitForNetworkIdle } = reloadingPage();
 
-    const files = await captureScrollScreenshots(page, dir);
+    const { files } = await captureScrollScreenshots(page, dir);
 
     expect(files.length).toBeGreaterThan(0);
     expect(waitForNetworkIdle).toHaveBeenCalled();
@@ -515,7 +515,7 @@ describe("captureScrollScreenshots — consent-click page reload (#4923)", () =>
     const dir = tempDir("hf-scroll-no-reload-");
     const { page, waitForNetworkIdle } = fakePage();
 
-    const files = await captureScrollScreenshots(page, dir);
+    const { files } = await captureScrollScreenshots(page, dir);
 
     // The document reports parsed on the first probe, so the settle pays
     // exactly one idle wait and the run still finishes.
@@ -536,7 +536,7 @@ describe("captureScrollScreenshots — consent-click page reload (#4923)", () =>
     const waitForNetworkIdle = vi.fn(async () => undefined);
     const { page } = scrollablePage(evaluate, waitForNetworkIdle);
 
-    const files = await captureScrollScreenshots(page, dir);
+    const { files } = await captureScrollScreenshots(page, dir);
 
     expect(files.length).toBeGreaterThan(0);
     expect(waitForNetworkIdle).not.toHaveBeenCalled();
@@ -553,7 +553,7 @@ describe("captureScrollScreenshots — consent-click page reload (#4923)", () =>
     const waitForNetworkIdle = vi.fn(async () => undefined);
     const { page } = scrollablePage(evaluate, waitForNetworkIdle);
 
-    const files = await captureScrollScreenshots(page, dir);
+    const { files } = await captureScrollScreenshots(page, dir);
 
     expect(files.length).toBeGreaterThan(0);
     expect(waitForNetworkIdle).toHaveBeenCalledTimes(1);
@@ -594,7 +594,7 @@ describe("captureScrollScreenshots — consent-click page reload (#4923)", () =>
     const dir = tempDir("hf-scroll-loading-doc-");
     const { page, evaluate, waitForNetworkIdle } = loadingDocumentPage();
 
-    const files = await captureScrollScreenshots(page, dir);
+    const { files } = await captureScrollScreenshots(page, dir);
 
     expect(files.length).toBeGreaterThan(0);
     // A second idle wait runs once the document finishes loading, before the

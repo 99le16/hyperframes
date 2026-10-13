@@ -165,11 +165,6 @@ export async function captureScrollScreenshots(
     // Dismiss marketing banners, cookie consents, and popups before scrolling.
     // These overlay content and contaminate screenshots with UI that doesn't
     // belong in video compositions (cookie popups, newsletter modals, etc.)
-    // A consent click can reload the page (some CMPs reload once consent is
-    // stored); a swapped document reads as a new performance.timeOrigin. Read
-    // it around the sweep so a banner-free page skips the settle and keeps
-    // the old flat-400ms cost — an unreadable (NaN) pair counts as "cannot
-    // prove unchanged" and settles on the safe side.
     const readTimeOrigin = async (): Promise<number> => {
       const value: unknown = await page.evaluate(`performance.timeOrigin`).catch((err: unknown) => {
         if (isDegradableEvaluateTimeoutError(err)) throw err;
@@ -229,9 +224,6 @@ export async function captureScrollScreenshots(
         return 0;
       });
     await new Promise((r) => setTimeout(r, 400));
-    // Settle only when the sweep clicked a control or the document was
-    // swapped under us — the click reload is the case that needs it (#4923),
-    // and the wait shares the stage's remaining budget.
     if (clickedCount > 0 || (await readTimeOrigin()) !== originBefore) {
       await waitForPageReady(page, {
         timeoutMs: Math.min(15_000, budget.remainingMs?.() ?? 15_000),
