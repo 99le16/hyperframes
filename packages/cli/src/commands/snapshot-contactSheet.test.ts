@@ -40,6 +40,8 @@ vi.mock("@hyperframes/engine", () => ({
 }));
 
 import snapshotCommand from "./snapshot.js";
+import { historyDeps } from "../utils/historyOwner.js";
+import { openProjectHistory } from "@hyperframes/studio-server/history";
 
 describe("snapshot contact sheet failures", () => {
   let project: string;
@@ -137,5 +139,35 @@ describe("snapshot contact sheet failures", () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining("contact-sheet.jpg"));
     expect(console.warn).not.toHaveBeenCalled();
     expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it("keeps the captured frames when another process holds history", async () => {
+    const previousWait = historyDeps.ownerWaitMs;
+    historyDeps.ownerWaitMs = 0;
+    const held = await openProjectHistory({
+      projectDir: project,
+      historyRoot: historyDeps.historyRoot,
+      ownerWaitMs: 0,
+    });
+    try {
+      await runCommand(snapshotCommand, {
+        rawArgs: [
+          project,
+          ...["--at", "0.5,1", "--no-end", "--describe", "false"],
+          ...["--output", join(project, "snapshots")],
+        ],
+      });
+      for (const [index, time] of ["0.5", "1"].entries()) {
+        const frame = join(project, "snapshots", `frame-0${index}-at-${time}s.png`);
+        expect(readFileSync(frame)).toEqual(Buffer.from("captured PNG"));
+      }
+      expect(console.error).not.toHaveBeenCalled();
+      expect(console.warn).toHaveBeenCalledWith(
+        expect.stringContaining("Snapshots were not recorded"),
+      );
+    } finally {
+      historyDeps.ownerWaitMs = previousWait;
+      await held.close();
+    }
   });
 });

@@ -1,4 +1,6 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { openProjectHistory } from "@hyperframes/studio-server/history";
+import { historyDeps } from "../utils/historyOwner.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCommand } from "citty";
@@ -60,6 +62,40 @@ it("only warns when the report cannot be recorded; the exit status is the check'
     expect(consumeCommandResult().exitCode).toBe(checkExitCode(output));
     expect(String(warn.mock.calls.at(-1)?.[0])).toContain("Check report was not recorded");
   } finally {
+    log.mockRestore();
+    warn.mockRestore();
+    consumeCommandResult();
+    rmSync(project, { recursive: true, force: true });
+  }
+});
+
+it("still reports the check when another process holds history", async () => {
+  const project = mkdtempSync(join(tmpdir(), "hf-check-history-held-"));
+  const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  writeFileSync(
+    join(project, "index.html"),
+    "<html><body>Missing composition metadata</body></html>",
+  );
+  const previousWait = historyDeps.ownerWaitMs;
+  historyDeps.ownerWaitMs = 0;
+  const held = await openProjectHistory({
+    projectDir: project,
+    historyRoot: historyDeps.historyRoot,
+    ownerWaitMs: 0,
+  });
+  try {
+    await runCommand(check, { rawArgs: [project, "--json"] });
+    const output = JSON.parse(String(log.mock.calls.at(-1)?.[0])) as CheckReport;
+    expect(output).not.toHaveProperty("saved");
+    expect(output.browserSkipped).toBe(true);
+    expect(consumeCommandResult().exitCode).toBe(checkExitCode(output));
+    expect(
+      warn.mock.calls.some((call) => String(call[0]).includes("Check report was not recorded")),
+    ).toBe(true);
+  } finally {
+    historyDeps.ownerWaitMs = previousWait;
+    await held.close();
     log.mockRestore();
     warn.mockRestore();
     consumeCommandResult();
