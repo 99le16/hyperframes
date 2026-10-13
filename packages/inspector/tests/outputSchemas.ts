@@ -3,6 +3,7 @@ import { createInterface } from "node:readline";
 import { mkdtempSync, writeFileSync, copyFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 const { assertSupportedJsonSchema, validateJsonSchemaValue, renderToolsSdk } = await import(
   process.env.DSH_TOOLS_MODULE!
@@ -15,7 +16,7 @@ writeFileSync(
 );
 const server = spawn(
   process.execPath,
-  [new URL("../src/server.ts", import.meta.url).pathname, project],
+  [fileURLToPath(new URL("../src/server.ts", import.meta.url)), project],
   { stdio: ["ignore", "pipe", "inherit"] },
 );
 const lines = createInterface({ input: server.stdout! });
@@ -23,7 +24,7 @@ let client;
 try {
   const first = await new Promise<string>((resolve) => lines.once("line", resolve));
   const { url } = JSON.parse(first);
-  client = spawn(process.execPath, [new URL("../src/mcp.ts", import.meta.url).pathname], {
+  client = spawn(process.execPath, [fileURLToPath(new URL("../src/mcp.ts", import.meta.url))], {
     env: { ...process.env, HF_INSPECT_URL: url },
     stdio: ["pipe", "pipe", "inherit"],
   });

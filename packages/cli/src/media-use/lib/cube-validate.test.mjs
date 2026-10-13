@@ -2,6 +2,7 @@ import { strict as assert } from "node:assert";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
 import { validateCube } from "./cube-validate.mjs";
@@ -100,7 +101,7 @@ test("CLI exits zero for valid files and non-zero for invalid files", () => {
 
     const out = execFileSync(
       process.execPath,
-      [new URL("./cube-validate.mjs", import.meta.url).pathname, valid],
+      [fileURLToPath(new URL("./cube-validate.mjs", import.meta.url)), valid],
       {
         encoding: "utf8",
       },
@@ -111,7 +112,7 @@ test("CLI exits zero for valid files and non-zero for invalid files", () => {
       () =>
         execFileSync(
           process.execPath,
-          [new URL("./cube-validate.mjs", import.meta.url).pathname, invalid],
+          [fileURLToPath(new URL("./cube-validate.mjs", import.meta.url)), invalid],
           {
             encoding: "utf8",
             stdio: "pipe",

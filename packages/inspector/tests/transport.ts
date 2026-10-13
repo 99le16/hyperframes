@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import assert from "node:assert/strict";
+import { fileURLToPath } from "node:url";
 const server = spawn(
   process.execPath,
-  ["run", new URL("../src/server.ts", import.meta.url).pathname, process.argv[2]],
+  ["run", fileURLToPath(new URL("../src/server.ts", import.meta.url)), process.argv[2]],
   { stdio: ["ignore", "pipe", "pipe"] },
 );
 const lines = createInterface({ input: server.stdout });
@@ -18,10 +19,14 @@ let client: ReturnType<typeof spawn> | undefined;
 try {
   const info = await (await fetch(url + "/info")).json();
   assert.equal(info.stats.browserStarts, 0);
-  client = spawn(process.execPath, ["run", new URL("../src/mcp.ts", import.meta.url).pathname], {
-    env: { ...process.env, HF_INSPECT_URL: url },
-    stdio: ["pipe", "pipe", "inherit"],
-  });
+  client = spawn(
+    process.execPath,
+    ["run", fileURLToPath(new URL("../src/mcp.ts", import.meta.url))],
+    {
+      env: { ...process.env, HF_INSPECT_URL: url },
+      stdio: ["pipe", "pipe", "inherit"],
+    },
+  );
   const responses = createInterface({ input: client.stdout! });
   const pending = new Map<number, (value: unknown) => void>();
   responses.on("line", (line) => {

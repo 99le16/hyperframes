@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-const script = new URL("./audio.mjs", import.meta.url).pathname;
+const script = fileURLToPath(new URL("./audio.mjs", import.meta.url));
 
 function runAudio({ args = [], env = {} } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "product-launch-audio-"));

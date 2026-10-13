@@ -10,9 +10,10 @@ import {
 } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
-const at = (path) => new URL(path, import.meta.url).pathname;
+const at = (path) => fileURLToPath(new URL(path, import.meta.url));
 const { dependencies } = JSON.parse(readFileSync(at("./package.json"), "utf8"));
 // Declared dependencies stay imports; the workspace's own sources (core, parsers) are bundled in.
 const external = Object.keys(dependencies).filter((name) => !name.startsWith("@hyperframes/"));
