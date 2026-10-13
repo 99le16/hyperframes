@@ -25,7 +25,7 @@ it("persists real lint-blocked reports without overwriting earlier checks or inv
     expect(state.checks.unversioned).toHaveLength(2);
     const [first, second] = state.checks.unversioned;
     expect(first.report).not.toBe(second.report);
-    expect(first.report).toContain(".hyperframes/artifacts/checks/");
+    expect(first.report).toBe(join(project, ".hyperframes", "artifacts", "checks", `${first.id}.json`));
     expect(JSON.parse(readFileSync(first.report, "utf8")).browserSkipped).toBe(true);
     expect(state.checks.latest).toEqual({ revision: null, id: second.id });
     expect(state.checks.revisions).toEqual({});
