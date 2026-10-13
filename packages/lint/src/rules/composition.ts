@@ -1,4 +1,5 @@
 import type { LintContext, HyperframeLintFinding, ExtractedBlock, OpenTag } from "../context";
+import { subcompositionDimensionFindings } from "./subcompositionDimensions";
 import {
   findHtmlTag,
   extractTimelineRegistryKeys,
@@ -1640,6 +1641,7 @@ export const compositionRules: Array<(ctx: LintContext) => HyperframeLintFinding
       },
     ];
   },
+  subcompositionDimensionFindings,
 ];
 
 const CLIP_MEDIA_TAGS = new Set<string>(["img", "video", "audio"]);
