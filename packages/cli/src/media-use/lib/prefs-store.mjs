@@ -77,7 +77,9 @@ function writePrefsFile(path, file) {
     writeFileSync(tmp, `${JSON.stringify(file, null, 2)}\n`);
     renameSync(tmp, path);
   } finally {
-    fs.rmSync(tmp, { force: true });
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {}
   }
 }
 
