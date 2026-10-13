@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   compositionStyle,
   cssStyleMergeKey,
@@ -6,17 +7,21 @@ import {
   headStyleRuns,
   INLINED_FILE_ATTR,
   inlineScriptRuns,
-  isJavaScriptType,
   styleElementsFor,
   type CompositionStyle,
 } from "./scriptRuns";
+import {
+  executableScripts,
+  isJavaScriptType,
+  planCompositionAssembly,
+} from "./compositionAssembly";
 import { SCENE_PART_ATTR } from "../sceneParts";
 import {
   ensureExternalScriptTag,
   readExternalScriptAttributes,
   type ExternalScriptAttributes,
 } from "./externalScripts";
-import { emitMountedModuleScripts } from "./importMaps";
+import { emitMountedModuleScripts, parseImportMap, type ImportMap } from "./importMaps";
 import { markFlattenedInnerRoot } from "../runtime/flattenedRoot";
 export { FLATTENED_INNER_ROOT_STRIP_ATTRS } from "../runtime/flattenedRoot";
 import { parseHostVariableValues, warnUnknownEnumValues } from "../runtime/getVariables";
@@ -24,7 +29,9 @@ import { sanitizeCssValue } from "../runtime/applyVariableBindings";
 import { cssVariableName } from "../tokenSlug";
 import { AsyncLocalStorage } from "async_hooks";
 import { readFileSync, existsSync, statSync } from "fs";
+import { parse as parseJs } from "acorn";
 import { resolve, relative, dirname, isAbsolute, sep } from "path";
+import { extractStandaloneEntryFromIndex, isTemplateEntry } from "./standaloneEntry";
 import {
   decodeCssEscapes,
   decodeWellFormedEscapes,
@@ -48,6 +55,7 @@ import {
   dedupeFontFaceRules,
   scopeCssToComposition,
   wrapInlineScriptWithErrorBoundary,
+  scopedModulePrelude,
   wrapScopedCompositionScript,
 } from "./compositionScoping";
 import { validateHyperframeHtmlContract } from "./staticGuard";
@@ -58,7 +66,6 @@ import {
   inlineSubCompositions,
   refuseSwapsReachedByRootScripts,
 } from "./inlineSubCompositions";
-import { queryByAttr } from "../utils/cssSelector";
 import { isSafePath, resolveWithinProject } from "../safePath.js";
 import { ensureHfIds } from "@hyperframes/parsers/hf-ids";
 import { HF_COLOR_GRADING_ATTR } from "../colorGrading";
@@ -726,7 +733,10 @@ function pushRun<T>(runs: PartRun<T>[], scene: string | undefined, chunk: T): vo
   else runs.push({ scene, chunks: [chunk] });
 }
 
-function coalesceHeadStylesAndBodyScripts(document: Document): void {
+function coalesceHeadStylesAndBodyScripts(
+  document: Document,
+  provenance?: BundleOptions["scriptProvenance"],
+): void {
   const allHeadStyles = [...document.querySelectorAll("head style")];
   const isScenePart = (el: Element) => el.hasAttribute(SCENE_PART_ATTR);
   for (const run of allHeadStyles.length > 1 ? headStyleRuns(allHeadStyles, isScenePart) : []) {
@@ -744,10 +754,15 @@ function coalesceHeadStylesAndBodyScripts(document: Document): void {
     isPinned,
   )) {
     const mergedJs = joinJsChunks(members.map((el) => el.textContent || ""));
+    if (mergedJs && !parsesAsScript(mergedJs)) {
+      for (const el of members)
+        el.textContent = inlineScriptSource(el.textContent || "", provenance);
+      continue;
+    }
     for (const el of members) el.remove();
     if (!mergedJs) continue;
     const inlineScript = document.createElement("script");
-    inlineScript.textContent = escapeInlineScriptSource(stripJsCommentsParserSafe(mergedJs));
+    inlineScript.textContent = inlineScriptSource(mergedJs, provenance);
     if (anchor) anchor.before(inlineScript);
     else document.body.appendChild(inlineScript);
   }
@@ -799,17 +814,56 @@ function joinJsChunks(chunks: string[]): string {
     .join("\n");
 }
 
-function stripJsCommentsParserSafe(source: string): string {
+// acorn in script mode, not the host engine: Bun 1.3's vm.Script compiles lazily and accepts anything.
+// esbuild accepts export, top-level await and return, which a <script> rejects; acorn does not.
+export function parsesAsScript(source: string): boolean {
+  try {
+    parseJs(source, { ecmaVersion: "latest", sourceType: "script" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function stripJsCommentsParserSafe(
+  source: string,
+  provenance?: BundleOptions["scriptProvenance"],
+): string {
   if (!source) return source;
   try {
-    const result = transformSync(source, { loader: "js", minify: false, legalComments: "none" });
+    const result = transformSync(source, {
+      loader: "js",
+      minify: false,
+      legalComments: "none",
+      ...(provenance
+        ? { sourcemap: "external" as const, sourcefile: "hf-authored-bundle.js" }
+        : {}),
+    });
+    if (provenance) {
+      const sourceURL = `hf-inspect-${createHash("sha256").update(source).digest("hex")}.js`;
+      provenance({ input: source, output: result.code.trim(), sourceMap: result.map, sourceURL });
+      return `${result.code.trim()}\n//# sourceURL=${sourceURL}`;
+    }
     return result.code.trim();
   } catch {
     return source;
   }
 }
 
+function inlineScriptSource(js: string, provenance?: BundleOptions["scriptProvenance"]): string {
+  return escapeInlineScriptSource(stripJsCommentsParserSafe(js, provenance));
+}
+
+export interface BundleScriptProvenance {
+  input: string;
+  output: string;
+  sourceMap: string;
+  sourceURL?: string;
+}
+
 export interface BundleOptions {
+  /** Optional source mapping for inspection; does not alter bundled HTML. */
+  scriptProvenance?: (script: BundleScriptProvenance) => void;
   /** Project-relative HTML entry to bundle. Defaults to `index.html`. */
   entryFile?: string;
   stampHfIds?: boolean;
@@ -928,11 +982,24 @@ function hoistCompositionScripts(
     authoredRootId: string | undefined;
     seenCompScriptSrcs: Set<string>;
     compScriptChunks: DeferredScriptChunk[];
+    importMaps: ImportMap[];
+    moduleScripts: string[];
   },
 ): void {
-  for (const scriptEl of [...container.querySelectorAll("script")]) {
+  for (const scriptEl of executableScripts(container)) {
     const externalSrc = (scriptEl.getAttribute("src") || "").trim();
-    if (externalSrc) {
+    const type = (scriptEl.getAttribute("type") || "").trim().toLowerCase();
+    if (!externalSrc && type === "importmap") {
+      const map = parseImportMap(scriptEl.textContent || "", (url) => url);
+      if (map) opts.importMaps.push(map);
+      else
+        console.warn(
+          `[HyperFrames] ${opts.compId}: import map is not valid JSON, so it is skipped.`,
+        );
+    } else if (!externalSrc && type === "module") {
+      const prelude = opts.compId ? scopedModulePrelude(opts.runtimeCompId || opts.compId) : "";
+      opts.moduleScripts.push(prelude + (scriptEl.textContent || ""));
+    } else if (externalSrc) {
       hoistExternalScript(
         externalSrc,
         opts.projectDir,
@@ -967,13 +1034,29 @@ export function bundleToSingleHtml(projectDir: string, options?: BundleOptions):
   return options?.onRead ? bundleReads.run(options.onRead, bundle) : bundle();
 }
 
+// A <template> scene has no root or GSAP of its own: bundle it inside the index that mounts it, as render does.
+function readMountedSceneShell(
+  projectDir: string,
+  entryFile: string,
+  entryHtml: string,
+): string | null {
+  if (!isTemplateEntry(entryHtml)) return null;
+  const indexHtml = safeReadFile(resolve(projectDir, "index.html"));
+  return indexHtml === null
+    ? null
+    : extractStandaloneEntryFromIndex(indexHtml, entryFile, entryHtml);
+}
+
 async function bundleProject(projectDir: string, options?: BundleOptions): Promise<string> {
   const entryFile = options?.entryFile ?? "index.html";
   const indexPath = resolveWithinProject(projectDir, entryFile);
   if (!indexPath || !existsSync(indexPath)) {
     throw new Error(`${entryFile} not found in project directory`);
   }
-  const sourceDir = dirname(indexPath);
+  noteRead(indexPath);
+  const entryHtml = readFileSync(indexPath, "utf-8");
+  const mountedShell = readMountedSceneShell(projectDir, entryFile, entryHtml);
+  const sourceDir = mountedShell ? projectDir : dirname(indexPath);
   const resolveEntryPath = (relativePath: string): string | null => {
     const resolved = resolve(sourceDir, relativePath);
     return isSafePath(projectDir, resolved) ? resolved : null;
@@ -982,11 +1065,10 @@ async function bundleProject(projectDir: string, options?: BundleOptions): Promi
   const resolveEntryUrl = (url: string): string | null => resolveEntryPath(decodedUrlPath(url));
 
   const readSource = options?.stampHfIds ? ensureHfIds : (html: string) => html;
-  noteRead(indexPath);
-  const rawHtml = readSource(readFileSync(indexPath, "utf-8"));
+  const rawHtml = readSource(mountedShell ?? entryHtml);
   const compiled = await compileHtml(rawHtml, sourceDir, options?.probeMediaDuration);
 
-  if (options?.staticGuard !== false) {
+  if (options?.staticGuard !== false && !mountedShell) {
     const staticGuard = await validateHyperframeHtmlContract(compiled);
     if (!staticGuard.isValid) {
       console.warn(
@@ -1133,8 +1215,12 @@ async function bundleProject(projectDir: string, options?: BundleOptions): Promi
       const hostIdentity = hostIdentityByElement.get(host);
       const runtimeCompId = hostIdentity?.runtimeCompositionId || compId;
       const innerDoc = parseHTMLContent(templateHtml);
-      const innerRoot = queryByAttr(innerDoc, "data-composition-id", compId);
-      const authoredRootId = innerRoot?.getAttribute("id")?.trim() || null;
+      const plan = planCompositionAssembly<Element>({
+        contentNode: innerDoc,
+        hasTemplate: true,
+        compositionId: compId,
+      });
+      const { innerRoot, authoredRootId } = plan;
       const runtimeScope = runtimeCompId
         ? cssAttributeSelector("data-composition-id", runtimeCompId)
         : "";
@@ -1183,6 +1269,8 @@ async function bundleProject(projectDir: string, options?: BundleOptions): Promi
           authoredRootId: authoredRootId ?? undefined,
           seenCompScriptSrcs,
           compScriptChunks,
+          importMaps: subCompResult.importMaps,
+          moduleScripts: subCompResult.moduleScripts,
         });
 
         // Copy dimension attributes from inner root to host if not already set
@@ -1218,10 +1306,14 @@ async function bundleProject(projectDir: string, options?: BundleOptions): Promi
           authoredRootId: undefined,
           seenCompScriptSrcs,
           compScriptChunks,
+          importMaps: subCompResult.importMaps,
+          moduleScripts: subCompResult.moduleScripts,
         });
 
         host.innerHTML = innerDoc.body.innerHTML || "";
       }
+      for (const el of plan.inertScriptsOutsideRoot)
+        host.insertAdjacentHTML("beforeend", el.outerHTML);
     }
 
     // Remove the template element from the document
@@ -1261,12 +1353,17 @@ async function bundleProject(projectDir: string, options?: BundleOptions): Promi
     }
   }
   for (const { scene, chunks } of scriptRuns) {
-    const script = document.createElement("script");
-    if (scene) script.setAttribute(SCENE_PART_ATTR, scene);
-    script.textContent = joinJsChunks(
-      chunks.map((chunk) => (typeof chunk === "string" ? chunk : chunk())),
-    );
-    document.body.appendChild(script);
+    const texts = chunks.map((chunk) => (typeof chunk === "string" ? chunk : chunk()));
+    const joined = joinJsChunks(texts);
+    const skipsRunMerge = Boolean(scene);
+    for (const text of parsesAsScript(joined) ? [joined] : texts.filter(Boolean)) {
+      const script = document.createElement("script");
+      if (scene) script.setAttribute(SCENE_PART_ATTR, scene);
+      script.textContent = skipsRunMerge
+        ? inlineScriptSource(text, options?.scriptProvenance)
+        : text;
+      document.body.appendChild(script);
+    }
   }
   emitMountedModuleScripts(document, subCompResult.importMaps, subCompResult.moduleScripts);
 
@@ -1274,11 +1371,11 @@ async function bundleProject(projectDir: string, options?: BundleOptions): Promi
 
   enforceCompositionPixelSizing(document);
   autoHealMissingCompositionIds(document);
-  coalesceHeadStylesAndBodyScripts(document);
+  coalesceHeadStylesAndBodyScripts(document, options?.scriptProvenance);
   for (const el of document.querySelectorAll(`script[${INLINED_FILE_ATTR}]`)) {
     const js = el.textContent ?? "";
     el.textContent = escapeInlineScriptSource(
-      isJavaScriptType(el) ? stripJsCommentsParserSafe(js) : js,
+      isJavaScriptType(el) ? stripJsCommentsParserSafe(js, options?.scriptProvenance) : js,
     );
   }
   deferScriptsUntilFonts(document, (el) => el.hasAttribute(RUNTIME_BOOTSTRAP_ATTR));
