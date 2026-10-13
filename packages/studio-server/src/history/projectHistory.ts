@@ -136,7 +136,7 @@ export interface ProjectHistory {
   beginWindow(
     who: HistoryWho,
     label: string,
-    options?: { idleMs?: number },
+    options?: { idleMs?: number; exclusive?: boolean },
   ): Promise<HistoryWindow>;
   /**
    * For a writer that records after writing (Studio): moves the uncommitted changes to `paths` into one entry of
@@ -946,10 +946,25 @@ class Engine {
     });
   }
 
-  beginWindow(who: HistoryWho, label: string, idleMs: number): Promise<HistoryWindow> {
+  beginWindow(
+    who: HistoryWho,
+    label: string,
+    idleMs: number,
+    exclusive = false,
+  ): Promise<HistoryWindow> {
     return this.queue(async () => {
       // Writes before the window opened are not this writer's, and are logged before it.
       await this.settle();
+      const at = this.now();
+      if (exclusive) {
+        const blocking = this.windows.find(
+          (open) => !sameWho(open.who, who) && takesWrite(open, at),
+        );
+        if (blocking)
+          throw new Error(`${blocking.who.name}'s turn is open; it has to end before yours begins`);
+        for (const open of [...this.windows])
+          if (!takesWrite(open, at) || sameWho(open.who, who)) await this.endWindow(open);
+      }
       const window = { ...this.newGroup(who, label), idleMs };
       this.windows.push(window);
       this.touch(window, this.now());
@@ -1177,7 +1192,12 @@ class Engine {
     return {
       projectId: this.projectId,
       beginWindow: (who, label, options = {}) =>
-        this.beginWindow(who, label, options.idleMs ?? this.options.maxGroupMs ?? 30_000),
+        this.beginWindow(
+          who,
+          label,
+          options.idleMs ?? this.options.maxGroupMs ?? 30_000,
+          options.exclusive === true,
+        ),
       claim: async (who, label, paths, options = {}) => {
         await Promise.all(paths.map((path) => this.adopting.get(this.logPath(path))));
         return this.queue(() => this.claimNow(who, label, paths, options));

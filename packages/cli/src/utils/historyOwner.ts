@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   DEFAULT_HISTORY_ROOT,
   HistoryBusyError,
@@ -40,7 +40,11 @@ export interface Owner {
   undo(id: string, who: HistoryWho, mode?: UndoMode): Promise<HistoryResult>;
   restore(point: string, who: HistoryWho): Promise<HistoryEntry | null>;
   pin(id: string, pinned: boolean): Promise<void>;
-  begin(who: HistoryWho, label: string): Promise<{ id: string; startedAt: number }>;
+  begin(
+    who: HistoryWho,
+    label: string,
+    exclusive?: boolean,
+  ): Promise<{ id: string; startedAt: number }>;
   end(id: string): Promise<HistoryEntry | null>;
   close(): Promise<void>;
 }
@@ -49,7 +53,7 @@ export type Reader = Pick<Owner, "via" | "list" | "peek" | "blob">;
 
 /** Swapped by tests. */
 export const historyDeps = {
-  historyRoot: process.env.HYPERFRAMES_HISTORY_ROOT || DEFAULT_HISTORY_ROOT,
+  historyRoot: resolve(process.env.HYPERFRAMES_HISTORY_ROOT || DEFAULT_HISTORY_ROOT),
   findServer: (projectDir: string) => findPreviewServerForProject(projectDir),
   /** A turn with no write for this long has ended, through a preview or not. */
   turnIdleMs: MAX_WINDOW_IDLE_MS,
@@ -144,8 +148,13 @@ function previewOwner(route: (path: string) => string): Owner {
     undo: (id, who, mode) => json("/undo", { entryId: id, who, mode }),
     restore: (point, who) => json("/restore", { point, who }),
     pin: async (id, pinned) => void (await json("/pin", { entryId: id, pinned })),
-    begin: async (who, label) => {
-      const opened = await json("/window", { who, label, idleMs: historyDeps.turnIdleMs });
+    begin: async (who, label, exclusive) => {
+      const opened = await json("/window", {
+        who,
+        label,
+        idleMs: historyDeps.turnIdleMs,
+        ...(exclusive && { exclusive: true }),
+      });
       return { id: opened.windowId, startedAt: opened.startedAt ?? historyDeps.now() };
     },
     // A preview restarted since begin committed the window on its way down.
@@ -223,17 +232,17 @@ export async function withOwner<T>(
     return await task(owner, turn, projectDir);
   } finally {
     // This open filed the turn so far under its id; the turn goes on under a fresh one, from its last write.
-    const direct = owner.via === "direct" && turn;
-    let kept: HistoryListItem | undefined;
     try {
-      kept = direct ? (await owner.list()).find((entry) => entry.id === turn.id) : undefined;
+      if (owner.via === "direct" && turn) {
+        const kept = (await owner.list()).find((entry) => entry.id === turn.id);
+        if (readTurn(projectDir)?.id === turn.id) {
+          const lastWriteAt = kept ? kept.endedAt : turn.lastWriteAt;
+          const parts = kept ? [...turn.parts, kept.id] : turn.parts;
+          writeTurn(projectDir, { ...turn, via: "direct", id: randomUUID(), lastWriteAt, parts });
+        }
+      }
     } finally {
       await owner.close();
-    }
-    if (direct && readTurn(projectDir)?.id === turn.id) {
-      const lastWriteAt = kept ? kept.endedAt : turn.lastWriteAt;
-      const parts = kept ? [...turn.parts, kept.id] : turn.parts;
-      writeTurn(projectDir, { ...turn, via: "direct", id: randomUUID(), lastWriteAt, parts });
     }
   }
 }

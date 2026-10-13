@@ -1040,7 +1040,9 @@ prefix of one; a time is a local date or date-time such as `2026-09-24T14:30`.
 
 Without a running preview, `history` keeps its data under `~/.cache/hyperframes/history`, or under
 `HYPERFRAMES_HISTORY_ROOT` when that is set, which keeps an agent run or a test apart from your own
-history. A running preview server records to its own location.
+history. That path is resolved to an absolute one, and every agent on a project has to share it: the
+lock lives there, while the turn marker lives in the project. A running preview server records to
+its own location.
 
 When a file in the entry has changed since, `undo` writes nothing, exits 2 and
 lists the newer entries. Run it again with `--just-this` to put back only that

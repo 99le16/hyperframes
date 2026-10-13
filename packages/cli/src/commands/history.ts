@@ -77,6 +77,39 @@ function lastIndex<T>(items: readonly T[], match: (item: T) => boolean): number 
 }
 
 /** An entry id or a unique prefix of one. */
+async function latestWrite(owner: Owner, turn: Turn): Promise<number> {
+  const entries = await owner.list();
+  return entries.reduce((latest, entry) => {
+    const same =
+      entry.id === turn.id ||
+      turn.parts.includes(entry.id) ||
+      (entry.who.kind === turn.who.kind &&
+        entry.who.name === turn.who.name &&
+        entry.label === turn.label &&
+        entry.startedAt === turn.startedAt);
+    return same ? Math.max(latest, entry.endedAt) : latest;
+  }, turn.lastWriteAt);
+}
+
+async function releaseOpenTurn(
+  owner: Owner,
+  turn: Turn | null,
+  who: HistoryWho,
+  exclusive: boolean,
+  projectDir: string,
+): Promise<void> {
+  if (!turn) return;
+  if (owner.via !== "direct") {
+    if (!exclusive || turn.who.name === who.name) await endTurn(owner, turn, projectDir);
+    return;
+  }
+  const latest = await latestWrite(owner, turn);
+  const live = historyDeps.now() - latest <= historyDeps.turnIdleMs;
+  if (exclusive && live && turn.who.name !== who.name)
+    throw new Refusal(`${turn.who.name}'s turn is open; it has to end before yours begins`);
+  await endTurn(owner, turn, projectDir);
+}
+
 function entryOf(entries: readonly HistoryListItem[], ref: string): HistoryListItem {
   const found = entries.filter((entry) => entry.id.startsWith(ref));
   if (found.length === 1) return found[0]!;
@@ -468,12 +501,12 @@ export default defineCommand({
         (args) =>
           withOwner("begin", args.dir, async (owner, turn, projectDir) => {
             const who = whoOf(args.who);
-            if (turn && args.exclusive && turn.who.name !== who.name)
-              throw new Refusal(
-                `${turn.who.name}'s turn is open; it has to end before yours begins`,
-              );
-            if (turn) await endTurn(owner, turn, projectDir);
-            const { id, startedAt } = await owner.begin(who, args.label);
+            await releaseOpenTurn(owner, turn, who, args.exclusive, projectDir);
+            const { id, startedAt } = await owner.begin(
+              who,
+              args.label,
+              args.exclusive && owner.via === "preview",
+            );
             writeTurn(projectDir, {
               via: owner.via,
               id,

@@ -504,6 +504,52 @@ describe("hyperframes history, refusals", () => {
     expect(read("added.html")).toBe("new");
   });
 
+  it.each(["direct", "preview"])(
+    "begin --exclusive starts once another agent's turn has been idle (%s)",
+    async (mode) => {
+      const { dir, hf } = project();
+      await hf();
+      if (mode === "preview") await preview(dir);
+      historyDeps.turnIdleMs = 300;
+      await hf("begin", "--who", "codex", "--label", "Retitle");
+      advance(1_000);
+
+      const begun = await hf("begin", "--who", "claude", "--label", "Notes", "--exclusive");
+      expect([begun.code, begun.err]).toEqual([0, ""]);
+      expect((await hf("end", "--who", "claude")).code).toBe(0);
+    },
+  );
+
+  it("begin --exclusive through a preview refuses another agent's open turn", async () => {
+    const { dir, hf } = project();
+    await hf();
+    await preview(dir);
+    await hf("begin", "--who", "codex", "--label", "Retitle");
+    const refused = await hf("begin", "--who", "claude", "--label", "Notes", "--exclusive");
+    expect([refused.code, refused.err]).toEqual([
+      2,
+      "codex's turn is open; it has to end before yours begins",
+    ]);
+  });
+
+  it("begin --exclusive through a preview lets only one of two agents win", async () => {
+    const { dir, hf } = project();
+    await hf();
+    await preview(dir);
+    const begin = (who: string) =>
+      withOwner(dir, async (owner) => {
+        await owner.begin({ kind: "agent", name: who }, who, true);
+      }).then(
+        () => "won",
+        (error: Error) => error.message,
+      );
+    const results = await Promise.all([begin("codex"), begin("claude")]);
+    expect(results.filter((result) => result === "won")).toHaveLength(1);
+    expect(results.find((result) => result !== "won")).toMatch(
+      /^(codex|claude)'s turn is open; it has to end before yours begins$/,
+    );
+  });
+
   it("begin --exclusive refuses another agent's open turn and keeps it open", async () => {
     const { write, hf, json } = project();
     await hf();
@@ -527,15 +573,17 @@ describe("hyperframes history, refusals", () => {
     const historyRoot = tempDir("hf-history-cli-root-");
     const held = await openProjectHistory({ projectDir: dir, historyRoot });
     const home = join(historyRoot, held.projectId);
+    const claimers = new Set<string>();
     const bothWaiting = new Promise<void>((resolveWaiting) => {
-      const inspect = () => {
-        if (readdirSync(home).filter((name) => name.startsWith("owner.pid-")).length < 2) return;
+      const inspect = (_event: string, name: string | null) => {
+        const pid = name?.match(/^owner\.pid-(\d+)-/)?.[1];
+        if (pid) claimers.add(pid);
+        if (claimers.size < 2) return;
         watcher.close();
         resolveWaiting();
       };
       const watcher = watch(home, inspect);
       onTestFinished(() => watcher.close());
-      inspect();
     });
     const cli = resolve(fileURLToPath(import.meta.url), "..", "..", "cli.ts");
     const begin = (who: string) => {
