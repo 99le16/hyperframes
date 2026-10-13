@@ -58,7 +58,7 @@ jobs:
           git worktree remove "$RUNNER_TEMP/reachability-base"
       - name: Report head reachability
         run: node scripts/check-test-reachability.mjs --report
-      - run: node --test scripts/check-test-reachability.test.mjs
+      - run: node --test scripts/check-test-reachability.test.mjs scripts/check-edit-accuracy-filter.test.mjs
       - run: node scripts/check-test-reachability.mjs
 
   changes:
@@ -248,6 +248,9 @@ jobs:
               - "packages/*/package-subpaths.json"
               - "scripts/package-subpaths.mjs"
               - "scripts/ci/base-file.sh"
+              - "scripts/ci/install-workspace-dependencies.sh"
+              - ".github/actions/prepare-ffmpeg-bin/**"
+              - "package.json"
               - "bun.lock"
               - ".github/workflows/ci.yml"
               - "!**/*.{test,spec}.{ts,tsx,mjs,js}"
