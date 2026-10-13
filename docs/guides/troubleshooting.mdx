@@ -237,10 +237,10 @@ slower on a long or effect-heavy video. The render log says so:
 
 ```text
 [hyperframes] browserGpuMode probe → software (WebGL unavailable)
-[hyperframes] WSL: Chrome could not use the GPU, so this render uses software WebGL ...
+[hyperframes] WSL: the GPU check found no hardware GPU, so this render uses software WebGL ...
 ```
 
-The second line says what HyperFrames checked. If it says your user is not in
+The lines after it say what HyperFrames checked. If they say your user is not in
 the `render` group, add yourself, restart WSL, and render again:
 
 ```bash

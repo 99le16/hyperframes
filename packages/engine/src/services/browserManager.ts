@@ -15,7 +15,7 @@ import { homedir } from "os";
 import { chromeMajorCeiling, exceedsChromeCeiling } from "./chromeHostCeiling.js";
 import { DEFAULT_CONFIG, type EngineConfig } from "../config.js";
 import { getSystemTotalMb, LOW_MEMORY_TOTAL_MB_THRESHOLD } from "./systemMemory.js";
-import { describeWslGpuFallback, type WslHostFacts } from "./wslHost.js";
+import { describeWslGpuAccess, type WslHostFacts } from "./wslHost.js";
 import {
   BrowserLeasePool,
   type BrowserLaunchFingerprint,
@@ -497,8 +497,8 @@ export const _closeBrowserAfterFailedProbeForTests = closeBrowserAfterFailedProb
 interface GpuProbeOutcome {
   mode: "software" | "hardware";
   cause?: "no-gpu" | "probe-error";
-  /** Set when the fallback happened under WSL; already printed by the probe. */
-  wslNote?: string;
+  /** Under WSL, what we checked on its GPU path (see describeWslGpuAccess). */
+  wslAccess?: string[];
 }
 
 /**
@@ -518,6 +518,7 @@ let _autoBrowserGpuModeCache: Promise<GpuProbeOutcome> | undefined;
 export function _resetAutoBrowserGpuModeCacheForTests(): void {
   _autoBrowserGpuModeCache = undefined;
   _unverifiedHardwareGpuWarned = false;
+  _wslSoftwareNoteLogged = false;
 }
 
 async function getPuppeteerOrNull(): Promise<PuppeteerNode | null> {
@@ -575,17 +576,16 @@ async function probeAutoBrowserGpuMode(options: GpuProbeOptions): Promise<GpuPro
     const resolved = resolveWebGlProbeMode(info);
     logResolvedBrowserGpuMode(resolved, describeWebGlProbe(info));
     if (resolved === "hardware") return { mode: "hardware" };
-    return { mode: "software", cause: "no-gpu", wslNote: logWslGpuFallback(options) };
+    return { mode: "software", cause: "no-gpu", ...wslAccess(options) };
   } catch (err) {
     logResolvedBrowserGpuMode("software", formatProbeFailure(err));
-    return { mode: "software", cause: "probe-error", wslNote: logWslGpuFallback(options) };
+    return { mode: "software", cause: "probe-error", ...wslAccess(options) };
   }
 }
 
-function logWslGpuFallback(options: GpuProbeOptions): string | undefined {
-  const note = describeWslGpuFallback(options.wslHost) ?? undefined;
-  if (note) console.error(note);
-  return note;
+function wslAccess(options: GpuProbeOptions): Pick<GpuProbeOutcome, "wslAccess"> {
+  const lines = describeWslGpuAccess(options.wslHost);
+  return lines ? { wslAccess: lines } : {};
 }
 
 /**
@@ -621,7 +621,15 @@ export function resolveBrowserGpuMode(
   if (mode === "software") return Promise.resolve(mode);
 
   _autoBrowserGpuModeCache ??= probeAutoBrowserGpuMode(options);
-  if (mode === "auto") return _autoBrowserGpuModeCache.then((probed) => probed.mode);
+  if (mode === "auto") {
+    return _autoBrowserGpuModeCache.then((probed) => {
+      if (probed.mode === "software" && probed.wslAccess && !_wslSoftwareNoteLogged) {
+        _wslSoftwareNoteLogged = true;
+        console.error(buildWslSoftwareNote(probed));
+      }
+      return probed.mode;
+    });
+  }
 
   return _autoBrowserGpuModeCache.then((probed) => {
     // Warn once per cache lifetime, not once per caller: `createCaptureSession`
@@ -640,6 +648,21 @@ export function resolveBrowserGpuMode(
  * cache lifetime (re-armed by `_resetAutoBrowserGpuModeCacheForTests`).
  */
 let _unverifiedHardwareGpuWarned = false;
+let _wslSoftwareNoteLogged = false;
+
+/** Auto mode under WSL selected software: say so, with what we checked. */
+function buildWslSoftwareNote({ cause, wslAccess = [] }: GpuProbeOutcome): string {
+  const check =
+    cause === "probe-error"
+      ? "the GPU check could not finish (see the probe line above)"
+      : "the GPU check found no hardware GPU";
+  return [
+    `[hyperframes] WSL: ${check}, so this render uses software WebGL (SwiftShader) and runs ` +
+      "at CPU speed.",
+    ...wslAccess,
+    "  Pass --no-browser-gpu to skip the GPU check and render in software.",
+  ].join("\n");
+}
 
 /**
  * Warning text for "you asked for hardware GPU and we could not confirm it".
@@ -652,15 +675,8 @@ let _unverifiedHardwareGpuWarned = false;
  */
 function buildUnverifiedHardwareGpuWarning(
   platform: NodeJS.Platform | string,
-  { cause, wslNote }: GpuProbeOutcome,
+  { cause, wslAccess }: GpuProbeOutcome,
 ): string {
-  if (wslNote) {
-    return (
-      "[hyperframes] browserGpuMode=hardware was requested, but the GPU probe found no usable " +
-      "GPU under WSL, so the capture will likely run at CPU speed. Honouring the explicit " +
-      "request anyway. The WSL note above says what was checked and how to fix it."
-    );
-  }
   if (cause === "probe-error") {
     return (
       "[hyperframes] browserGpuMode=hardware was requested, but the GPU probe could not run, " +
@@ -670,22 +686,28 @@ function buildUnverifiedHardwareGpuWarning(
       "`browserGpuMode probe → software (probe failed ...)` line above for the underlying " +
       "error, which usually means Chrome could not launch (bad HYPERFRAMES_BROWSER_PATH, " +
       "missing shared libraries, or a denied sandbox) rather than a GPU problem.\n" +
-      "  Run `hyperframes doctor` to check the Chrome install."
+      "  Run `hyperframes doctor` to check the Chrome install." +
+      (wslAccess
+        ? ["", "  Under WSL, a GPU path that is slow to start or unreachable can also cause it:"]
+            .concat(wslAccess)
+            .join("\n")
+        : "")
     );
   }
   const remediation =
-    platform === "linux"
-      ? "Inside Docker, the container needs GPU passthrough: `--gpus all` with the NVIDIA " +
+    wslAccess?.join("\n") ??
+    (platform === "linux"
+      ? "  Inside Docker, the container needs GPU passthrough: `--gpus all` with the NVIDIA " +
         "Container Toolkit installed, or `--device /dev/dri` for Mesa/AMD/Intel. The image " +
         "also needs the matching userspace driver + libEGL. Verify with " +
         "`hyperframes render --browser-gpu` and watch for this warning disappearing."
-      : "Check that the host exposes a GPU to this process and that the graphics drivers are " +
-        "installed.";
+      : "  Check that the host exposes a GPU to this process and that the graphics drivers " +
+        "are installed.");
   return (
     "[hyperframes] browserGpuMode=hardware was requested, but the WebGL probe found no " +
     "hardware GPU, so Chrome will silently fall back to software WebGL and the capture will " +
     "run at CPU speed. Honouring the explicit request anyway.\n" +
-    `  ${remediation}\n` +
+    `${remediation}\n` +
     "  Pass --no-browser-gpu to select deterministic SwiftShader instead of waiting on a " +
     "hardware path that is not there."
   );

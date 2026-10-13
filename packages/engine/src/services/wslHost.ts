@@ -1,18 +1,32 @@
 /**
- * WSL host detection and the explanation printed when Chrome's GPU check
- * falls back to software under WSL (heygen-com/hyperframes#5548).
+ * WSL host detection and what we can check about its GPU path when Chrome's
+ * GPU probe does not confirm a hardware GPU (heygen-com/hyperframes#5548).
  */
 
-import { accessSync, constants, existsSync, readFileSync } from "node:fs";
+import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
 import { platform, release } from "node:os";
+
+export type RenderNodeAccess =
+  | { state: "missing" | "read-write" }
+  | { state: "denied"; group: string; userInGroup: boolean };
 
 /** The host facts these checks read; tests pass a fake. */
 export interface WslHostFacts {
   platform: NodeJS.Platform;
   release: string;
   readProcVersion(): string;
-  exists(path: string): boolean;
-  canOpen(path: string): boolean;
+  renderNodeAccess(path: string): RenderNodeAccess;
+}
+
+function groupName(gid: number): string {
+  try {
+    const line = readFileSync("/etc/group", "utf-8")
+      .split("\n")
+      .find((entry) => entry.split(":")[2] === String(gid));
+    return line?.split(":")[0] || String(gid);
+  } catch {
+    return String(gid);
+  }
 }
 
 const realHost: WslHostFacts = {
@@ -23,13 +37,18 @@ const realHost: WslHostFacts = {
     return release();
   },
   readProcVersion: () => readFileSync("/proc/version", "utf-8"),
-  exists: existsSync,
-  canOpen: (path) => {
+  renderNodeAccess: (path) => {
+    if (!existsSync(path)) return { state: "missing" };
     try {
       accessSync(path, constants.R_OK | constants.W_OK);
-      return true;
+      return { state: "read-write" };
     } catch {
-      return false;
+      const gid = statSync(path, { throwIfNoEntry: false })?.gid ?? -1;
+      return {
+        state: "denied",
+        group: groupName(gid),
+        userInGroup: process.getgroups?.().includes(gid) ?? false,
+      };
     }
   },
 };
@@ -48,31 +67,36 @@ export function detectWsl(host: WslHostFacts = realHost): boolean {
 
 const RENDER_NODE = "/dev/dri/renderD128";
 
-/** What we can check about a WSL GPU fallback and how to fix it; null outside WSL. */
-export function describeWslGpuFallback(host: WslHostFacts = realHost): string | null {
+const NATIVE_WINDOWS =
+  "render from native Windows (project copied to a Windows drive, run from PowerShell), " +
+  "where Chrome uses the GPU through Direct3D.";
+
+/**
+ * Indented lines saying what we checked on the WSL GPU path and what to try,
+ * or null outside WSL. Says nothing about the render mode: callers own that.
+ */
+export function describeWslGpuAccess(host: WslHostFacts = realHost): string[] | null {
   if (!detectWsl(host)) return null;
-  const lines = [
-    "[hyperframes] WSL: Chrome could not use the GPU, so this render uses software WebGL " +
-      "(SwiftShader) and runs at CPU speed.",
-  ];
-  const nativeWindows =
-    "render from native Windows (project copied to a Windows drive, run from PowerShell), " +
-    "where Chrome uses the GPU through Direct3D.";
-  if (host.exists(RENDER_NODE) && !host.canOpen(RENDER_NODE)) {
-    lines.push(
-      `  Your Linux user cannot open ${RENDER_NODE} (not in the "render" group), which can ` +
-        "stop Mesa from reaching the GPU.",
-      "  Fix: run `sudo usermod -aG render $USER`, then `wsl --shutdown` from Windows, " +
-        "reopen WSL and render again.",
-      `  Or ${nativeWindows}`,
-    );
-  } else {
-    const state = host.exists(RENDER_NODE) ? "opens fine" : "does not exist";
-    lines.push(
-      `  ${RENDER_NODE} ${state}, so file permissions are not the cause.`,
-      `  To use the GPU, ${nativeWindows}`,
-    );
+  const access = host.renderNodeAccess(RENDER_NODE);
+  if (access.state === "denied" && !access.userInGroup) {
+    return [
+      `  Your Linux user cannot read and write ${RENDER_NODE} and is not in its group ` +
+        `("${access.group}"), which can stop Mesa from reaching the GPU.`,
+      `  Fix: run \`sudo usermod -aG ${access.group} $USER\`, then \`wsl --shutdown\` from ` +
+        "Windows, reopen WSL and render again.",
+      `  Or ${NATIVE_WINDOWS}`,
+    ];
   }
-  lines.push("  Pass --no-browser-gpu to skip the GPU check and render in software.");
-  return lines.join("\n");
+  if (access.state === "denied") {
+    return [
+      `  Your Linux user is in the "${access.group}" group but still cannot read and write ` +
+        `${RENDER_NODE}; check its permissions with \`ls -l ${RENDER_NODE}\`.`,
+      `  Or ${NATIVE_WINDOWS}`,
+    ];
+  }
+  const seen = access.state === "missing" ? "does not exist" : "is readable and writable";
+  return [
+    `  ${RENDER_NODE} ${seen}, so file permissions are not the cause.`,
+    `  To use the GPU, ${NATIVE_WINDOWS}`,
+  ];
 }

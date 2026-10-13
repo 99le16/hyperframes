@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { describeWslGpuFallback, detectWsl, type WslHostFacts } from "./wslHost.js";
+import { describeWslGpuAccess, detectWsl, type WslHostFacts } from "./wslHost.js";
 
 const RENDER_NODE = "/dev/dri/renderD128";
 
@@ -9,11 +9,12 @@ function fakeHost(overrides: Partial<WslHostFacts> = {}): WslHostFacts {
     platform: "linux",
     release: "6.18.54.1-microsoft-standard-WSL2",
     readProcVersion: () => "Linux version 6.18.54.1-microsoft-standard-WSL2",
-    exists: (path) => path === RENDER_NODE,
-    canOpen: () => false,
+    renderNodeAccess: () => ({ state: "denied", group: "render", userInGroup: false }),
     ...overrides,
   };
 }
+
+const note = (host: WslHostFacts) => describeWslGpuAccess(host)?.join("\n") ?? null;
 
 describe("detectWsl", () => {
   it("detects WSL from the kernel release", () => {
@@ -44,30 +45,46 @@ describe("detectWsl", () => {
   });
 });
 
-describe("describeWslGpuFallback", () => {
-  it("names the render group and the exact fix when the render node is not openable", () => {
-    const note = describeWslGpuFallback(fakeHost());
-    expect(note).toContain(`cannot open ${RENDER_NODE} (not in the "render" group)`);
-    expect(note).toContain("sudo usermod -aG render $USER");
-    expect(note).toContain("wsl --shutdown");
-    expect(note).toContain("native Windows");
-    expect(note).not.toContain("Docker");
+describe("describeWslGpuAccess", () => {
+  it("gives the usermod fix only when access is denied and the user is not in the node's group", () => {
+    const text = note(fakeHost());
+    expect(text).toContain(
+      `cannot read and write ${RENDER_NODE} and is not in its group ("render")`,
+    );
+    expect(text).toContain("sudo usermod -aG render $USER");
+    expect(text).toContain("wsl --shutdown");
+    expect(text).toContain("native Windows");
+    expect(text).not.toContain("Docker");
   });
 
-  it("does not blame permissions when the render node opens", () => {
-    const note = describeWslGpuFallback(fakeHost({ canOpen: () => true }));
-    expect(note).toContain(`${RENDER_NODE} opens fine, so file permissions are not the cause`);
-    expect(note).not.toContain("usermod");
-    expect(note).toContain("native Windows");
+  it("uses the numeric group id when the group has no name", () => {
+    const host = fakeHost({
+      renderNodeAccess: () => ({ state: "denied", group: "993", userInGroup: false }),
+    });
+    expect(note(host)).toContain("sudo usermod -aG 993 $USER");
   });
 
-  it("says the render node is missing when WSL exposes none", () => {
-    const note = describeWslGpuFallback(fakeHost({ exists: () => false }));
-    expect(note).toContain(`${RENDER_NODE} does not exist`);
-    expect(note).not.toContain("usermod");
+  it("does not suggest joining a group the user is already in", () => {
+    const host = fakeHost({
+      renderNodeAccess: () => ({ state: "denied", group: "render", userInGroup: true }),
+    });
+    const text = note(host);
+    expect(text).toContain('is in the "render" group but still cannot read and write');
+    expect(text).toContain(`ls -l ${RENDER_NODE}`);
+    expect(text).not.toContain("usermod");
+  });
+
+  it("does not blame permissions when the node is readable and writable or missing", () => {
+    const readWrite = note(fakeHost({ renderNodeAccess: () => ({ state: "read-write" }) }));
+    expect(readWrite).toContain(`${RENDER_NODE} is readable and writable, so file permissions`);
+    expect(readWrite).not.toContain("usermod");
+    expect(readWrite).toContain("native Windows");
+    const missing = note(fakeHost({ renderNodeAccess: () => ({ state: "missing" }) }));
+    expect(missing).toContain(`${RENDER_NODE} does not exist`);
+    expect(missing).not.toContain("usermod");
   });
 
   it("returns null outside WSL", () => {
-    expect(describeWslGpuFallback(fakeHost({ platform: "darwin" }))).toBeNull();
+    expect(describeWslGpuAccess(fakeHost({ platform: "darwin" }))).toBeNull();
   });
 });
