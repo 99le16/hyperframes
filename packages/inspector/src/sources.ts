@@ -40,8 +40,6 @@ function occurrences(text: string, needle: string) {
   }
   return hits;
 }
-/** Studio reloads the preview only when its project signature changes, so every folder that signature skips is
- * skipped here too: a write there would leave every question stale with no reload coming. */
 const excluded = new Set([
   ".agents",
   ".cache",

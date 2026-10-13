@@ -26,7 +26,6 @@ describe("source records", () => {
     }
   });
 
-
   it("keeps original multiline blocks and deduplicates targets without reformatting", () => {
     const dir = mkdtempSync(join(tmpdir(), "inspect-source-"));
     try {
