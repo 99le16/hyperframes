@@ -18,7 +18,7 @@ import {
   bundleToSingleHtml,
   type BundleScriptProvenance,
 } from "../../core/src/compiler/htmlBundler";
-import { Sources, fingerprint, mergeSnippets } from "./sources";
+import { Sources, fingerprint, markupSnippet, mergeSnippets } from "./sources";
 import type { InspectRequest, RuntimeQuery, RuntimeResponse, Snippet } from "./types";
 
 const coverage = [
@@ -295,7 +295,7 @@ export class Inspector {
           );
       }
       for (const el of result.elements) {
-        const snippet = session.sources.markup(el, index);
+        const snippet = markupSnippet(session.sources, el, index);
         if (snippet) collected.push(snippet);
       }
       for (const id of result.css) {

@@ -49,7 +49,7 @@ const excluded = new Set([
   "renders",
   "snapshots",
 ]);
-export function sourceFiles(project: string) {
+function sourceFiles(project: string) {
   const files: string[] = [];
   function visit(dir: string) {
     for (const item of readdirSync(dir, { withFileTypes: true })) {
@@ -298,6 +298,10 @@ export class Sources {
       return result;
     };
   }
+}
+
+export function markupSnippet(sources: Sources, element: ElementRef, target: number) {
+  return sources.markup(element, target);
 }
 export function mergeSnippets(snippets: Snippet[], sources: Sources): Snippet[] {
   const sorted = snippets.sort((a, b) => a.file.localeCompare(b.file) || a.startLine - b.startLine);
