@@ -160,11 +160,9 @@ function defaultSafeMaxWorkers(): number {
 }
 const MIN_FRAMES_PER_WORKER = 30;
 
-// Parallel workers each get their own browser on every platform. Pages in one
-// browser share Chrome's 6-connections-per-host limit to the file server, so a
-// media-heavy page holds all six and the next worker's page.goto never starts
-// (heygen-com/hyperframes#5548). Sharing also crashes BeginFrame and serializes
-// Page.captureScreenshot.
+// Every parallel worker gets its own browser: pages in one browser share six
+// connections to the file server, which a media-heavy page holds (#5548), and
+// sharing also crashes BeginFrame and serializes screenshots.
 export function shouldDisableBrowserPoolForParallelWorker({
   parallel,
 }: WorkerBrowserPoolDecision): boolean {
