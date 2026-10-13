@@ -682,7 +682,12 @@ const controls = new WeakMap();
 export function controlDrag(browser, gesture) {
   const byGesture = controls.get(browser) ?? new Map();
   controls.set(browser, byGesture);
-  if (!byGesture.has(gesture)) byGesture.set(gesture, measureControl(browser, gesture));
+  if (!byGesture.has(gesture)) {
+    const measured = measureControl(browser, gesture);
+    // A failed control is not cached, so one transient failure does not fail every later case.
+    measured.catch(() => byGesture.get(gesture) === measured && byGesture.delete(gesture));
+    byGesture.set(gesture, measured);
+  }
   return byGesture.get(gesture);
 }
 
