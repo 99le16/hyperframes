@@ -22,5 +22,11 @@
     "@types/node": "^25.0.10",
     "typescript": "^5.0.0",
     "vitest": "^4.1.11"
+  },
+  "hyperframesWorkspaceContract": {
+    "build": {
+      "optOut": true,
+      "reason": "Private Bun service runs its TypeScript source directly and has no published artifact."
+    }
   }
 }

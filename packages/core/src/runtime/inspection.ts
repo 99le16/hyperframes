@@ -5,6 +5,7 @@ import type {
   RuntimeResponse,
   RuntimeResult,
 } from "./inspectionTypes";
+import { isElementNode } from "./domRealm";
 
 type Method = (this: unknown, ...args: unknown[]) => unknown;
 interface Animation {
@@ -91,7 +92,7 @@ export function installInspection(win: InspectorWindow, generation: string, limi
   function wrap(owner: Record<string, unknown>, name: string, timeline: boolean) {
     const original = owner[name];
     if (typeof original !== "function") return;
-    const method: Method = original;
+    const method = original as Method;
     const wrapped: Method = function (...args) {
       const outer = depth === 0;
       const stack = outer ? (new Error().stack ?? "") : "";
@@ -181,7 +182,7 @@ export function installInspection(win: InspectorWindow, generation: string, limi
             elements = [
               ...new Set(
                 roots.flatMap((root) => [
-                  ...(root instanceof Element && root.matches(selector) ? [root] : []),
+                  ...(isElementNode(root) && root.matches(selector) ? [root] : []),
                   ...root.querySelectorAll(selector),
                 ]),
               ),
@@ -197,7 +198,7 @@ export function installInspection(win: InspectorWindow, generation: string, limi
             candidates: elements.slice(0, 20).map(describe),
             truncated: elements.length > 20,
           };
-        const targetElement = elements[0];
+        const targetElement = elements[0]!;
         const descendants = q.descendants ? [...targetElement.querySelectorAll("*")] : [];
         const scope = [targetElement, ...descendants.slice(0, 1000)];
         const animations = (gsap?.getTweensOf?.(scope) ?? []).map((tw): RuntimeAnimation => {
@@ -217,10 +218,7 @@ export function installInspection(win: InspectorWindow, generation: string, limi
             properties: Object.keys(tw.vars ?? {}).filter(
               (key) => !reserved.has(key) && !key.startsWith("on"),
             ),
-            targets: (tw.targets?.() ?? [])
-              .filter((el): el is Element => el instanceof Element)
-              .slice(0, 50)
-              .map(describe),
+            targets: (tw.targets?.() ?? []).filter(isElementNode).slice(0, 50).map(describe),
             localStart: tw.startTime(),
             duration: tw.duration(),
             attachmentStacks,
