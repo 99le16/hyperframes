@@ -8,6 +8,7 @@ import { bundleToSingleHtml } from "../../core/src/compiler/htmlBundler";
 // Built Node entry, exactly the import consumed by Desktop.
 const entry = "../dist/live.js";
 const { prepareLiveInspection, fingerprint }: typeof import("../src/live") = await import(entry);
+type PageRunner = import("../src/live").PageRunner;
 const dir = mkdtempSync(join(tmpdir(), "hf-live-"));
 const vendor = process.argv[2];
 if (!vendor) throw new Error("Pass gsap.min.js");
@@ -38,12 +39,13 @@ try {
     '<head>\n<meta name="studio-fixture" content="extra-lines">\n',
   );
   live.finalizeDocument(served);
+  let servedDocument = served;
   server = createServer((req, res) => {
     res.setHeader(
       "Content-Type",
       req.url?.endsWith("/gsap.min.js") ? "text/javascript" : "text/html",
     );
-    res.end(req.url?.endsWith("/gsap.min.js") ? readFileSync(vendor) : served);
+    res.end(req.url?.endsWith("/gsap.min.js") ? readFileSync(vendor) : servedDocument);
   });
   await new Promise<void>((r) => server!.listen(0, "127.0.0.1", r));
   browser = await puppeteer.launch({
@@ -59,35 +61,32 @@ try {
   await page.waitForFunction("!!window.__hfInspection && !!window.__timelines?.test", {
     timeout: 3000,
   });
-  const packet = await page.evaluate(() => {
-    const w = window as any;
-    const request = {
-      targets: [
-        { selector: "#title" },
-        { selector: "#other" },
-        { selector: ".title" },
-        { selector: ".title", within: "#b" },
-      ],
-    };
-    const before = w.__timelines.test.time();
-    const raw = w.__hfInspection.query({
-      ...request,
-      descendants: true,
-      cssRules: w.__hfLiveInspection.cssRules,
-    });
-    if (w.__timelines.test.time() !== before) throw new Error("inspection moved playhead");
-    return { generation: w.__hfLiveInspection.generation, request, raw };
-  });
-  const result = live.resolve(packet);
+  // The host's transport: page functions cross as source text, as Electron's executeJavaScript takes them.
+  const runner: PageRunner = {
+    run: <A, R>(fn: (arg: A) => R, arg: A) =>
+      page.evaluate(`(${fn.toString()})(${JSON.stringify(arg)})`) as Promise<R>,
+  };
+  const playhead = () => page.evaluate(() => (window as any).__timelines.test.time() as number);
+  const before = await playhead();
+  const request = {
+    targets: [
+      { selector: "#title" },
+      { selector: "#other" },
+      { selector: ".title" },
+      { selector: ".title", within: "#b" },
+    ],
+  };
+  const result = await live.inspect(runner, request);
   assert.deepEqual(
     result.results.map((r) => r.status),
     ["found", "found", "found", "found"],
   );
+  // A selector matching several elements answers for the group (0009), listing each as a candidate.
   assert.deepEqual(
-    result.results[2]!.candidates.map((candidate) => candidate.id),
+    result.results[2]!.candidates.map((c) => c.id),
     ["title", "other"],
   );
-  assert.equal(result.results[0].unmappedAnimations, 0);
+  assert.equal(result.results[0]!.unmappedAnimations, 0);
   assert(
     result.snippets.some(
       (s) => s.code.includes("function move") && s.targets.includes(0) && s.targets.includes(1),
@@ -101,16 +100,53 @@ try {
         .slice(s.startLine - 1, s.endLine)
         .join(""),
     );
-  assert.throws(() => live.resolve({ ...packet, generation: "old" }), /stale_preview/);
-  assert.throws(
-    () => live.resolve({ ...packet, request: { ...packet.request, time: 3 } }),
-    /does_not_seek/,
+  const timeline = await live.timeline(runner, { at: 2, component: { selector: "#title" } });
+  assert.equal(timeline.status, "found");
+  assert(timeline.text.includes("index.html:"), "timeline maps its animations to source lines");
+  const map = await live.elementMap(runner);
+  assert(map.text.includes("#title") && map.generation === live.generation);
+  const reloadDuringQuery = async (
+    run: (inspection: typeof live, racingRunner: PageRunner) => Promise<unknown>,
+  ) => {
+    const beforeReload = prepareLiveInspection(dir, bundled, provenance, version);
+    const afterReload = prepareLiveInspection(dir, bundled, provenance, version);
+    beforeReload.finalizeDocument(beforeReload.html);
+    afterReload.finalizeDocument(afterReload.html);
+    servedDocument = beforeReload.html;
+    await page.reload();
+    await page.waitForFunction("!!window.__hfInspection");
+    let calls = 0;
+    const racingRunner: PageRunner = {
+      run: async <A, R>(fn: (arg: A) => R, arg: A) => {
+        calls++;
+        if (calls === 2) {
+          servedDocument = afterReload.html;
+          await page.reload();
+          await page.waitForFunction("!!window.__hfInspection");
+        }
+        return page.evaluate(`(${fn.toString()})(${JSON.stringify(arg)})`) as Promise<R>;
+      },
+    };
+    await assert.rejects(run(beforeReload, racingRunner), /preview reloaded/);
+  };
+  await reloadDuringQuery((inspection, racingRunner) => inspection.inspect(racingRunner, request));
+  await reloadDuringQuery((inspection, racingRunner) =>
+    inspection.timeline(racingRunner, { at: 2, component: { selector: "#title" } }),
   );
+  await reloadDuringQuery((inspection, racingRunner) => inspection.elementMap(racingRunner));
+  servedDocument = served;
+  await page.reload();
+  await page.waitForFunction("!!window.__hfInspection");
+  assert.equal(await playhead(), before, "inspection moved the playhead");
+  await assert.rejects(live.inspect(runner, { ...request, generation: "old" }), /stale_generation/);
+  await assert.rejects(live.inspect(runner, { ...request, time: 3 }), /does_not_seek/);
+  const other = prepareLiveInspection(dir, bundled, provenance, version);
+  await assert.rejects(other.elementMap(runner), /preview reloaded/);
   writeFileSync(join(dir, "index.html"), source + "\n");
-  assert.throws(() => live.resolve(packet), /stale_preview/);
+  await assert.rejects(live.inspect(runner, request), /stale_preview/);
   assert.equal((await browser.pages()).length, 2); // initial blank + the one host preview
   console.log(
-    "PASS live preview: multi-target, source lines, variable/shared helper mapping, ambiguity, no seek, stale generation/source, one host page",
+    "PASS live preview: components, timeline and element map through a source-text runner; source lines, shared helper mapping, ambiguity, no seek, stale generation/page/source, one host page",
   );
 } finally {
   await browser?.close();

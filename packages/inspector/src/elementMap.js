@@ -4,6 +4,20 @@ export function collectElementDom() {
   const excluded = new Set(["SCRIPT", "STYLE", "LINK", "META"]);
   const nodes = [];
   const paths = new Map();
+  const siblingGroups = new WeakMap();
+  function siblingCount(element, selector) {
+    const owner = element.parentElement ?? element;
+    let counts = siblingGroups.get(owner);
+    if (!counts) {
+      counts = new Map();
+      siblingGroups.set(owner, counts);
+    }
+    if (!counts.has(selector)) {
+      const siblings = element.parentElement ? [...element.parentElement.children] : [element];
+      counts.set(selector, siblings.filter((sibling) => sibling.matches(selector)).length);
+    }
+    return counts.get(selector);
+  }
   const quote = (value) => JSON.stringify(value);
   function path(element) {
     if (paths.has(element)) return paths.get(element);
@@ -57,11 +71,11 @@ export function collectElementDom() {
       relative:
         element.id && document.querySelectorAll(`#${CSS.escape(element.id)}`).length === 1
           ? `#${CSS.escape(element.id)}`
-          : siblings.filter((sibling) => sibling.matches(simple)).length === 1
+          : siblingCount(element, simple) === 1
             ? simple
             : `${CSS.escape(tag)}:nth-child(${siblings.indexOf(element) + 1})`,
       groupSelector: simple,
-      siblingMatches: siblings.filter((sibling) => sibling.matches(simple)).map(path),
+      siblingMatchCount: siblingCount(element, simple),
       children: [],
     };
     nodes.push(node);
@@ -73,6 +87,7 @@ export function collectElementDom() {
   }
   if (document.body) visit(document.body, null);
   return {
+    generation: window.__hfLiveInspection?.generation ?? null,
     nodes,
     limitations: {
       canvas: nodes.filter((node) => node.tag === "canvas").length,
@@ -135,12 +150,7 @@ export function formatElementMap(snapshot, { file = "index.html" } = {}) {
     for (const group of groups) {
       const members = group.indices.map((index) => nodes[index]);
       const node = members[0];
-      const exactGroup =
-        members.length > 1 &&
-        node.siblingMatches.length === members.length &&
-        node.siblingMatches.every((selector) =>
-          members.some((member) => member.selector === selector),
-        );
+      const exactGroup = members.length > 1 && node.siblingMatchCount === members.length;
       if (members.length > 1 && !exactGroup) {
         for (const member of members) emit([member], depth);
       } else emit(members, depth);

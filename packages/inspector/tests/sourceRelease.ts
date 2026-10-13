@@ -10,14 +10,17 @@ const project = mkdtempSync(join(tmpdir(), "hf-inspector-release-"));
 const html = `<!doctype html><html><body><div data-composition-id="root" data-duration="1" data-width="1920" data-height="1080"><h1 id="title">Test</h1></div><script>const settings={x:1};window.__timelines={};</script></body></html>`;
 writeFileSync(join(project, "index.html"), html);
 const inspector = new Inspector(project, { idleMs: 100 });
-const sources = () => (inspector as unknown as { session: { sources: object } }).session.sources;
+const sources = () =>
+  (
+    inspector as unknown as { session: { sourceContext: () => { sources: object } } }
+  ).session.sourceContext().sources;
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 try {
-  await inspector.elementMap();
+  await inspector.inspect({ targets: [{ selector: "#title" }] });
   const previous = new WeakRef(sources());
   writeFileSync(join(project, "index.html"), html + "\n<!-- changed -->");
-  await inspector.elementMap();
+  await inspector.inspect({ targets: [{ selector: "#title" }] });
   const current = new WeakRef(sources());
   await inspector.withPage(async () => {
     await delay(200);

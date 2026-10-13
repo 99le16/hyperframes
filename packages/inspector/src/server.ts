@@ -3,7 +3,8 @@ import { Inspector } from "./service";
 import type { InspectRequest } from "./types";
 
 const project = process.argv[2];
-if (!project) throw new Error("Usage: bun packages/inspector/src/server.ts PROJECT [PORT]");
+if (!project)
+  throw new Error("Usage: server PROJECT [PORT] (bun src/server.ts, or node dist/server.js)");
 const inspector = new Inspector(project);
 const server = createServer(async (req, res) => {
   res.setHeader("Content-Type", "application/json");
