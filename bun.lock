@@ -17,6 +17,7 @@
         "lefthook": "^2.1.4",
         "oxfmt": "^0.41.0",
         "oxlint": "^1.56.0",
+        "picomatch": "^4.0.4",
         "tsx": "^4.21.0",
         "typescript": "^5.0.0",
         "vitest": "^4.1.11",
