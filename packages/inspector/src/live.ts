@@ -100,5 +100,4 @@ export function previewGeneration(runner: PageRunner): Promise<string | null> {
 }
 
 export { fingerprint } from "./sources";
-export { componentsTool, timelineTool, toolContent, type InspectionTool } from "./tools";
 export type { ComponentReport, ElementMapReport, PageRunner, TimelineReport };

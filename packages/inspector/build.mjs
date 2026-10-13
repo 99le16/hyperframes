@@ -26,7 +26,6 @@ await Promise.all([
   build({ ...node, entryPoints: [at("./src/live.ts")], outfile: at("./dist/live.js") }),
   build({ ...node, entryPoints: [at("./src/service.ts")], outfile: at("./dist/service.js") }),
   build({ ...node, entryPoints: [at("./src/server.ts")], outfile: at("./dist/server.js") }),
-  build({ ...node, entryPoints: [at("./src/mcp.ts")], outfile: at("./dist/mcp.js") }),
   build({
     entryPoints: [at("./src/liveRuntime.ts")],
     outfile: at("./dist/inspection.js"),

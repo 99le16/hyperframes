@@ -17,13 +17,9 @@ export HF_INSPECT_CHROME=/absolute/path/to/chrome
 bun packages/inspector/src/server.ts /absolute/video/project
 ```
 
-The service prints its loopback URL. Starting it does **not** start a browser. First inspection loads the project once. Configure the harness's MCP server to execute:
+The service prints its loopback URL. Starting it does **not** start a browser. First inspection loads the project once.
 
-```sh
-HF_INSPECT_URL=http://127.0.0.1:PRINTED_PORT bun packages/inspector/src/mcp.ts
-```
-
-Tool: `inspect_components`. Direct HTTP equivalent: `POST /inspect` with the same JSON. The service is bound to one project at startup, so no per-call project path is needed. `GET /info` returns project identity and startup/query counters. Stop with SIGINT/SIGTERM; the service disposes its own pages/browser.
+The package ships the capability, not agent tools: a harness defines its own tool names, descriptions and schemas, and calls `POST /inspect` with the JSON below. The service is bound to one project at startup, so no per-call project path is needed. `GET /info` returns project identity and startup/query counters. Stop with SIGINT/SIGTERM; the service disposes its own pages/browser.
 
 ## Input
 
@@ -83,7 +79,7 @@ Code blocks are atomic. `omitted`, `omittedCount`, and `nextOffset` describe mis
 
 `maxBytes` can be raised explicitly (2,048–256,000). A block larger than the budget is not cut in half: request that ID with a larger budget or read its file/range. Pagination can therefore remain at the same offset until the budget increases. Old-generation continuations are rejected.
 
-Full runtime evidence is only available by an explicit HTTP request with `debug: true`; it is deliberately not part of the agent tool schema or its default output budget.
+Full runtime evidence is only available by an explicit HTTP request with `debug: true`; it is deliberately not part of the default request or its output budget.
 
 ## Lifecycle and overhead
 
