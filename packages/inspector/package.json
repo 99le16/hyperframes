@@ -1,0 +1,32 @@
+{
+  "name": "@hyperframes/inspector",
+  "version": "0.8.127",
+  "private": true,
+  "type": "module",
+  "exports": "./src/service.ts",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "serve": "bun src/server.ts",
+    "mcp": "bun src/mcp.ts"
+  },
+  "dependencies": {
+    "@hyperframes/core": "workspace:*",
+    "@jridgewell/trace-mapping": "^0.3.29",
+    "acorn": "^8.17.0",
+    "esbuild": "^0.25.12",
+    "postcss": "^8.5.8",
+    "puppeteer-core": "^25.8.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.10",
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.11"
+  },
+  "hyperframesWorkspaceContract": {
+    "build": {
+      "optOut": true,
+      "reason": "Private Bun service runs its TypeScript source directly and has no published artifact."
+    }
+  }
+}

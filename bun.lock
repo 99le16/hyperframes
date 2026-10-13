@@ -25,7 +25,7 @@
     },
     "packages/aws-lambda": {
       "name": "@hyperframes/aws-lambda",
-      "version": "0.8.128",
+      "version": "0.8.150",
       "dependencies": {
         "@aws-sdk/client-s3": "^3.1146.0",
         "@aws-sdk/client-sfn": "^3.1146.0",
@@ -58,7 +58,7 @@
     },
     "packages/cli": {
       "name": "@hyperframes/cli",
-      "version": "0.8.128",
+      "version": "0.8.150",
       "bin": {
         "hyperframes": "./bin/hyperframes.mjs",
         "hyperframes-localize-fonts": "./bin/hyperframes-localize-fonts.mjs",
@@ -111,7 +111,7 @@
     },
     "packages/core": {
       "name": "@hyperframes/core",
-      "version": "0.8.128",
+      "version": "0.8.150",
       "dependencies": {
         "@chenglou/pretext": "^0.0.5",
         "@hyperframes/lint": "workspace:*",
@@ -157,7 +157,7 @@
     },
     "packages/engine": {
       "name": "@hyperframes/engine",
-      "version": "0.8.128",
+      "version": "0.8.150",
       "dependencies": {
         "@hono/node-server": "^2.0.5",
         "@hyperframes/core": "workspace:^",
@@ -176,7 +176,7 @@
     },
     "packages/gcp-cloud-run": {
       "name": "@hyperframes/gcp-cloud-run",
-      "version": "0.8.128",
+      "version": "0.8.150",
       "dependencies": {
         "@google-cloud/storage": "^7.14.0",
         "@google-cloud/workflows": "^4.2.0",
@@ -195,9 +195,26 @@
         "yaml": "^2.9.0",
       },
     },
+    "packages/inspector": {
+      "name": "@hyperframes/inspector",
+      "version": "0.8.127",
+      "dependencies": {
+        "@hyperframes/core": "workspace:*",
+        "@jridgewell/trace-mapping": "^0.3.29",
+        "acorn": "^8.17.0",
+        "esbuild": "^0.25.12",
+        "postcss": "^8.5.8",
+        "puppeteer-core": "^25.8.0",
+      },
+      "devDependencies": {
+        "@types/node": "^25.0.10",
+        "typescript": "^5.0.0",
+        "vitest": "^4.1.11",
+      },
+    },
     "packages/lint": {
       "name": "@hyperframes/lint",
-      "version": "0.8.128",
+      "version": "0.8.150",
       "dependencies": {
         "@hyperframes/parsers": "workspace:*",
         "acorn": "^8.17.0",
@@ -217,7 +234,7 @@
     },
     "packages/parsers": {
       "name": "@hyperframes/parsers",
-      "version": "0.8.128",
+      "version": "0.8.150",
       "dependencies": {
         "@babel/parser": "^7.27.0",
         "acorn": "^8.17.0",
@@ -238,7 +255,7 @@
     },
     "packages/player": {
       "name": "@hyperframes/player",
-      "version": "0.8.128",
+      "version": "0.8.150",
       "dependencies": {
         "@hyperframes/core": "workspace:*",
       },
@@ -253,7 +270,7 @@
     },
     "packages/producer": {
       "name": "@hyperframes/producer",
-      "version": "0.8.128",
+      "version": "0.8.150",
       "dependencies": {
         "@hono/node-server": "^2.0.5",
         "@hyperframes/core": "workspace:*",
@@ -279,7 +296,7 @@
     },
     "packages/sdk": {
       "name": "@hyperframes/sdk",
-      "version": "0.8.128",
+      "version": "0.8.150",
       "dependencies": {
         "@hyperframes/core": "workspace:*",
         "@hyperframes/parsers": "workspace:*",
@@ -309,7 +326,7 @@
     },
     "packages/shader-transitions": {
       "name": "@hyperframes/shader-transitions",
-      "version": "0.8.128",
+      "version": "0.8.150",
       "dependencies": {
         "html2canvas": "^1.4.1",
       },
@@ -321,7 +338,7 @@
     },
     "packages/studio": {
       "name": "@hyperframes/studio",
-      "version": "0.8.128",
+      "version": "0.8.150",
       "dependencies": {
         "@base-ui/react": "1.7.0",
         "@codemirror/autocomplete": "^6.20.1",
@@ -375,7 +392,7 @@
     },
     "packages/studio-server": {
       "name": "@hyperframes/studio-server",
-      "version": "0.8.128",
+      "version": "0.8.150",
       "dependencies": {
         "@hyperframes/core": "workspace:*",
         "@hyperframes/parsers": "workspace:*",
@@ -730,6 +747,8 @@
     "@hyperframes/engine": ["@hyperframes/engine@workspace:packages/engine"],
 
     "@hyperframes/gcp-cloud-run": ["@hyperframes/gcp-cloud-run@workspace:packages/gcp-cloud-run"],
+
+    "@hyperframes/inspector": ["@hyperframes/inspector@workspace:packages/inspector"],
 
     "@hyperframes/lint": ["@hyperframes/lint@workspace:packages/lint"],
 
