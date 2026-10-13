@@ -130,7 +130,11 @@ const product = (axes) =>
 const caseId = (c) =>
   [c.gesture, c.gsap, c.placement, `r${c.rotation}`, c.nesting, `z${c.zoom}`].join("-");
 
-/** `pr` is a smaller slice for CI; `keyframes` is the GSAP-animated set alone, which `full` also runs. */
+/**
+ * `pr` is the pull request slice, zoom 100 and no rotation in both nestings: it held a regressed case for 10 of the 11
+ * pull requests the full gate caught in its first two weeks (the miss was a zoom 50 pick). The merge queue runs `full`.
+ * `keyframes` is the GSAP-animated set alone, which `full` also runs.
+ */
 export function buildGrid(kind = "full") {
   if (kind === "keyframes") return keyframedCases();
   return (
@@ -139,7 +143,7 @@ export function buildGrid(kind = "full") {
       .filter((c) => c.placement !== "xpercent" || !["none", "idle"].includes(c.gsap))
       .map((c) => ({ id: caseId(c), ...c, other: c.gsap === "idle" }))
       .concat(dragCases(), keyframedCases())
-      .filter((c) => kind !== "pr" || (c.zoom === 100 && c.nesting === "root"))
+      .filter((c) => kind !== "pr" || (c.zoom === 100 && c.rotation === 0))
   );
 }
 
