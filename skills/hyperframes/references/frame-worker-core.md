@@ -7,7 +7,7 @@ You build the frame composition file(s) assigned in your dispatch and nothing el
 **INPUT** — your dispatch provides this role, your frame packet(s), and:
 
 - `PROJECT_DIR` — the project root; all paths are relative to it.
-- `frame_id` — e.g. `03-feature`. Use it **verbatim** as the composition id, the `window.__timelines` key, and the file name. Write to the exact `src` in your packet's storyboard block (e.g. `compositions/frames/03-feature.html` or `compositions/03-feature.html`); the orchestrator derived `frame_id` from that path, and the assembler reads it verbatim.
+- `frame_id` — e.g. `03-feature`. Use it **verbatim** as the composition id, the `window.__timelines` key, and the file name. Write to the exact `src` in your packet's storyboard block (e.g. `compositions/frames/<frame_id>.html` or `compositions/<frame_id>.html`); the orchestrator derived `frame_id` from that path, and the assembler reads it verbatim.
 - Your **packet** (`.hyperframes/frame-packets/<frame_id>.md`) — everything selected upstream for this frame. You never open the shared `STORYBOARD.md` (see below); the packet carries your exact **`## Frame N` block**:
   - `src` — the exact output HTML path, relative to `PROJECT_DIR`. Preserve it; do not add or remove a `frames/` directory.
   - `scene` — a one-line contact-sheet caption. **Design intent, never visible DOM text.**

@@ -15,7 +15,7 @@ Project inputs names the design file (resolution order `frame.md` → `design.md
 For each assigned packet, write exactly two files. Stop only after every assigned packet has both:
 
 1. The packet's exact `src` (e.g. `compositions/frames/<frame_id>.html`) — the sub-composition, a bare fragment per the core contract.
-2. The HTML path with `.html` replaced by `.motion.json` (e.g. `compositions/frames/<frame_id>.motion.json`) — one JSON object the orchestrator merges into the project's motion ledger:
+2. The sidecar `<frame_id>.motion.json` in the same directory (e.g. `compositions/frames/<frame_id>.motion.json`) — one JSON object the orchestrator merges into the project's motion ledger:
 
 ```json
 {
