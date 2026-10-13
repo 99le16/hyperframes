@@ -6,7 +6,7 @@ type GsapAdapterDeps = {
 
 /**
  * Re-renders a timeline already at `t`, silently, from just below (above at 0) so same-time steps apply in authored
- * order. That step skips a keyframed tween at its start and undoes from-values of tweens starting within it: redo both.
+ * order. Replay initialized from-state in that order when the step crosses its start; keyframes need priming too.
  */
 export function rerenderGsapTimelineAt(
   timeline: {
@@ -31,21 +31,27 @@ export function rerenderGsapTimelineAt(
     (parent) => [parent, parent._dur, parent._tDur, parent._end, parent._dirty] as const,
   );
   for (const [child] of skipped) child._ts = 0;
+  const fromTweens = t >= REDRAW_STEP ? initializedFromTweensCrossedByRewind(children, t) : [];
+  const renders = fromTweens.map(
+    (child) => [child, child.render, Object.getOwnPropertyDescriptor(child, "render")] as const,
+  );
   try {
+    for (const [child, render] of renders) child.render = renderWithFromState(child, render);
     const below = t >= REDRAW_STEP;
     timeline.totalTime(below ? t - REDRAW_STEP : t + REDRAW_STEP, true);
-    primeTweensStartingAt(children, t, below ? REDRAW_STEP : 0);
+    primeTweensStartingAt(children, t, below ? REDRAW_STEP : 0, new Set(fromTweens));
     timeline.totalTime(t, true);
   } finally {
+    for (const [child, , descriptor] of renders) restoreRenderDescriptor(child, descriptor);
     for (const [child, timeScale] of skipped) child._ts = timeScale;
     for (const [parent, dur, tDur, end, dirty] of lengths) {
       Object.assign(parent, { _dur: dur, _tDur: tDur, _end: end, _dirty: dirty });
     }
-  }
-  for (const [child, ratio, zTime, active] of marked) {
-    child.ratio = ratio;
-    child._zTime = zTime;
-    child._act = active;
+    for (const [child, ratio, zTime, active] of marked) {
+      child.ratio = ratio;
+      child._zTime = zTime;
+      child._act = active;
+    }
   }
 }
 
@@ -95,18 +101,68 @@ type GsapAnimation = {
   timeScale: () => number;
   totalDuration: () => number;
   paused: () => boolean;
-  render: (totalTime: number, suppressEvents: boolean) => unknown;
-  vars?: { keyframes?: unknown };
+  render: (totalTime: number, suppressEvents: boolean, force?: boolean) => unknown;
+  vars?: { keyframes?: unknown; startAt?: unknown };
+  time?: () => number;
+  _tTime?: number;
   _startAt?:
     | 0
     | { render: (totalTime: number, suppressEvents: boolean, force: boolean) => unknown };
   getChildren?: (nested: boolean, tweens: boolean, timelines: boolean) => unknown[];
-  timeline?: Pick<GsapAnimation, "getChildren">;
+  timeline?: Pick<GsapAnimation, "getChildren" | "time">;
 };
 
 const BELOW_GSAP_TIME_RESOLUTION = 2e-8;
 
 const REDRAW_STEP = 0.001;
+
+function restoreRenderDescriptor(child: GsapAnimation, descriptor?: PropertyDescriptor): void {
+  if (descriptor) Object.defineProperty(child, "render", descriptor);
+  else Reflect.deleteProperty(child, "render");
+}
+
+function renderWithFromState(
+  child: GsapAnimation,
+  render: GsapAnimation["render"],
+): GsapAnimation["render"] {
+  return function (time, suppressEvents, force) {
+    if (time >= 0 && child._startAt) {
+      const renderedTime = child._tTime;
+      child._startAt.render(0, true, true);
+      force ||= child._tTime !== renderedTime;
+    }
+    return render.call(child, time, suppressEvents, force);
+  };
+}
+
+function hasInitializedFromState(child: GsapAnimation): boolean {
+  return Boolean(
+    child.vars?.startAt && child._startAt && typeof child._startAt.render === "function",
+  );
+}
+
+function initializedFromTweensCrossedByRewind(
+  children: unknown[],
+  time: number,
+  rewind = REDRAW_STEP,
+  found: GsapAnimation[] = [],
+): GsapAnimation[] {
+  for (const child of children.filter(playsForward)) {
+    const local = (time - child.startTime()) * child.timeScale();
+    if (local < -PLAYHEAD_FLOAT_NOISE) continue;
+    const childRewind = rewind * child.timeScale();
+    if (local < childRewind && hasInitializedFromState(child)) found.push(child);
+    const nested = child.getChildren ? child : child.timeline;
+    if (nested?.getChildren)
+      initializedFromTweensCrossedByRewind(
+        nested.getChildren(false, true, true),
+        nested.time ? nested.time() : local,
+        childRewind,
+        found,
+      );
+  }
+  return found;
+}
 
 const playsForward = (value: unknown): value is GsapAnimation => {
   const animation = value as GsapAnimation | null;
@@ -133,20 +189,27 @@ function primeTweensStartingAt(
   children: unknown[],
   time: number,
   stepBelowInTheirTime: number,
+  replayed: ReadonlySet<GsapAnimation>,
 ): void {
   for (const child of children.filter(playsForward)) {
     const local = (time - child.startTime()) * child.timeScale();
     if (Math.abs(local) < 1e-9 && primedAtItsStart(child)) continue;
-    if (local > 0) primeStartedTween(child, local, stepBelowInTheirTime * child.timeScale());
+    if (local > 0)
+      primeStartedTween(child, local, stepBelowInTheirTime * child.timeScale(), replayed);
   }
 }
 
-function primeStartedTween(child: GsapAnimation, local: number, stepBelow: number): void {
-  if (local < stepBelow && child._startAt)
+function primeStartedTween(
+  child: GsapAnimation,
+  local: number,
+  stepBelow: number,
+  replayed: ReadonlySet<GsapAnimation>,
+): void {
+  if (local < stepBelow && child._startAt && !replayed.has(child))
     child._startAt.render(BELOW_GSAP_TIME_RESOLUTION, true, true);
   const nested = child.getChildren ? child : child.timeline;
   if (nested?.getChildren && local <= child.totalDuration()) {
-    primeTweensStartingAt(nested.getChildren(false, true, true), local, stepBelow);
+    primeTweensStartingAt(nested.getChildren(false, true, true), local, stepBelow, replayed);
   }
 }
 
