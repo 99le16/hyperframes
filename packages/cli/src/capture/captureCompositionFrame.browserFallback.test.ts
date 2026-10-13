@@ -84,6 +84,23 @@ describe("openSettledCompositionPage Windows bundled-browser recovery", () => {
     if (originalPlatform) Object.defineProperty(process, "platform", originalPlatform);
   });
 
+  it("cancels browser setup with the caller's signal before launching", async () => {
+    const abort = new AbortController();
+    const failure = new Error("browser setup cancelled");
+    mocks.ensureBrowser.mockImplementation(async (options) => {
+      if (options?.signal !== abort.signal) throw new Error("setup has no caller signal");
+      abort.abort(failure);
+      throw abort.signal.reason;
+    });
+    await expect(
+      openSettledCompositionPage(HTML, "http://127.0.0.1:3000", {
+        ...OPTIONS,
+        signal: abort.signal,
+      }),
+    ).rejects.toBe(failure);
+    expect(mocks.launch).not.toHaveBeenCalled();
+  });
+
   it("launches software WebGPU and accepts its adapter when render's opt-in is set", async () => {
     const opened = fakeBrowser();
     mocks.launch.mockResolvedValueOnce(opened.browser);

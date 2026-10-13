@@ -195,7 +195,7 @@ export async function openSettledCompositionPage(
 ): Promise<SettledCompositionPage> {
   const viewport = resolveCompositionViewportFromHtml(html);
   const { ensureBrowser, findSystemBrowser } = await import("../browser/manager.js");
-  const browser = await ensureBrowser();
+  const browser = await ensureBrowser({ signal: options.signal });
   const puppeteer = await import("puppeteer-core");
   const { buildChromeArgs } = await import("@hyperframes/engine");
   const requestedGpuMode = options.browserGpuMode ?? resolveCliChromeGpuMode();

@@ -60,14 +60,19 @@ it("check names a non-finishing child script, exits non-zero, and closes its bro
   let browserPid: number | undefined;
   let descendants: number[] = [];
   try {
-    await waitForTestCondition(() => existsSync(pidFile) || child.exitCode !== null, 15_000);
+    await waitForTestCondition(() => existsSync(pidFile) || child.exitCode !== null, 30_000);
     if (!existsSync(pidFile)) throw new Error(output);
     browserPid = Number(readFileSync(pidFile, "utf8"));
     expect(testProcessIsAlive(browserPid)).toBe(true);
     await waitForTestCondition(() => existsSync(`${pidFile}.script`), 5_000);
     descendants = process.platform === "linux" ? testProcessDescendants(browserPid) : [];
     if (process.platform === "linux") expect(descendants.length).toBeGreaterThan(0);
-    await waitForTestCondition(() => child.exitCode !== null, 12_000);
+    await waitForTestCondition(
+      () => existsSync(`${pidFile}.report-browser-alive`) || child.exitCode !== null,
+      12_000,
+    );
+    expect(readFileSync(`${pidFile}.report-browser-alive`, "utf8")).toBe("false");
+    await waitForTestCondition(() => child.exitCode !== null, 5_000);
     expect(await done).toBe(1);
     const report = JSON.parse(stdout.slice(stdout.indexOf('{\n  "ok"')));
     expect(report.ok).toBe(false);
@@ -95,4 +100,4 @@ it("check names a non-finishing child script, exits non-zero, and closes its bro
     child.kill("SIGKILL");
     rmSync(dir, { recursive: true, force: true });
   }
-}, 45_000);
+}, 60_000);

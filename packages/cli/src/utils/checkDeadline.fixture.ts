@@ -1,19 +1,44 @@
 // fallow-ignore-file unused-file
 import { dirname, join } from "node:path";
-import { writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import puppeteer from "puppeteer-core";
+import { testProcessIsAlive } from "./processTestUtils.js";
 
-// Exercise the public command with the production budget accelerated, not a new CLI knob.
+// Accelerate the hang after the independent authored marker confirms browser startup.
+// Production still budgets startup; the unit test verifies that shared deadline.
 const realSetTimeout = globalThis.setTimeout;
+let armDeadline: (() => void) | undefined;
 globalThis.setTimeout = ((
   callback: (...args: unknown[]) => void,
   delay?: number,
   ...args: unknown[]
-) => realSetTimeout(callback, delay === 120_000 ? 4_000 : delay, ...args)) as typeof setTimeout;
+) => {
+  const timer = realSetTimeout(callback, delay, ...args);
+  if (delay === 120_000) {
+    armDeadline = () => {
+      clearTimeout(timer);
+      realSetTimeout(callback, 4_000, ...args);
+      armDeadline = undefined;
+    };
+  }
+  return timer;
+}) as typeof setTimeout;
 const pidFile = process.env.HF_TEST_BROWSER_PID_FILE;
 if (!pidFile) throw new Error("Missing browser PID file");
+// Observe cleanup when the command presents its report, before any exit hook runs.
+const log = console.log.bind(console);
+console.log = (...args: unknown[]) => {
+  const [message] = args;
+  if (typeof message === "string" && message.startsWith('{\n  "ok"') && existsSync(pidFile)) {
+    const pid = Number(readFileSync(pidFile, "utf8"));
+    writeFileSync(`${pidFile}.report-browser-alive`, String(testProcessIsAlive(pid)));
+  }
+  log(...args);
+};
 const launch = puppeteer.launch.bind(puppeteer);
 puppeteer.launch = async (options) => {
+  // Make cold startup exceed the accelerated hang budget on every platform.
+  await new Promise((resolve) => realSetTimeout(resolve, 5_000));
   const browser = await launch({ ...options, userDataDir: join(dirname(pidFile), "profile") });
   const pid = browser.process()?.pid;
   if (!pid) throw new Error("Browser did not expose its process");
@@ -24,6 +49,7 @@ puppeteer.launch = async (options) => {
     page.on("console", (message) => {
       if (message.text() === "HF_TEST_SCRIPT_START") {
         writeFileSync(`${pidFile}.script`, "started");
+        armDeadline?.();
       }
     });
     return page;
