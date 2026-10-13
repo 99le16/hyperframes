@@ -96,6 +96,7 @@ COPY packages/lint/package.json packages/lint/package.json
 COPY packages/parsers/package.json packages/parsers/package.json
 COPY packages/sdk/package.json packages/sdk/package.json
 COPY packages/sdk-playground/package.json packages/sdk-playground/package.json
+COPY packages/inspector/package.json packages/inspector/package.json
 COPY packages/studio-server/package.json packages/studio-server/package.json
 COPY scripts/package-subpaths.mjs scripts/package-subpaths.mjs
 # A corrupt tarball extraction can print an error and then hang instead of
@@ -109,6 +110,7 @@ RUN timeout 300 bun install --frozen-lockfile \
 # argument list with the production engine helper so a launcher-flag regression
 # invalidates this layer and fails the contract instead of testing a duplicate
 # hard-coded profile.
+COPY packages/parsers/ packages/parsers/
 COPY packages/engine/ packages/engine/
 COPY packages/aws-lambda/scripts/probe-beginframe.ts packages/aws-lambda/scripts/probe-beginframe.ts
 RUN bun -e 'import { buildChromeArgs } from "./packages/engine/src/services/browserManager.ts"; await Bun.write("/tmp/hf-gcp-chrome-args.json", JSON.stringify(buildChromeArgs({ width: 800, height: 600, captureMode: "beginframe", platform: "linux" }, { browserGpuMode: "software" })))' \
