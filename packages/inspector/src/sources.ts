@@ -111,6 +111,43 @@ function statements(text: string) {
   }
   return result;
 }
+function rawTextElements(text: string, tag: "script" | "style") {
+  const lower = text.toLowerCase();
+  const opening = `<${tag}`;
+  const closing = `</${tag}`;
+  const elements: { attributes: string; content: string; contentStart: number }[] = [];
+  let cursor = 0;
+  while (cursor < text.length) {
+    const start = lower.indexOf(opening, cursor);
+    if (start < 0) break;
+    const boundary = lower[start + opening.length];
+    if (boundary && boundary !== ">" && !/\s/.test(boundary)) {
+      cursor = start + opening.length;
+      continue;
+    }
+    const contentStart = lower.indexOf(">", start + opening.length);
+    if (contentStart < 0) break;
+    let close = lower.indexOf(closing, contentStart + 1);
+    let closeEnd = -1;
+    while (close >= 0) {
+      let at = close + closing.length;
+      while (at < lower.length && /\s/.test(lower[at])) at++;
+      if (lower[at] === ">") {
+        closeEnd = at + 1;
+        break;
+      }
+      close = lower.indexOf(closing, at);
+    }
+    if (close < 0) break;
+    elements.push({
+      attributes: text.slice(start + opening.length, contentStart),
+      content: text.slice(contentStart + 1, close),
+      contentStart: contentStart + 1,
+    });
+    cursor = closeEnd;
+  }
+  return elements;
+}
 export class Sources {
   readonly files = new Map<string, SourceFile>();
   readonly chunks: Chunk[] = [];
@@ -141,10 +178,11 @@ export class Sources {
       if (/\.m?js$/.test(file)) this.addChunk(file, text, 0);
       if (/\.css$/.test(file)) this.addCss(file, text, 0);
       if (/\.html$/.test(file)) {
-        for (const m of text.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi))
-          if (!/\bsrc\s*=/.test(m[1])) this.addChunk(file, m[2], m.index + m[0].indexOf(">") + 1);
-        for (const m of text.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi))
-          this.addCss(file, m[1], m.index + m[0].indexOf(">") + 1);
+        for (const script of rawTextElements(text, "script"))
+          if (!/\bsrc\s*=/.test(script.attributes))
+            this.addChunk(file, script.content, script.contentStart);
+        for (const style of rawTextElements(text, "style"))
+          this.addCss(file, style.content, style.contentStart);
         for (const m of text.matchAll(/<([a-z][\w-]*)\b[^>]*>/gi)) {
           const attr = (name: string) =>
             new RegExp(`\\s${name}\\s*=\\s*["']([^"']*)["']`, "i").exec(m[0])?.[1];

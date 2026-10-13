@@ -28,6 +28,20 @@ describe("source records", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+  it("extracts raw-text elements with HTML-valid whitespace before the closing bracket", () => {
+    const dir = mkdtempSync(join(tmpdir(), "inspect-raw-text-"));
+    try {
+      writeFileSync(
+        join(dir, "index.html"),
+        "<script>const marker = 1;</script \n><style>.marker { color: red; }</style\t>",
+      );
+      const source = new Sources(dir);
+      expect(source.chunks.map((chunk) => chunk.text)).toContain("const marker = 1;");
+      expect(source.cssRules.some((rule) => rule.selector === ".marker")).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
   it("opt-in compiler mapping keeps default HTML unchanged and concurrent maps isolated", async () => {
     const dirs = [0, 1].map(() => mkdtempSync(join(tmpdir(), "inspect-map-")));
     try {
