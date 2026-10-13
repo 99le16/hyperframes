@@ -1524,7 +1524,11 @@ function staggerAmount(raw: unknown): number | undefined {
   }
 }
 
-/** Preserve authored endpoints; an unknown natural pose remains absent. */
+function restValue(prop: string): number {
+  return prop === "opacity" || prop.startsWith("scale") ? 1 : 0;
+}
+
+/** Studio reads these stops, including the rest pose. The CLI reports that pose as unresolved. */
 function staggeredKeyframes(
   anim: Omit<GsapAnimation, "id">,
   each: number,
@@ -1538,8 +1542,10 @@ function staggeredKeyframes(
   } else if (anim.method === "from") {
     from = vars;
     to = {};
+    for (const k of Object.keys(vars)) to[k] = restValue(k);
   } else {
     from = { ...(anim.fromProperties ?? {}) };
+    for (const k of Object.keys(vars)) if (from[k] === undefined) from[k] = restValue(k);
     to = vars;
   }
   return [

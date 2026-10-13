@@ -226,6 +226,7 @@ function tweenSpan(anim: GsapAnimation, duration: number | null, html: string): 
 }
 
 function tweenStart(anim: GsapAnimation): number | null {
+  if (followsTimelineCursor(anim) && typeof anim.resolvedStart !== "number") return null;
   const position = typeof anim.resolvedStart === "number" ? anim.resolvedStart : num(anim.position);
   const delay = anim.inspectionTiming ? anim.inspectionTiming.delay : 0;
   return position === null || delay === null ? null : position + delay;
@@ -237,9 +238,14 @@ function tweenDuration(anim: GsapAnimation): number | null {
   return anim.duration ?? GSAP_DEFAULT_DURATION;
 }
 
+function syntheticStaggerStops(anim: GsapAnimation): boolean {
+  const stops = anim.keyframes?.keyframes ?? [];
+  return stops.length > 0 && stops.every((stop) => "stagger" in stop.properties);
+}
+
 function tweenShape(anim: GsapAnimation): { shape: SurfacedTween["shape"]; rawKfs: RawKeyframe[] } {
   if (anim.hasUnresolvedKeyframes) return { shape: "keyframes", rawKfs: [] };
-  if (anim.keyframes?.keyframes?.length)
+  if (anim.keyframes?.keyframes?.length && !syntheticStaggerStops(anim))
     return { shape: "keyframes", rawKfs: anim.keyframes.keyframes };
   if (anim.arcPath?.enabled) return { shape: "motionPath", rawKfs: [] };
   return {

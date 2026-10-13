@@ -16,7 +16,23 @@ it("preserves known starts and exposes unknown starts", () => {
   ).toBeUndefined();
 });
 it("does not turn an unresolved expression into time zero", () => {
-  expect(surface('tl.to("#dot",{x:50,duration:1},ts[i]);').tweens[0]?.start).toBeNull();
+  const r = surface(
+    'tl.to("#a",{x:1,duration:1},ts[i]);tl.to("#b",{x:2,duration:1});tl.to("#b",{x:3,duration:1},4);',
+    '<div id="a"></div><div id="b"></div>',
+  );
+  expect(r.tweens[0]?.start).toBeNull();
+  expect(r.tweens[1]?.start).toBeNull();
+  expect(r.tweens[1]?.unresolved).toContain("start");
+  expect(r.tweens[2]?.start).toBe(4);
+});
+it("reports a staggered from rest pose as unresolved", () => {
+  const tween = surface(
+    'tl.from(".item",{y:40,opacity:0,duration:.5,stagger:.1});',
+    '<div class="item"></div>'.repeat(3),
+  ).tweens[0];
+  expect(tween?.keyframes.at(-1)?.properties.y).toBeUndefined();
+  expect(tween?.keyframes.at(-1)?.properties.opacity).toBeUndefined();
+  expect(tween?.unresolved).toContain("endpointProperties");
 });
 it("resolves string selector constants", () => {
   expect(surface('const b="#dot";tl.to(b,{x:50,duration:1},0);').tweens[0]?.target).toBe("#dot");
