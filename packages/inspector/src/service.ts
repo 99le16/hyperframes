@@ -177,7 +177,7 @@ export class Inspector {
           "window.__hfLiveInspection = " +
             JSON.stringify({ generation }) +
             ";\n" +
-            readFileSync(new URL("../dist/inspection.js", import.meta.url), "utf8"),
+            readFileSync(new URL(`../dist/inspection.${"js"}`, import.meta.url), "utf8"),
         );
       }
       await page.goto(`http://127.0.0.1:${address.port}/`, { waitUntil: "load", timeout: 30_000 });

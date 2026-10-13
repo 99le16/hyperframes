@@ -380,6 +380,11 @@ jobs:
           node-version: 22
       - uses: ./.github/actions/prepare-ffmpeg-bin
       - run: bash scripts/ci/install-workspace-dependencies.sh
+      - name: Build generated inspector inputs
+        run: |
+          bun run --filter '@hyperframes/{parsers,lint}' build
+          bun run build:hyperframes-runtime
+          bun run --filter @hyperframes/inspector build
       - name: Run fallow audit
         id: audit
         # `bun install` above made `bunx fallow` resolve from node_modules, so
