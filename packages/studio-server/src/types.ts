@@ -171,6 +171,8 @@ export interface StudioApiAdapter {
      */
     fps: import("@hyperframes/core").Fps;
     quality: string;
+    /** Encoder CRF override (lower = more detail, bigger file). Overrides the quality preset's CRF. Never set for MOV. */
+    crf?: number;
     jobId: string;
     /**
      * The triggering browser profile has telemetry disabled (localStorage
