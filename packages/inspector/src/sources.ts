@@ -7,6 +7,7 @@ import { TraceMap, originalPositionFor } from "@jridgewell/trace-mapping";
 import type { BundleScriptProvenance } from "../../core/src/compiler/htmlBundler";
 import type { ElementRef, Snippet } from "./types";
 import { sourceDependencies, type SourceRange } from "./sourceDependencies";
+import { PREVIEW_IGNORED_DIRS } from "../../core/src/projectFolders";
 
 interface Chunk {
   file: string;
@@ -40,17 +41,7 @@ function occurrences(text: string, needle: string) {
   }
   return hits;
 }
-const excluded = new Set([
-  "node_modules",
-  ".git",
-  ".hyperframes",
-  ".agents",
-  ".claude",
-  "evidence",
-  "outputs",
-  "renders",
-  "snapshots",
-]);
+const excluded = new Set([...PREVIEW_IGNORED_DIRS, ".agents", ".claude", "evidence", "snapshots"]);
 function sourceFiles(project: string) {
   const files: string[] = [];
   function visit(dir: string) {

@@ -68,6 +68,12 @@
       "import": "./src/atomicFile.ts",
       "types": "./src/atomicFile.ts"
     },
+    "./project-folders": {
+      "bun": "./src/projectFolders.ts",
+      "node": "./dist/projectFolders.js",
+      "import": "./src/projectFolders.ts",
+      "types": "./src/projectFolders.ts"
+    },
     "./asset-paths": {
       "bun": "./src/compiler/rewriteSubCompPaths.ts",
       "node": "./dist/compiler/rewriteSubCompPaths.js",
@@ -563,6 +569,10 @@
       "./atomic-file": {
         "import": "./dist/atomicFile.js",
         "types": "./dist/atomicFile.d.ts"
+      },
+      "./project-folders": {
+        "import": "./dist/projectFolders.js",
+        "types": "./dist/projectFolders.d.ts"
       },
       "./asset-paths": {
         "import": "./dist/compiler/rewriteSubCompPaths.js",
