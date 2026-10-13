@@ -22,7 +22,7 @@ interface TimelineSpies {
 
 function renderHarness(
   initialProps: HarnessProps,
-  options: { timelineElements?: TimelineElement[] } = {},
+  options: { timelineElements?: TimelineElement[]; previewDoc?: Document } = {},
 ): {
   current: () => ReturnType<typeof useDomSelection>;
   rerender: (props: HarnessProps) => void;
@@ -49,7 +49,11 @@ function renderHarness(
       isMasterView: false,
       compIdToSrc: new Map(),
       captionEditMode: false,
-      previewIframeRef: { current: null },
+      previewIframeRef: {
+        current: options.previewDoc
+          ? ({ contentDocument: options.previewDoc } as HTMLIFrameElement)
+          : null,
+      },
       timelineElements: options.timelineElements ?? [],
       getTimelineSelectionSet: () => publishedSet,
       setSelectedTimelineElementId: timeline.setSelectedTimelineElementId,
@@ -277,6 +281,48 @@ describe("useDomSelection", () => {
 
     expect(harness.current().domEditSelection).toBe(refreshed);
     expect(harness.current().domEditGroupSelections).toEqual([refreshed]);
+    harness.cleanup();
+  });
+
+  it("keeps the shown selection when a group-preserving refresh reads nothing new", () => {
+    const element = document.createElement("div");
+    element.id = "headline";
+    const first = { ...makeSelection("Headline", element), dataAttributes: { start: "1" } };
+    const harness = renderHarness({
+      activeCompPath: "intro.html",
+      projectId: "project-1",
+      refreshKey: 0,
+    });
+    const refresh = (selection: typeof first) =>
+      act(() =>
+        harness.current().applyDomSelection(selection, { preserveGroup: true, revealPanel: false }),
+      );
+
+    act(() => harness.current().applyDomSelection(first));
+    harness.timeline.setTimelineSelectionSet.mockClear();
+    refresh({ ...first, dataAttributes: { start: "1" } });
+    expect(harness.current().domEditSelection).toBe(first);
+    expect(harness.timeline.setTimelineSelectionSet).not.toHaveBeenCalled();
+
+    const moved = { ...first, dataAttributes: { start: "2" } };
+    refresh(moved);
+    expect(harness.current().domEditSelection).toBe(moved);
+    expect(harness.current().domEditGroupSelections).toEqual([moved]);
+    harness.cleanup();
+  });
+
+  it("drops the selection when the reloaded preview no longer has its element", async () => {
+    const selection = makeSelection("Headline", document.createElement("div"));
+    const harness = renderHarness(
+      { activeCompPath: "index.html", projectId: "project-1", refreshKey: 0 },
+      { previewDoc: document.implementation.createHTMLDocument("") },
+    );
+    act(() => harness.current().applyDomSelection(selection));
+
+    await act(() => harness.current().refreshDomEditSelectionFromPreview(selection));
+
+    expect(harness.current().domEditSelection).toBeNull();
+    expect(harness.timeline.setSelectedTimelineElementId).toHaveBeenLastCalledWith(null);
     harness.cleanup();
   });
 

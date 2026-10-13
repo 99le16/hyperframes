@@ -119,18 +119,7 @@ export const PropertyPanel = memo(function PropertyPanel(props: PropertyPanelPro
   const selectedElementId = usePlayerStore((s) => s.selectedElementId);
   const selectedElementHidden = isSelectedElementHidden(timelineElements, selectedElementId);
   const visibilityToggleLabel = selectedElementHidden ? "Show element" : "Hide element";
-  /**
-   * An audio element gets no hide control here.
-   *
-   * On an audio track "hidden" and "muted" are not similar operations, they are
-   * the SAME operation with two names (groups doc §2.1) — which is why the
-   * timeline's eye became the mute rather than growing a sibling. A second copy
-   * in the panel, still called "Hide element", is precisely the thing that step
-   * removed: "Two controls that silence a track, sitting next to each other,
-   * differing only in a distinction the author cannot see." An
-   * `<hf-audio-group>` has no visual to hide at all, and its mute lives on its
-   * own row.
-   */
+  // Audio gets no visibility toggle in this classic panel; the timeline and the flat panel offer it as a mute.
   const audioSelection = isAudioDomElement(element?.element);
   // Live during playback, the store's when paused — see the hook. Shared with the
   // audio FX panel, which follows the playhead for the same reason: a value the
@@ -251,13 +240,13 @@ export const PropertyPanel = memo(function PropertyPanel(props: PropertyPanelPro
     navigator.clipboard
       .writeText(text)
       .then(() => {
-        showToast(`Copied element info for ${element.label} — paste into any AI agent`, "info");
+        showToast(`Copied element info for ${element.label}. Paste it into any AI agent`, "info");
         setClipboardCopied(true);
         clearTimeout(clipboardTimerRef.current);
         clipboardTimerRef.current = setTimeout(() => setClipboardCopied(false), 1500);
       })
       .catch(() => {
-        showToast("Couldn't copy to the clipboard — check browser permissions", "error");
+        showToast("Couldn't copy to the clipboard. Check browser permissions", "error");
       });
   };
 
@@ -576,6 +565,7 @@ export const PropertyPanel = memo(function PropertyPanel(props: PropertyPanelPro
             styles={styles}
             assets={assets}
             onSetStyle={onSetStyle}
+            onSetHtmlAttribute={props.onSetHtmlAttribute}
             onImportAssets={onImportAssets}
             gsapBorderRadius={gsapBorderRadius}
           />

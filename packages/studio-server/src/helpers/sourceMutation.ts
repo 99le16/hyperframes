@@ -1,3 +1,4 @@
+import { replacementTimelineAssetId } from "@hyperframes/core/timeline-asset-id";
 import { parseHTML } from "linkedom";
 import { removeElementWithGsapCascade } from "@hyperframes/parsers";
 import { readMediaOffsetSeconds, readPlaybackRate } from "@hyperframes/parsers/media-duration";
@@ -182,7 +183,14 @@ export function dedupeClonedCompositionId(document: Document, clone: Element): v
 }
 
 export interface PatchOperation {
-  type: "inline-style" | "attribute" | "html-attribute" | "text-content" | "rich-text";
+  /** `ensure-id` keeps the element's id, else writes `value` made unique in this file and `takenIds`. */
+  type:
+    | "inline-style"
+    | "attribute"
+    | "html-attribute"
+    | "text-content"
+    | "rich-text"
+    | "ensure-id";
   property: string;
   value: string | null;
   childSelector?: string;
@@ -239,7 +247,8 @@ export function patchElementInHtml(
   source: string,
   target: SourceMutationTarget,
   operations: PatchOperation[],
-): { html: string; matched: boolean } {
+  takenIds?: ReadonlySet<string>,
+): { html: string; matched: boolean; elementId?: string | null } {
   const { document, wrappedFragment } = parseSourceDocument(source);
   const el = findTargetElement(document, target);
   if (!el || !isHTMLElement(el)) return { html: source, matched: false };
@@ -280,10 +289,17 @@ export function patchElementInHtml(
         if (!isAllowedHtmlAttribute(op.property)) break;
         if (op.value != null) {
           if (!isSafeAttributeValue(op.property, op.value)) break;
+          const replacementId =
+            op.property === "src" ? replacementTimelineAssetId(document, opTarget, op.value) : null;
+          if (replacementId !== null) opTarget.setAttribute("id", replacementId);
           opTarget.setAttribute(op.property, op.value);
         } else {
           opTarget.removeAttribute(op.property);
         }
+        break;
+      case "ensure-id":
+        if (opTarget.getAttribute("id") || !op.value) break;
+        opTarget.setAttribute("id", nextUniqueId(document, op.value, takenIds));
         break;
       case "text-content":
         if (op.value != null) {
@@ -307,8 +323,20 @@ export function patchElementInHtml(
   }
 
   const html = wrappedFragment ? document.body.innerHTML || "" : document.toString();
-  if (html === originalHtml) return { html: source, matched: true };
-  return { html: ensureHfIds(html), matched: true };
+  const elementId = htmlEl.getAttribute("id");
+  if (html === originalHtml) return { html: source, matched: true, elementId };
+  return { html: ensureHfIds(html), matched: true, elementId };
+}
+
+export function nextUniqueId(
+  document: Document,
+  base: string,
+  takenIds?: ReadonlySet<string>,
+): string {
+  let id = base;
+  let suffix = 2;
+  while (document.getElementById(id) || takenIds?.has(id)) id = `${base}-${suffix++}`;
+  return id;
 }
 
 /** Whether each target exists in `source`; the document is parsed once however many targets ask. */
@@ -355,6 +383,16 @@ function setElementDuration(
   });
 }
 
+/** True when the media has an authored window and the row's range (if given) is that window. */
+function isWindowOf(
+  media: { start: number; duration: number },
+  row?: { start: number; duration: number },
+): boolean {
+  if (media.duration <= 0) return false;
+  const near = (a: number, b: number) => Math.abs(a - b) < 0.001;
+  return !row || (near(media.start, row.start) && near(media.duration, row.duration));
+}
+
 // fallow-ignore-next-line complexity
 export function splitElementInHtml(
   source: string,
@@ -366,7 +404,6 @@ export function splitElementInHtml(
     duration: number;
     playbackStart?: number;
     playbackRate?: number;
-    stampPlaybackStart?: boolean;
     // The element's current resolved track (authored, or the runtime's
     // positional-index fallback when unauthored). Stamped onto both halves so
     // inserting the clone can't shift either one to a different row — see
@@ -378,7 +415,20 @@ export function splitElementInHtml(
   const el = findTargetElement(document, target);
   if (!el || !isHTMLElement(el)) return { html: source, matched: false, newId: null };
 
-  const timing = resolveElementTiming(el);
+  // An untimed wrapper whose row is its timed media's own window is a view of that
+  // media: cut the media and leave the wrappers untimed. A GSAP scene keeps its own window.
+  const timedMediaSelector = "video[data-start], audio[data-start]";
+  const innerMedia =
+    el.hasAttribute("data-start") ||
+    resolveElementTiming(el).duration > 0 ||
+    el.matches("[data-composition-src], [data-composition-id]")
+      ? null
+      : el.querySelector(timedMediaSelector);
+  const timedMedia =
+    innerMedia && isWindowOf(resolveElementTiming(innerMedia), fallbackTiming) ? innerMedia : null;
+  const timed = timedMedia ?? el;
+
+  const timing = resolveElementTiming(timed);
   let { start, duration } = timing;
   // GSAP-animated elements carry their timing in the script, not in data-* attrs,
   // so the source has no authored duration. Fall back to the store's (GSAP-derived)
@@ -392,13 +442,7 @@ export function splitElementInHtml(
     return { html: source, matched: false, newId: null };
   }
 
-  if (document.getElementById(newId)) {
-    let suffix = 2;
-    const base = newId;
-    while (document.getElementById(newId)) {
-      newId = `${base}-${suffix++}`;
-    }
-  }
+  newId = nextUniqueId(document, newId);
 
   const firstDuration = splitTime - start;
   const secondDuration = duration - firstDuration;
@@ -411,34 +455,40 @@ export function splitElementInHtml(
   // Descendants carry their own data-hf-id; leaving them duplicates the id of
   // every nested node (e.g. an inner <span>), so strip them on the clone too.
   for (const node of clone.querySelectorAll("[data-hf-id]")) node.removeAttribute("data-hf-id");
-  setElementDuration(clone, splitTime, secondDuration, fallbackTiming?.track);
+  const clonedTimed = timedMedia ? clone.querySelector(timedMediaSelector)! : clone;
+  if (timedMedia?.id) {
+    const mediaId = nextUniqueId(document, `${timedMedia.id}-split`, new Set([newId]));
+    duplicateCssRulesForId(document, timedMedia.id, mediaId);
+    clonedTimed.setAttribute("id", mediaId);
+  }
+  setElementDuration(clonedTimed, splitTime, secondDuration, fallbackTiming?.track);
 
   // Keep the "clip" class — the runtime uses it to control visibility
   // based on data-start/data-duration timing.
 
-  // A split creates two views over the same media source. Even an untrimmed
-  // audio/video element needs an explicit zero in-point stamped on the first
+  // A split creates two views over the same media source or sub-composition.
+  // Even an untrimmed one needs an explicit zero in-point stamped on the first
   // half so the second half can advance from it instead of restarting at zero.
-  const playbackStartAttr = el.hasAttribute("data-playback-start")
+  const playbackStartAttr = timed.hasAttribute("data-playback-start")
     ? "data-playback-start"
-    : el.hasAttribute("data-media-start")
+    : timed.hasAttribute("data-media-start")
       ? "data-media-start"
-      : fallbackTiming?.stampPlaybackStart
+      : timed.matches("[data-composition-src], [data-composition-id]")
         ? "data-playback-start"
-        : el.matches("audio, video")
+        : timed.matches("audio, video")
           ? "data-media-start"
           : null;
   if (playbackStartAttr) {
-    const readAttr = (name: string) => el.getAttribute(name);
-    const authoredTrim = el.getAttribute(playbackStartAttr);
+    const readAttr = (name: string) => timed.getAttribute(name);
+    const authoredTrim = timed.getAttribute(playbackStartAttr);
     const currentTrim =
       authoredTrim !== null
         ? readMediaOffsetSeconds(readAttr)
         : (fallbackTiming?.playbackStart ?? 0);
     const rate = readPlaybackRate(readAttr, fallbackTiming?.playbackRate);
     if (authoredTrim === null || Number(authoredTrim) !== currentTrim)
-      el.setAttribute(playbackStartAttr, String(Math.round(currentTrim * 1000) / 1000));
-    clone.setAttribute(
+      timed.setAttribute(playbackStartAttr, String(Math.round(currentTrim * 1000) / 1000));
+    clonedTimed.setAttribute(
       playbackStartAttr,
       String(Math.round((currentTrim + firstDuration * rate) * 1000) / 1000),
     );
@@ -452,7 +502,7 @@ export function splitElementInHtml(
 
   // Trim the original element's duration. A GSAP element had no data-start; stamp
   // it so the runtime windows the first half (visibility selects on [data-start]).
-  setElementDuration(el, start, firstDuration, fallbackTiming?.track);
+  setElementDuration(timed, start, firstDuration, fallbackTiming?.track);
 
   // Insert clone after original
   if (el.nextSibling) {
@@ -535,13 +585,7 @@ function uniqueGroupDomId(document: Document, groupId: string): string {
       .replace(/[^a-z0-9]+/g, "-")
       // Normalization above leaves at most one hyphen at either edge.
       .replace(/^-|-$/g, "") || "group";
-  let id = base;
-  let n = 2;
-  while (document.getElementById(id)) {
-    id = `${base}-${n}`;
-    n += 1;
-  }
-  return id;
+  return nextUniqueId(document, base);
 }
 
 // fallow-ignore-next-line complexity

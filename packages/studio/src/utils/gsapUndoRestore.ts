@@ -9,12 +9,12 @@ import {
   findGsapScriptElements,
   readNestedFiles,
 } from "./gsapSoftReload";
-import { isCompositionTemplate } from "@hyperframes/parsers/hf-ids";
+import { ensureHfIds, isCompositionTemplate } from "@hyperframes/parsers/hf-ids";
 import { findAuthoredElement, parseSavedSource } from "./authoredSource";
 import { STUDIO_EDIT_ATTRS } from "../components/editor/manualEditsSeekReapply";
 import { markScenesStale } from "../player/sceneSwap";
 import { STUDIO_ORIGINAL_INLINE_TRANSLATE_ATTR } from "../components/editor/manualEditsTypes";
-import { studioGestureDraws } from "../components/editor/manualEditsDom";
+import { countStudioPreviewChange, studioGestureDraws } from "../components/editor/manualEditsDom";
 
 type PreviewWindow = Window & {
   __player?: { seek?: (t: number) => void };
@@ -252,8 +252,11 @@ function fileTargets(
   isActive: boolean,
   file: UndoRestoreFile,
 ): RestorePlan | null {
-  const prevDoc = parseRestoreSource(file.previous);
-  const nextDoc = parseRestoreSource(file.restored);
+  const previewStamped = doc.querySelector("[data-hf-id]") !== null;
+  const stampedLikeThePreview = (html: string) =>
+    previewStamped && !html.includes("data-hf-id") ? ensureHfIds(html) : html;
+  const prevDoc = parseRestoreSource(stampedLikeThePreview(file.previous));
+  const nextDoc = parseRestoreSource(stampedLikeThePreview(file.restored));
   const scripted = restoreScripted(prevDoc, nextDoc, isActive);
   if (scripted === null) return null;
   const keys = diffRestoreDocs(prevDoc, nextDoc);
@@ -309,7 +312,8 @@ export function showRestoreInPlace(
   const doc = iframe?.contentDocument;
   const win = iframe?.contentWindow as PreviewWindow | null;
   const plan = doc && win ? planRestoreTargets(doc, activeCompPath ?? "index.html", files) : null;
-  if (!iframe || !win || !plan || plan.scripted) return null;
+  if (!iframe || !doc || !win || !plan || plan.scripted) return null;
+  countStudioPreviewChange(doc);
   const before = plan.targets.map(
     ({ live, restored }) => [live, live.cloneNode(false) as Element, restored] as const,
   );
@@ -390,6 +394,7 @@ export function applyUndoRestoreToPreview(
     reloadPreview();
     return "full";
   }
+  countStudioPreviewChange(doc);
   // Sync each changed element's attributes onto the live DOM from the restored
   // markup, so the runtime's seek-reapply reads the reverted values.
   for (const target of plan.targets)
@@ -398,20 +403,17 @@ export function applyUndoRestoreToPreview(
   const active = files[activeDocPath];
   const restoredScript = active ? extractGsapScriptText(active.restored) : null;
   const previousScript = active ? extractGsapScriptText(active.previous) : null;
-  const reparse = plan.scripted
-    ? plan.targets.map(({ live }) => live).filter((el) => "_gsap" in el)
-    : [];
-  if (reparse.length && !restoredScript) {
+  const reparse = plan.scripted && plan.targets.some(({ live }) => "_gsap" in live);
+  if (reparse && !restoredScript) {
     reloadPreview();
     return "full";
   }
-  if (restoredScript && (restoredScript !== previousScript || reparse.length)) {
+  if (restoredScript && (restoredScript !== previousScript || reparse)) {
     syncStaleEditMarks(doc, active);
     const result = applySoftReload(iframe, restoredScript, {
       onAsyncFailure: reloadPreview,
       currentTimeOverride: currentTime,
       authoredHtml: active.restored,
-      reparse,
       nestedFiles,
     });
     if (result === "cannot-soft-reload") {

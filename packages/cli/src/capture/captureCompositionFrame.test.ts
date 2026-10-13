@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AUDIT_SEEK_OPTIONS,
@@ -14,6 +15,7 @@ import {
   resolveCropRegion,
   runFfmpegOnce,
   seekCompositionTimeline,
+  waitForRuntimeReady,
   type CompositionSeekPage,
 } from "./captureCompositionFrame.js";
 
@@ -46,6 +48,55 @@ function runBrowserSeek(evaluate: ReturnType<typeof fakeSeekPage>["evaluate"]): 
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+describe("waitForRuntimeReady", () => {
+  it("waits for the runtime's render-ready flag and reports a timeout as not ready", async () => {
+    const { waitForFunction, evaluate } = fakeSeekPage();
+
+    await expect(waitForRuntimeReady({ waitForFunction, evaluate }, 123)).resolves.toBe(true);
+    expect(waitForFunction).toHaveBeenCalledWith(expect.any(Function), { timeout: 123 });
+    const ready = waitForFunction.mock.calls[0]![0];
+    vi.stubGlobal("window", { __timelines: {} });
+    expect(ready()).toBe(false);
+    vi.stubGlobal("window", { __timelines: {}, __renderReady: true });
+    expect(ready()).toBe(true);
+
+    waitForFunction.mockRejectedValueOnce(new Error("Waiting failed: 1ms exceeded"));
+    await expect(waitForRuntimeReady({ waitForFunction, evaluate }, 1)).resolves.toBe(false);
+  });
+
+  it("fails with the runtime's start-up error instead of reporting the page ready", async () => {
+    const { waitForFunction, evaluate } = fakeSeekPage();
+    const startupError = "HyperFrames runtime failed: TypeError: boom";
+    evaluate.mockResolvedValue(startupError);
+
+    const ready = waitForFunction.mock.calls.length;
+    await expect(waitForRuntimeReady({ waitForFunction, evaluate }, 123)).rejects.toThrow(
+      startupError,
+    );
+    const predicate = waitForFunction.mock.calls[ready]![0];
+    vi.stubGlobal("window", { __hfStartupError: startupError });
+    expect(predicate()).toBe(true);
+    vi.stubGlobal("window", { __hfStartupError: { message: "not a string" } });
+    expect(predicate()).toBe(false);
+  });
+
+  it("is what layout, motion-shot and validate wait on before they sample the page", () => {
+    const commands = join(dirname(fileURLToPath(import.meta.url)), "../commands");
+    const firstSample = {
+      layout: "getCompositionDuration(page)",
+      motionShot: "installSeekHelper(page)",
+      validate: "auditClipDurations(page,",
+    };
+    for (const [name, sample] of Object.entries(firstSample)) {
+      const source = readFileSync(join(commands, `${name}.ts`), "utf8");
+      const wait = source.indexOf("await waitForRuntimeReady(page, ");
+      expect(wait, name).toBeGreaterThan(-1);
+      expect(source.indexOf(sample), name).toBeGreaterThan(wait);
+      expect(source, name).not.toContain("__timelines?: unknown }).__timelines");
+    }
+  });
 });
 
 describe("seekCompositionTimeline", () => {
@@ -236,10 +287,10 @@ describe("screenshot Chrome arguments", () => {
     );
     const layoutSource = readFileSync(new URL("../commands/layout.ts", import.meta.url), "utf8");
 
-    expect(captureSource).toContain("resolveCaptureBrowserGpuMode(");
-    expect(captureSource).toContain("{ browserGpuMode: resolvedGpuMode }");
-    expect(layoutSource).toContain("resolveCaptureBrowserGpuMode(");
-    expect(layoutSource).toContain("{ browserGpuMode: resolvedGpuMode }");
+    expect(captureSource).toContain("resolveManagedGpuMode(");
+    expect(captureSource).toContain("resolveLocalWebGpu(resolvedGpuMode, requiresWebGpu)");
+    expect(layoutSource).toContain("resolveManagedGpuMode(");
+    expect(layoutSource).toContain("resolveLocalWebGpu(resolvedGpuMode, requiresWebGpu)");
   });
 });
 

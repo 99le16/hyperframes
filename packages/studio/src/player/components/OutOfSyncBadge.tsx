@@ -7,11 +7,11 @@ import { useLinkedClipPreferences } from "../../utils/linkedClipPreferences";
 import { usePlayerStore, type TimelineElement } from "../store/playerStore";
 import { clipSyncState, type ClipSyncState } from "./clipSync";
 import { useMenuKeyboardNav } from "./menuKeyboardNav";
+import { menuClasses } from "../../components/ui/menuStyle";
 
 const stop = (e: SyntheticEvent) => e.stopPropagation();
 
-const MENU_ROW =
-  "block w-full px-3 py-1.5 text-left text-xs text-neutral-300 outline-hidden hover:bg-neutral-800 focus-visible:bg-neutral-800 disabled:opacity-40";
+const ROW = `${menuClasses.row} ${menuClasses.rowEnabled} block disabled:cursor-not-allowed disabled:opacity-40`;
 
 function SyncMenu({
   x,
@@ -39,13 +39,13 @@ function SyncMenu({
       ref={menuRef}
       role="menu"
       aria-label="Out of sync"
-      className="fixed z-200 min-w-[170px] rounded-sm border border-neutral-700 bg-neutral-900 py-1 shadow-lg"
+      className={`${menuClasses.panel} fixed z-200 min-w-[170px]`}
       style={{ left, top }}
     >
       <button
         type="button"
         role="menuitem"
-        className={MENU_ROW}
+        className={ROW}
         disabled={!onLinkEdit || moveStart === null}
         title={moveStart === null ? "Would move the clip before 0:00" : undefined}
         onClick={() => {
@@ -59,7 +59,7 @@ function SyncMenu({
       <button
         type="button"
         role="menuitem"
-        className={MENU_ROW}
+        className={ROW}
         disabled={!onLinkEdit || slipMediaStart === null}
         title={slipMediaStart === null ? "Would slip before the start of the file" : undefined}
         onClick={() => {
@@ -103,9 +103,9 @@ export const OutOfSyncBadge = memo(function OutOfSyncBadge({ el }: { el: Timelin
         tabIndex={-1}
         aria-haspopup="menu"
         aria-label={`Out of sync with ${partnerName} by ${label} frames`}
-        title={`Out of sync with ${partnerName} by ${label} — click for Move or Slip into Sync`}
+        title={`Out of sync with ${partnerName} by ${label}. Click for Move or Slip into Sync`}
         data-testid="out-of-sync-badge"
-        className="absolute bottom-0.5 left-1 z-[7] cursor-pointer rounded-[3px] bg-red-600 px-1 font-mono text-[9px] leading-[14px] text-white tabular-nums"
+        className="absolute bottom-0.5 left-1 z-[12] cursor-pointer rounded-[3px] bg-red-600 px-1 font-mono text-[9px] leading-[14px] text-white tabular-nums"
         onPointerDown={stop}
         onDoubleClick={stop}
         onClick={open}

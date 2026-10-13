@@ -1,7 +1,14 @@
 import { COLOR_GRADING_SOURCE_HIDDEN_ATTR } from "@hyperframes/core/color-grading";
+import { motionPathPluginUrl } from "@hyperframes/core/gsap-cdn";
 import { findAuthoredElement } from "./authoredSource";
 import { applyAuthoredInlineOpacity, readStampedAuthoredOpacity } from "./authoredOpacity";
-import { authoringFile, collectResetTargets, compositionFile, fileDocs } from "./softReloadTargets";
+import {
+  authoringFile,
+  collectResetTargets,
+  compositionFile,
+  fileDocs,
+  forgetLiveSets,
+} from "./softReloadTargets";
 
 type IframeWindow = Window & {
   __timelines?: Record<string, { kill?: () => void; pause?: () => void }>;
@@ -13,7 +20,9 @@ type IframeWindow = Window & {
   // reloads (each needing the plugin) don't queue duplicate plugin scripts that
   // re-flash the iframe. Cleared once the plugin loads or errors.
   __hfMotionPathPluginLoading?: boolean;
+  __playerReady?: boolean;
   gsap?: {
+    version?: string;
     timeline?: (...args: unknown[]) => unknown;
     registerPlugin?: (...plugins: unknown[]) => unknown;
     set?: (targets: Element | Element[], vars: Record<string, unknown>) => void;
@@ -21,14 +30,6 @@ type IframeWindow = Window & {
   };
   MotionPathPlugin?: unknown;
 };
-
-/**
- * CDN URL for the GSAP MotionPathPlugin. Shared between the one-time preview
- * bootstrap (ensureMotionPathPluginLoaded) and the soft-reload fallback so the
- * version is pinned in a single place.
- */
-const MOTION_PATH_PLUGIN_CDN =
-  "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/MotionPathPlugin.min.js";
 
 /**
  * Pre-load + register MotionPathPlugin ONCE in the preview iframe so
@@ -43,10 +44,15 @@ const MOTION_PATH_PLUGIN_CDN =
  * studio edits.
  *
  * Idempotent (no-ops once the plugin is present or already loading) and
- * defensive: no-ops without gsap/registerPlugin and tolerates a CDN failure
+ * defensive: without gsap it waits for the runtime's ready, and it tolerates a CDN failure
  * (the soft-reload async fallback in applySoftReload still covers that case).
  */
+// At most one preview waits for its runtime; a newer load replaces it, so a frame that never boots is not kept alive.
+let pendingReadyRetry: ((event: MessageEvent) => void) | null = null;
+
 export function ensureMotionPathPluginLoaded(iframe: HTMLIFrameElement | null): void {
+  if (pendingReadyRetry) window.removeEventListener("message", pendingReadyRetry);
+  pendingReadyRetry = null;
   if (!iframe?.contentWindow || !iframe.contentDocument) return;
   const win = iframe.contentWindow as IframeWindow;
   const doc = iframe.contentDocument;
@@ -59,14 +65,28 @@ export function ensureMotionPathPluginLoaded(iframe: HTMLIFrameElement | null): 
     } catch {}
     return;
   }
-  if (!win.gsap?.registerPlugin) return;
+  // A body gsap runs after web fonts, which can be after the iframe's load: retry once the runtime is ready.
+  // A booted runtime (`__playerReady`, set in the same task it posts ready) has nothing left to wait for.
+  if (!win.gsap?.registerPlugin) {
+    if (win.__playerReady) return;
+    const retry = (event: MessageEvent) => {
+      const data = event.data as { source?: unknown; type?: unknown } | null;
+      if (event.source !== win || data?.source !== "hf-preview" || data.type !== "ready") return;
+      window.removeEventListener("message", retry);
+      pendingReadyRetry = null;
+      if (win.gsap?.registerPlugin) ensureMotionPathPluginLoaded(iframe);
+    };
+    pendingReadyRetry = retry;
+    window.addEventListener("message", retry);
+    return;
+  }
   // A load is already in flight for this iframe — don't queue a second script.
   if (win.__hfMotionPathPluginLoading) return;
 
   try {
     win.__hfMotionPathPluginLoading = true;
     const pluginScript = doc.createElement("script");
-    pluginScript.src = MOTION_PATH_PLUGIN_CDN;
+    pluginScript.src = motionPathPluginUrl(win.gsap?.version);
     const finalize = () => {
       win.__hfMotionPathPluginLoading = false;
       try {
@@ -152,7 +172,8 @@ function runSuppressed(win: IframeWindow, reload: () => void): boolean {
     if (win.__hfSuppressSceneMutations) win.__hfSuppressSceneMutations(reload);
     else reload();
     return true;
-  } catch {
+  } catch (error) {
+    console.error("[Studio] GSAP soft reload threw; falling back to a full reload", error);
     return false;
   }
 }
@@ -209,7 +230,6 @@ export interface SoftReloadOptions {
   currentTimeOverride?: number;
   /** After-write file HTML — the primary source for the authored opacity and transform restore. */
   authoredHtml?: string;
-  reparse?: Element[];
   /** Other composition files a reset element is written in, by path; null when one could not be read. */
   nestedFiles?: Map<string, string> | null;
 }
@@ -263,18 +283,32 @@ export function applySoftReloadFinalization(
   }
 }
 
-function timelineKeys(scriptText: string): string[] {
+export function timelineKeys(scriptText: string): string[] {
   return [...scriptText.matchAll(/__timelines\s*\[\s*["'`]([^"'`]+)["'`]\s*\]/g)]
     .map((m) => m[1]!)
     .filter((key) => key !== "__proxied");
 }
 
+/** The live script elements that register one of `keys` on `window.__timelines`. */
+export function scriptsRegistering(
+  scripts: readonly HTMLScriptElement[],
+  keys: readonly string[],
+): HTMLScriptElement[] {
+  return scripts.filter((script) => {
+    const text = script.textContent || "";
+    return keys.some(
+      (key) => text.includes(`__timelines["${key}"]`) || text.includes(`__timelines['${key}']`),
+    );
+  });
+}
+
+// fallow-ignore-next-line complexity
 export function applySoftReload(
   iframe: HTMLIFrameElement | null,
   scriptText: string,
   options: SoftReloadOptions = {},
 ): SoftReloadResult {
-  const { onAsyncFailure, currentTimeOverride, authoredHtml, reparse = [] } = options;
+  const { onAsyncFailure, currentTimeOverride, authoredHtml } = options;
   if (!iframe || !scriptText) return "cannot-soft-reload";
 
   const win = iframe.contentWindow as IframeWindow | null;
@@ -297,12 +331,7 @@ export function applySoftReload(
   if (gsapScripts.length === 0) return "cannot-soft-reload";
   // Remove only the stale script element(s) that registered a target key; one we
   // can't match in the doc is left alone (re-running appends a fresh element).
-  const staleScripts = gsapScripts.filter((script) =>
-    targetKeys.some((key) => {
-      const text = script.textContent || "";
-      return text.includes(`__timelines["${key}"]`) || text.includes(`__timelines['${key}']`);
-    }),
-  );
+  const staleScripts = scriptsRegistering(gsapScripts, targetKeys);
   // Multiple GSAP scripts exist but none registers a key this script owns — we
   // can't identify which element to replace (ambiguous, matching
   // extractGsapScriptText's single-script requirement). Escalate to a full reload
@@ -347,7 +376,12 @@ export function applySoftReload(
   // fallow-ignore-next-line complexity
   const doReload = () => {
     const timelines = win.__timelines;
-    const targets = collectResetTargets(win, doc, targetKeys, reparse);
+    const targets = collectResetTargets(
+      win,
+      doc,
+      targetKeys,
+      staleScripts.map((script) => script.textContent ?? ""),
+    );
 
     // Kill ONLY the target composition's timeline(s) — leaving every other
     // composition's timeline (and its children on the global timeline) intact.
@@ -370,16 +404,11 @@ export function applySoftReload(
     // HTML `style=""` attribute. Save → clear → restore → what GSAP wrote, from the file.
     const allTargets = [...targets.keys()];
     if (allTargets.length > 0 && win.gsap?.set) {
-      const saved: Array<[HTMLElement, string]> = [];
-      for (const el of allTargets) {
-        // Iframe-realm node: instanceof HTMLElement fails across realms, and
-        // gsap targets() only yields elements here — style access is duck-typed.
-        const styled = el as HTMLElement;
-        if (styled.style?.cssText != null) saved.push([styled, styled.style.cssText]);
-      }
-      try {
-        win.gsap.set(allTargets, { clearProps: "all" });
-      } catch {}
+      // Iframe-realm nodes: instanceof HTMLElement fails across realms, so style access is duck-typed.
+      const saved = allTargets.map(
+        (el) => [el as HTMLElement, (el as HTMLElement).style.cssText] as const,
+      );
+      win.gsap.set(allTargets, { clearProps: "all" });
       for (const [el, css] of saved) {
         const s = el.style;
         s.cssText = css;
@@ -405,6 +434,7 @@ export function applySoftReload(
         }
       }
     }
+    forgetLiveSets(targets);
 
     for (const script of staleScripts) script.remove();
 
@@ -450,7 +480,7 @@ export function applySoftReload(
       }
       win.__hfMotionPathPluginLoading = true;
       const pluginScript = doc.createElement("script");
-      pluginScript.src = MOTION_PATH_PLUGIN_CDN;
+      pluginScript.src = motionPathPluginUrl(win.gsap?.version);
       pluginScript.onload = () => {
         win.__hfMotionPathPluginLoading = false;
         executeScript();

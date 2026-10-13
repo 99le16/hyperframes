@@ -116,6 +116,7 @@ export const TimelineCanvas = memo(function TimelineCanvas() {
         return visibleIntervals.map((gap) => (
           <div
             key={`gap-${strip.kind}-${strip.track}-${gap.start}`}
+            data-timeline-zoom-scale={-gap.start * props.pps}
             className="pointer-events-none absolute"
             style={{
               top: props.rowGeometry.getRowTop(rowIndex) + CLIP_Y,
@@ -134,6 +135,7 @@ export const TimelineCanvas = memo(function TimelineCanvas() {
           lane + snapped start), parallel to the ghost. Hidden in insert mode. */}
       {draggedClip?.started && draggedClip.insertRow == null && draggedRowIndex >= 0 && (
         <div
+          data-testid="timeline-drag-landing"
           className="absolute pointer-events-none"
           style={{
             top: props.rowGeometry.getRowTop(draggedRowIndex) + CLIP_Y,
@@ -245,6 +247,9 @@ export const TimelineCanvas = memo(function TimelineCanvas() {
       {/* Range highlight */}
       {props.rangeSelection && (
         <div
+          data-timeline-zoom-scale={
+            -Math.min(props.rangeSelection.start, props.rangeSelection.end) * props.pps
+          }
           className="absolute pointer-events-none"
           style={{
             left:

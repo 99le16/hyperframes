@@ -8,11 +8,13 @@ import { usePlayerStore } from "../player";
 import { saveServerRewriteWithHistory, type RecordEditInput } from "../utils/studioFileHistory";
 import { studioWriteHeaders } from "../utils/studioFileVersion";
 import { getTimelineElementLabel } from "../utils/studioHelpers";
-import { buildPatchTarget, removeIframeTimelineElements } from "./timelineEditingHelpers";
-import { captureDurationRollback } from "./timelineTimingSync";
+import {
+  buildPatchTarget,
+  removeIframeTimelineElements,
+  syncCompositionDurationWithEnd,
+} from "./timelineEditingHelpers";
+import { captureDurationRollback, timingGestureStep } from "./timelineTimingSync";
 import { setLinkInSource } from "../components/editor/mediaLinkEdits";
-import { setCompositionDurationToContent } from "../utils/timelineAssetDrop";
-import { furthestClipEndFromSource } from "../player/lib/timelineElementHelpers";
 import {
   resolveMainTrackDeleteRippleShifts,
   resolveShiftedElements,
@@ -21,6 +23,7 @@ import type {
   TimelineGroupCommitOptions,
   TimelineGroupMoveChange,
 } from "./useTimelineGroupEditing";
+import { studioApiFetch } from "../utils/studioApiFetch";
 
 /** Apply already-resolved ripple changes to the surviving elements for the
  *  optimistic store update after a delete. Pure — no IO. */
@@ -55,11 +58,6 @@ interface UseTimelineDeleteOpsOptions {
     options?: TimelineGroupCommitOptions,
   ) => Promise<void>;
 }
-
-// Per-gesture-unique coalesce key — a monotonic counter, not Date.now() /
-// Math.random() (determinism rules), mirroring gapCloseGestureSeq in
-// timelineGapCommit.ts.
-let deleteGestureSeq = 0;
 
 function unlinkInSource(source: string, survivors: readonly TimelineElement[]): string {
   const targets = survivors.map(buildPatchTarget).filter((target) => target !== null);
@@ -106,10 +104,8 @@ export function useTimelineDeleteOps({
         (candidate) => (candidate.sourceFile || activeCompPath || "index.html") === targetPath,
       );
       try {
-        // Shared with the ripple move below so a folded ripple is one undo
-        // step with the delete, not two (editHistory.ts coalesces by key +
-        // window across separate recordEdit calls, not by label).
-        const coalesceKey = `main-track-ripple-delete:${deleteGestureSeq++}`;
+        // Shared with the ripple move below so a folded ripple is one undo step with the delete.
+        const step = timingGestureStep("main-track-ripple-delete");
         const deleteHistoryLabel = "Delete timeline clip";
         let rollbackDuration = () => {};
         try {
@@ -117,7 +113,7 @@ export function useTimelineDeleteOps({
             projectId: pid,
             path: targetPath,
             label: deleteHistoryLabel,
-            coalesceKey,
+            ...step,
             writeFile: writeProjectFile,
             recordEdit,
             rewrite: async (originalContent) => {
@@ -130,7 +126,7 @@ export function useTimelineDeleteOps({
                 }
                 return patchTarget;
               });
-              const removeResponse = await fetch(
+              const removeResponse = await studioApiFetch(
                 buildProjectApiPath(
                   pid,
                   `/file-mutations/remove-elements/${encodeURIComponent(targetPath)}`,
@@ -149,16 +145,13 @@ export function useTimelineDeleteOps({
                 typeof removeData.content === "string" ? removeData.content : originalContent;
               // Shrink to the furthest remaining clip end, read from the post-removal source:
               // store durations are runtime-truncated.
-              const deleteContentEnd = furthestClipEndFromSource(removedContent);
-              const patchedContent = unlinkInSource(
-                setCompositionDurationToContent(removedContent, deleteContentEnd),
-                alsoUnlink,
-              );
+              const synced = syncCompositionDurationWithEnd(removedContent);
+              const patchedContent = unlinkInSource(synced.source, alsoUnlink);
               // Optimistically reflect the shrunk length in the readout/seek bar,
               // rolling it back if the persist below fails (see captureDurationRollback).
               rollbackDuration = captureDurationRollback(previewIframeRef.current);
-              if (deleteContentEnd > 0 && targetPath === (activeCompPath || "index.html")) {
-                usePlayerStore.getState().setDuration(deleteContentEnd);
+              if (synced.contentEnd > 0 && targetPath === (activeCompPath || "index.html")) {
+                usePlayerStore.getState().setDuration(synced.contentEnd);
               }
               return { disk: removedContent, after: patchedContent };
             },
@@ -188,8 +181,7 @@ export function useTimelineDeleteOps({
         if (rippleChanges) {
           try {
             await handleTimelineGroupMove(rippleChanges, {
-              coalesceKey,
-              coalesceMs: Number.POSITIVE_INFINITY,
+              coalesceKey: step.coalesceKey,
               // Coalescing keeps the LAST entry's label; without this the undo
               // toast reads "Undid Move timeline clips" after a delete, naming
               // the ripple's mechanics instead of what the user actually did.

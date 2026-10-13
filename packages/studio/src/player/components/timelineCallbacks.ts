@@ -56,14 +56,11 @@ export interface TimelineEditCallbacks {
   ) => Promise<void> | void;
   /** Atomic multi-clip move (single undo) for main-track ripple + track-insert.
    *  `coalesceKey` (drag-commit gesture id) merges the move history entry with a
-   *  lane change's follow-up z-reorder entry into one undo step; `coalesceMs`
-   *  widens that entry's fold window when a server round-trip separates the
-   *  gesture's records (per-gesture-unique keys keep the fold gesture-scoped). */
+   *  lane change's follow-up z-reorder entry into one undo step. */
   onMoveElements?: (
     edits: Array<{ element: TimelineElement; updates: TimelineAtomicMoveUpdates }>,
     coalesceKey?: string,
     operation?: TimelineMoveOperation,
-    coalesceMs?: number,
   ) => Promise<void> | void;
   onResizeElement?: (
     element: TimelineElement,
@@ -137,6 +134,7 @@ export interface TimelineEditCallbacks {
   onRazorSplit?: (element: TimelineElement, splitTime: number) => Promise<void> | void;
   onRazorSplitAll?: (splitTime: number) => Promise<void> | void;
   onFreezeFrame?: (element: TimelineElement, time: number) => Promise<void> | void;
+  clipMenuTools?: boolean;
   onNotice?: (message: string, tone?: "error" | "info") => void;
   onDeleteKeyframe?: (elementId: string, keyframe: TimelineKeyframeTarget) => void;
   onDeleteAllKeyframes?: (element: TimelineElement, animationId?: string) => void;

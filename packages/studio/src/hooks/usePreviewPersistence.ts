@@ -4,7 +4,12 @@ import {
   installStudioManualEditSeekReapply,
   reapplyPositionEditsAfterSeek,
 } from "../components/editor/manualEdits";
+import {
+  afterStudioManualEditGestures,
+  isStudioManualEditGestureLiveIn,
+} from "../components/editor/manualEditsDom";
 import { STUDIO_MOTION_PATH } from "../components/editor/studioMotion";
+import { markScenesStale } from "../player/sceneSwap";
 import { createDomEditSaveQueue, type DomEditSaveDrainResult } from "../utils/domEditSaveQueue";
 import {
   flushStudioPendingEdits,
@@ -163,8 +168,9 @@ export function usePreviewPersistence({
   }, [drainPendingDomEditSaves]);
 
   const settlePendingEdits = useCallback(async (): Promise<void> => {
-    await flushStudioPendingEdits();
-    await domEditSaveQueueRef.current?.waitForIdle();
+    const queued = domEditSaveQueueRef.current?.waitForIdle();
+    await flushStudioPendingEdits({ onlyCurrent: true });
+    await queued;
   }, []);
 
   const resetDomEditSaveQueueBreaker = useCallback(() => {
@@ -198,6 +204,12 @@ export function usePreviewPersistence({
 
   // ── Sync preview after undo/redo ──
 
+  // Undo never repaints under a live gesture; the preview reloads once the last one ends.
+  const heldPreviewDoc = useCallback(() => {
+    const doc = previewIframeRef.current?.contentDocument;
+    return doc && isStudioManualEditGestureLiveIn(doc) ? doc : null;
+  }, [previewIframeRef]);
+
   const syncHistoryPreviewAfterApply = useCallback(
     async (restore: HistoryPreviewRestore) => {
       // Prefer an in-place soft reload for a soft-reloadable restore (the change
@@ -209,15 +221,25 @@ export function usePreviewPersistence({
       // multi-file, sub-comp, or a permanent soft-reload failure.
       const projectId = usePlayerStore.getState().timelineProjectId;
       const nestedFiles = await settleNestedReads(
-        projectId
-          ? readUndoNestedFiles(
-              previewIframeRef.current,
-              activeCompPathRef.current,
-              restore.files,
-              (path) => readProjectFileContent(projectId, path),
-            )
-          : null,
+        readUndoNestedFiles(
+          previewIframeRef.current,
+          activeCompPathRef.current,
+          restore.files,
+          (path) =>
+            projectId
+              ? readProjectFileContent(projectId, path)
+              : Promise.reject(new Error("No project is open to read nested files from.")),
+        ),
       );
+      const held = heldPreviewDoc();
+      if (held) {
+        const paths = restore.paths ?? Object.keys(restore.files ?? {});
+        afterStudioManualEditGestures(held, () => {
+          markScenesStale(previewIframeRef.current, paths);
+          reloadPreview();
+        });
+        return;
+      }
       const strategy = applyUndoRestoreToPreview(
         previewIframeRef.current,
         activeCompPathRef.current,
@@ -226,39 +248,38 @@ export function usePreviewPersistence({
         reloadPreview,
         nestedFiles,
       );
-      if (strategy === "full") {
-        usePlayerStore.getState().setSelectedElementId(null);
-        return;
-      }
+      if (strategy === "full") return;
       // A soft restore patched the reverted attributes onto the live preview, but the
       // player store keeps its own copy and that copy is what the automation lanes
       // draw — so without this an undone envelope edit stayed invisible until a
       // reload. The full path above waits for the reloaded preview to report instead.
       syncStoredAutomationFromPreview(previewIframeRef.current?.contentDocument ?? null);
     },
-    [previewIframeRef, activeCompPathRef, reloadPreview],
+    [previewIframeRef, activeCompPathRef, reloadPreview, heldPreviewDoc],
   );
 
   // A restore the server has not confirmed yet: in place now, or not at all. A GSAP script re-run is not
   // synchronous, and a pending save would land under it.
   const showHistoryRestoreNow = useCallback(
     (files: RestoreFiles): (() => void) | null => {
-      if (!domEditSaveQueueRef.current?.isIdle() || hasStudioPendingEdits()) return null;
+      if (!domEditSaveQueueRef.current?.isIdle() || hasStudioPendingEdits() || heldPreviewDoc())
+        return null;
       const iframe = previewIframeRef.current;
       const now = () => usePlayerStore.getState().currentTime;
       const putBack = showRestoreInPlace(iframe, activeCompPathRef.current, files, now());
       if (!putBack) return null;
       return () => {
-        if (putBack(now())) syncStoredAutomationFromPreview(iframe?.contentDocument ?? null);
+        if (!heldPreviewDoc() && putBack(now()))
+          syncStoredAutomationFromPreview(iframe?.contentDocument ?? null);
         else void syncHistoryPreviewAfterApply({ paths: Object.keys(files) });
       };
     },
-    [previewIframeRef, activeCompPathRef, syncHistoryPreviewAfterApply],
+    [previewIframeRef, activeCompPathRef, syncHistoryPreviewAfterApply, heldPreviewDoc],
   );
 
   // ── Migrate legacy studio-motion.json ──
   // Projects that used the old JSON-file approach may still have a populated
-  // `.hyperframes/studio-motion.json`. The studio no longer reads from it, but
+  // studio-motion.json in the project's .hyperframes folder. The studio no longer reads it, but
   // the legacy render-script injection in `preview.ts` / `vite.studioMotion.ts`
   // could still fire alongside the new seek-reapply runtime. Empty the file so
   // the legacy codepath no-ops.

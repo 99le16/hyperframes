@@ -1,3 +1,4 @@
+import { formatFindingTimes } from "../utils/checkFindings.js";
 import { defineCommand, parseArgs } from "citty";
 import type { ArgsDef } from "citty";
 import type { Example } from "./_examples.js";
@@ -5,6 +6,7 @@ import { parseAt } from "./layout.js";
 import { c } from "../ui/colors.js";
 import { normalizeErrorMessage } from "../utils/errorMessage.js";
 import { setCommandExitCode } from "../utils/commandResult.js";
+import { swallowedFlagUsageError } from "../utils/reject-unknown-flags.js";
 import { formatLayoutIssue } from "../utils/layoutAudit.js";
 import { resolveProject, type ProjectDir } from "../utils/project.js";
 import { withMeta } from "../utils/updateCheck.js";
@@ -46,6 +48,16 @@ const CHECK_COMMAND_ARGS = {
     type: "string",
     description: "Number of midpoint samples across the duration (default: 9)",
     default: "9",
+  },
+  range: {
+    type: "string",
+    description:
+      "Runtime sample interval in global seconds: start,end. Static lint remains project-wide.",
+  },
+  components: {
+    type: "string",
+    description:
+      "CSS selector list: filter findings involving these components or descendants; preserve full-check status.",
   },
   at: {
     type: "string",
@@ -137,7 +149,7 @@ export function createCheckCommand(
     },
     args: CHECK_COMMAND_ARGS,
     async run({ rawArgs }) {
-      const args = parseArgs(normalizeFrameCheckRawArgs(rawArgs), CHECK_COMMAND_ARGS);
+      const args = parseArgs(rawArgs, CHECK_COMMAND_ARGS);
       const asJson = args.json === true;
 
       try {
@@ -168,18 +180,12 @@ export function createCheckCommand(
   });
 }
 
-function normalizeFrameCheckRawArgs(rawArgs: string[]): string[] {
-  return rawArgs.map((arg, index) => {
-    if (arg !== "--frame-check") return arg;
-    const next = rawArgs[index + 1];
-    return next === undefined || next.startsWith("-") ? "--frame-check=" : arg;
-  });
-}
-
 function parseCheckOptions(args: Record<string, unknown>): CheckOptions {
   const maxTransitionSamples = positiveInteger(args["max-transition-samples"], 0);
   return {
     samples: positiveInteger(args.samples, DEFAULT_CHECK_OPTIONS.samples),
+    range: parseCheckRange(args.range),
+    components: typeof args.components === "string" ? [args.components] : undefined,
     at: parseAt(args.at),
     atTransitions: args["at-transitions"] === true,
     maxTransitionSamples: maxTransitionSamples > 0 ? maxTransitionSamples : undefined,
@@ -198,6 +204,23 @@ function parseCheckOptions(args: Record<string, unknown>): CheckOptions {
   };
 }
 
+export function parseCheckRange(value: unknown): [number, number] | undefined {
+  if (value === undefined) return undefined;
+  const parts = String(value).split(/[,:]/);
+  const start = Number(parts[0]),
+    end = Number(parts[1]);
+  if (
+    parts.length !== 2 ||
+    parts.some((p) => !p.trim()) ||
+    !Number.isFinite(start) ||
+    !Number.isFinite(end) ||
+    start < 0 ||
+    end <= start
+  )
+    throw new Error("Invalid --range: use non-negative start,end with end > start");
+  return [start, end];
+}
+
 const CAPTION_ZONE_FIELDS = new Set(["x0", "y0", "x1", "y1", "severity", "seek"]);
 
 const FRAME_CHECK_FIELDS = new Set(["severity", "seek", "tol"]);
@@ -211,7 +234,7 @@ export function parseFrameCheck(value: unknown): FrameCheckOptions | undefined {
   if (value === undefined || value === null || value === false) return undefined;
   if (value === true || value === "") return {};
   if (typeof value !== "string") throw frameCheckError();
-  if (value.startsWith("-")) throw swallowedOptionError("frame-check", value);
+  if (value.startsWith("-")) throw swallowedFlagUsageError("frame-check", value);
   const fields = parseFrameCheckFields(value);
   const severity = captionSeverity(fields.get("severity"), frameCheckError);
   const seek = captionSeeks(fields.get("seek"), frameCheckError);
@@ -243,12 +266,6 @@ function parseFrameCheckTolerance(raw: string | undefined): number | undefined {
 function frameCheckError(): Error {
   return new Error(
     'Invalid --frame-check: use bare --frame-check or "severity=warning|error;seek=.25,.75;tol=4" (all fields optional)',
-  );
-}
-
-function swallowedOptionError(flag: string, value: string): Error {
-  return new Error(
-    `Invalid --${flag}: value "${value}" appears to have swallowed the next option; use --${flag}= or move --${flag} to the end`,
   );
 }
 
@@ -404,6 +421,12 @@ function nonNegativeNumber(value: unknown, fallback: number): number {
 }
 
 function printHumanReport(report: CheckReport): void {
+  if (report.scope) {
+    console.log(
+      `Scope: ${report.scope.range ? report.scope.range.join("–") + "s" : "full timeline"}; ${report.scope.hiddenFindings} findings hidden by component filter. Counts/status include hidden findings.`,
+    );
+    for (const note of report.scope.notes) console.log(note);
+  }
   printSection("Lint", report.lint);
   if (report.browserSkipped) {
     console.log();
@@ -421,10 +444,17 @@ function printHumanReport(report: CheckReport): void {
   console.log(`${report.ok ? c.success("◇") : c.error("◇")}  ${label}`);
 }
 
+function isEmptySection(section: CheckSection): boolean {
+  return (
+    section.findings.length === 0 &&
+    section.errorCount + section.warningCount + section.infoCount === 0
+  );
+}
+
 function printSection(title: string, section: CheckSection): void {
   console.log();
   console.log(c.bold(title));
-  if (section.findings.length === 0) {
+  if (isEmptySection(section)) {
     console.log(`  ${c.success("◇")} 0 errors, 0 warnings`);
     return;
   }
@@ -435,7 +465,7 @@ function printSection(title: string, section: CheckSection): void {
 function printLayoutSection(title: string, section: CheckReport["layout"]): void {
   console.log();
   console.log(c.bold(title));
-  if (section.findings.length === 0) {
+  if (isEmptySection(section)) {
     console.log(`  ${c.success("◇")} 0 issues across ${section.samples.length} sample(s)`);
   } else {
     for (const finding of section.findings) {
@@ -459,7 +489,7 @@ function printContrastSection(report: CheckReport): void {
     console.log(`  ${c.dim("◇")} skipped`);
     return;
   }
-  if (section.findings.length === 0) {
+  if (isEmptySection(section)) {
     console.log(
       `  ${c.success("◇")} ${section.passed}/${section.checked} text checks pass WCAG AA`,
     );
@@ -467,7 +497,7 @@ function printContrastSection(report: CheckReport): void {
   }
   for (const finding of section.findings) {
     console.log(
-      `  ${c.error("✗")} ${finding.selector} ${finding.ratio}:1 (need ${finding.requiredRatio}:1, t=${finding.time}s)`,
+      `  ${c.error("✗")} ${finding.selector} ${finding.ratio}:1 (need ${finding.requiredRatio}:1, ${formatFindingTimes(finding)})`,
     );
     console.log(`    ${c.dim(`Try ${finding.suggestedColor}; source ${finding.sourceFile}`)}`);
   }
@@ -492,7 +522,7 @@ function printSnapshotSection(report: CheckReport): void {
 }
 
 function printFinding(finding: CheckFinding): void {
-  const where = `${finding.sourceFile} ${finding.selector} t=${finding.time}s`;
+  const where = `${finding.sourceFile} ${finding.selector} ${formatFindingTimes(finding)}`;
   console.log(`  ${findingIcon(finding)} ${finding.code}: ${finding.message}`);
   console.log(`    ${c.dim(where)}`);
   if (finding.fixHint) console.log(`    ${c.dim(`Fix: ${finding.fixHint}`)}`);

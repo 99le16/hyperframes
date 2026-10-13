@@ -1,7 +1,13 @@
 // fallow-ignore-file code-duplication
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { initSandboxRuntimeModular } from "./init";
+import { initSandboxRuntimeModular, installFlatGsapTransforms } from "./init";
+import {
+  hideTimedClipsUntilFirstPass,
+  revealTimedClipsAfterFirstPass,
+  SKIPPED_CLIP,
+} from "./timedClipHide";
+import { applyAuthoredTiming, STUDIO_PREVIEW_MARK_META } from "../studioPreviewMark";
 import { collectRuntimeTimelinePayload } from "./timeline";
 import { TYPEGPU_PRESENT_HEARTBEAT_MS } from "./adapters/typegpu";
 import { WebAudioTransport } from "./webAudioTransport";
@@ -358,6 +364,154 @@ describe("initSandboxRuntimeModular", () => {
     expect(bus.hasAttribute("data-start")).toBe(false);
     expect(bus.hasAttribute("data-duration")).toBe(false);
     expect(caption.getAttribute("data-start")).toBe("0");
+  });
+
+  describe("visibility of runtime-stamped elements in Studio preview", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    // A 10 s film: a video clip, an untimed full-frame backdrop the composition's per-frame script
+    // shows only from 6 s to 8 s, and an untimed badge it never touches. Driven by real GSAP.
+    const mountFilm = () => {
+      const raf = createManualRaf();
+      vi.spyOn(performance, "now").mockImplementation(() => raf.now());
+      window.requestAnimationFrame =
+        raf.requestAnimationFrame as typeof window.requestAnimationFrame;
+      window.cancelAnimationFrame = raf.cancelAnimationFrame as typeof window.cancelAnimationFrame;
+      document.body.innerHTML =
+        `<div id="root" data-composition-id="main" data-root="true" data-start="0" data-duration="10" data-width="1080" data-height="1920">` +
+        `<video id="aroll" class="clip" data-start="0" data-duration="10" muted></video>` +
+        `<div id="plate" style="visibility: hidden"></div>` +
+        `<div id="badge"></div>` +
+        `</div>`;
+      const video = document.querySelector("video")!;
+      video.play = vi.fn(() => Promise.resolve());
+      video.pause = vi.fn();
+      video.load = vi.fn();
+      const plate = document.getElementById("plate")!;
+      const tl = gsap.timeline({ paused: true });
+      const frame = { t: 0 };
+      tl.to(frame, {
+        t: 10,
+        duration: 10,
+        ease: "none",
+        modifiers: {
+          t: (value: number) => {
+            plate.style.visibility = value >= 6 && value < 8 ? "visible" : "hidden";
+            return value;
+          },
+        },
+      });
+      window.__timelines = { main: tl as unknown as RuntimeTimelineLike };
+      withStudioIframe(() => initSandboxRuntimeModular());
+      return { raf, plate, badge: document.getElementById("badge")! };
+    };
+
+    it("keeps a stamped backdrop its script hides hidden on every playing tick", () => {
+      const { raf, plate } = mountFilm();
+      expect(plate.getAttribute("data-hf-autostamped")).toBe("1");
+
+      window.__player?.seek(1);
+      window.__player?.play();
+      const seen = new Set<string>();
+      for (let frame = 0; frame < 120; frame++) {
+        raf.step(16);
+        seen.add(plate.style.visibility);
+      }
+
+      expect(window.__player?.getTime()).toBeGreaterThan(2.5);
+      expect(window.__player?.getTime()).toBeLessThan(6);
+      expect([...seen]).toEqual(["hidden"]);
+    });
+
+    it("still shows a stamped element its author never hides", () => {
+      const { raf, badge } = mountFilm();
+      expect(badge.getAttribute("data-hf-autostamped")).toBe("1");
+
+      window.__player?.seek(1);
+      window.__player?.play();
+      for (let frame = 0; frame < 30; frame++) raf.step(16);
+
+      expect(badge.style.visibility).not.toBe("hidden");
+      expect(getComputedStyle(badge).visibility).toBe("visible");
+    });
+
+    it("hides an authored clip inside a hidden authored clip under a stamped wrapper", () => {
+      document.body.innerHTML =
+        `<div data-composition-id="main" data-root="true" data-start="0" data-duration="10" data-width="1080" data-height="1920">` +
+        `<div id="wall"><div id="scene" data-start="0" data-duration="2">` +
+        `<div id="card" data-start="0" data-duration="10"></div></div></div>` +
+        `</div>`;
+      window.__timelines = { main: createMockTimeline(10) };
+      withStudioIframe(() => initSandboxRuntimeModular());
+      const wall = document.getElementById("wall")!;
+      const scene = document.getElementById("scene")!;
+      const card = document.getElementById("card")!;
+      expect(wall.getAttribute("data-hf-autostamped")).toBe("1");
+
+      window.__player?.renderSeek(1);
+      expect([scene.style.visibility, card.style.visibility]).toEqual(["visible", "visible"]);
+
+      window.__player?.renderSeek(5);
+      expect([scene.style.visibility, card.style.visibility]).toEqual(["hidden", "hidden"]);
+    });
+
+    it("hides a stamped element Studio re-times outside its new window", () => {
+      document.body.innerHTML =
+        `<div data-composition-id="main" data-root="true" data-start="0" data-duration="10" data-width="1080" data-height="1920">` +
+        `<div id="title" style="position: absolute"></div>` +
+        `</div>`;
+      window.__timelines = { main: createMockTimeline(10) };
+      withStudioIframe(() => initSandboxRuntimeModular());
+      const title = document.getElementById("title")!;
+      expect(title.getAttribute("data-hf-autostamped")).toBe("1");
+
+      applyAuthoredTiming(title, [
+        ["data-start", "4"],
+        ["data-duration", "2"],
+      ]);
+      (window as Window & { __hfForceTimelineRebind?: () => void }).__hfForceTimelineRebind?.();
+
+      const at = (time: number) => {
+        window.__player?.renderSeek(time);
+        return title.style.visibility;
+      };
+      expect([at(1), at(5), at(8)]).toEqual(["hidden", "visible", "hidden"]);
+    });
+
+    it("times a clip by its window in a render even when its source carries the stamp", () => {
+      document.body.innerHTML =
+        `<div data-composition-id="main" data-root="true" data-start="0" data-duration="10" data-width="1080" data-height="1920">` +
+        `<div id="title" style="position: absolute" data-start="5" data-duration="2" data-hf-autostamped="1"></div>` +
+        `</div>`;
+      window.__timelines = { main: createMockTimeline(10) };
+      initSandboxRuntimeModular();
+      const title = document.getElementById("title")!;
+
+      const at = (time: number) => {
+        window.__player?.renderSeek(time);
+        return title.style.visibility;
+      };
+      expect([at(1), at(6), at(9)]).toEqual(["hidden", "visible", "hidden"]);
+    });
+
+    it("does not hold a paused seek on images in a stamped container its script hides", () => {
+      const mark = Object.assign(document.createElement("meta"), {
+        name: STUDIO_PREVIEW_MARK_META,
+      });
+      document.head.append(mark);
+      try {
+        hideTimedClipsUntilFirstPass();
+        const { plate } = mountFilm();
+        plate.append(Object.assign(document.createElement("img"), { src: "backdrop.png" }));
+
+        expect(plate.matches(SKIPPED_CLIP)).toBe(false);
+        expect(window.__player?.seek(1)).toBeUndefined();
+      } finally {
+        mark.remove();
+        revealTimedClipsAfterFirstPass();
+        document.head.querySelector("style[data-hf-skip-hidden-images]")?.remove();
+      }
+    });
   });
 
   /**
@@ -1792,6 +1946,132 @@ describe("initSandboxRuntimeModular", () => {
     });
   });
 
+  describe("mid-tween transforms under real GSAP", () => {
+    type Timeline = ReturnType<typeof gsap.timeline>;
+    afterEach(() => {
+      delete (window as { gsap?: unknown }).gsap;
+      gsap.config({ force3D: "auto" });
+    });
+    // Page order: the runtime script, the GSAP bundle, the composition's script, then DOMContentLoaded.
+    const transformAt = (
+      time: number,
+      build: (box: HTMLElement) => Timeline,
+      { gsapBeforeRuntime = false } = {},
+    ) => {
+      const root = document.createElement("div");
+      root.setAttribute("data-composition-id", "main");
+      root.setAttribute("data-root", "true");
+      root.setAttribute("data-duration", "4");
+      const box = document.createElement("div");
+      box.style.clipPath = "inset(0px 35.55px 0px 0px)";
+      root.appendChild(box);
+      document.body.appendChild(root);
+      const raf = createManualRaf();
+      const now = vi.spyOn(performance, "now").mockImplementation(() => raf.now());
+      window.requestAnimationFrame =
+        raf.requestAnimationFrame as typeof window.requestAnimationFrame;
+      window.cancelAnimationFrame = raf.cancelAnimationFrame as typeof window.cancelAnimationFrame;
+      try {
+        window.__timelines = {};
+        if (gsapBeforeRuntime) window.gsap = gsap as unknown as typeof window.gsap;
+        installFlatGsapTransforms();
+        if (!gsapBeforeRuntime) window.gsap = gsap as unknown as typeof window.gsap;
+        expect(window.gsap).toBe(gsap);
+        window.__timelines.main = build(box) as unknown as RuntimeTimelineLike;
+        initSandboxRuntimeModular();
+        for (let frame = 0; frame < 60; frame += 1) raf.step(16);
+        window.__player?.seek(time);
+        return box.style.transform;
+      } finally {
+        now.mockRestore();
+      }
+    };
+    const tween = (vars: gsap.TweenVars) => ({ ...vars, duration: 2, ease: "none" });
+
+    // A 3D transform puts the element on its own layer, where Chrome snaps a crop edge to whole pixels.
+    it.each([
+      [
+        "a to() tween",
+        (box: HTMLElement) => gsap.timeline({ paused: true }).to(box, tween({ scale: 1.25 }), 0),
+      ],
+      [
+        "a from() tween",
+        (box: HTMLElement) => gsap.timeline({ paused: true }).from(box, tween({ scale: 1.25 }), 0),
+      ],
+      [
+        "a fromTo() tween",
+        (box: HTMLElement) =>
+          gsap.timeline({ paused: true }).fromTo(box, { scale: 1 }, tween({ scale: 1.25 }), 0),
+      ],
+      [
+        "a tween on an element the script set() first",
+        (box: HTMLElement) => {
+          gsap.set(box, { scale: 1 });
+          return gsap.timeline({ paused: true }).to(box, tween({ scale: 1.25 }), 0);
+        },
+      ],
+    ])("draws %s in 2D mid-tween", (_name, build) => {
+      expect(transformAt(1, build)).toBe("scale(1.125, 1.125)");
+    });
+
+    it("draws a set() then moved element in 2D when GSAP loaded before the runtime", () => {
+      const transform = transformAt(
+        1,
+        (box) => {
+          gsap.set(box, { x: 0 });
+          return gsap.timeline({ paused: true }).to(box, tween({ x: 40 }), 0);
+        },
+        { gsapBeforeRuntime: true },
+      );
+      expect(transform).toBe("translate(20px, 0px)");
+    });
+
+    it("keeps a composition's own force3D setting", () => {
+      const transform = transformAt(1, (box) => {
+        gsap.config({ force3D: true });
+        return gsap.timeline({ paused: true }).to(box, tween({ scale: 1.25 }), 0);
+      });
+      expect(transform).toBe("translate3d(0px, 0px, 0px) scale(1.125, 1.125)");
+    });
+
+    it("leaves an element GSAP only fades without an inline transform", () => {
+      const transform = transformAt(1, (box) =>
+        gsap.timeline({ paused: true }).to(box, tween({ opacity: 0.5 }), 0),
+      );
+      expect(transform).toBe("");
+    });
+
+    it("configures GSAP once when the runtime script runs twice", () => {
+      const config = vi.spyOn(gsap, "config");
+      try {
+        installFlatGsapTransforms();
+        installFlatGsapTransforms();
+        window.gsap = gsap as unknown as typeof window.gsap;
+        expect(config).toHaveBeenCalledTimes(1);
+      } finally {
+        config.mockRestore();
+      }
+    });
+
+    it("still hands GSAP to an accessor that trapped window.gsap before the runtime", () => {
+      const seen: unknown[] = [];
+      let held: unknown;
+      Object.defineProperty(window, "gsap", {
+        configurable: true,
+        get: () => held,
+        set: (g) => {
+          seen.push(g);
+          held = g;
+        },
+      });
+      const transform = transformAt(1, (box) =>
+        gsap.timeline({ paused: true }).to(box, tween({ scale: 1.25 }), 0),
+      );
+      expect(seen).toEqual([gsap]);
+      expect(transform).toBe("scale(1.125, 1.125)");
+    });
+  });
+
   // #6: a single timeline registered under a key that does NOT match the root's
   // data-composition-id must still bind (sole-timeline fallback) instead of
   // silently rendering the frozen t=0 DOM.
@@ -2897,6 +3177,46 @@ describe("initSandboxRuntimeModular", () => {
     expect(seekCalls).toEqual([{ time: 2, suppressEvents: false }]);
   });
 
+  it("fires a call added after the first seek exactly once", () => {
+    const root = document.createElement("div");
+    root.setAttribute("data-composition-id", "main");
+    root.setAttribute("data-root", "true");
+    root.setAttribute("data-start", "0");
+    root.setAttribute("data-duration", "10");
+    root.setAttribute("data-width", "1920");
+    root.setAttribute("data-height", "1080");
+    document.body.appendChild(root);
+
+    const main = gsap.timeline({ paused: true }).to({ x: 0 }, { x: 1, duration: 10 });
+    window.__timelines = { main };
+    initSandboxRuntimeModular();
+    window.__player?.renderSeek(1);
+
+    const fired = vi.fn();
+    main.call(fired, [], 2);
+    window.__player?.renderSeek(2);
+    window.__player?.renderSeek(3);
+
+    expect(fired).toHaveBeenCalledTimes(1);
+  });
+
+  it("fires a call on the playhead once when a readiness pass runs between seeks", () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = `<div data-composition-id="main" data-root="true" data-start="0" data-duration="10" data-width="1920" data-height="1080"></div>`;
+    const fired = vi.fn();
+    const main = gsap.timeline({ paused: true }).to({ x: 0 }, { x: 1, duration: 10 });
+    main.call(fired, [], 2);
+    window.__timelines = { main };
+    initSandboxRuntimeModular();
+
+    window.__player?.renderSeek(2);
+    vi.runOnlyPendingTimers();
+    window.__player?.renderSeek(3);
+
+    expect(fired).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
   it("shows pip video at global start time even when host composition starts late", () => {
     // Regression: resolveStartForElement used to add the host composition's start on top of
     // the video's own data-start, causing double-offset. A pip video with data-start="45.40"
@@ -3503,6 +3823,61 @@ describe("initSandboxRuntimeModular", () => {
     }
   });
 
+  it("keeps a root rebound during playback paused on GSAP's ticker", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    let nowMs = 1000;
+    vi.spyOn(performance, "now").mockImplementation(() => nowMs);
+    const raf = createManualRaf();
+    window.requestAnimationFrame = raf.requestAnimationFrame;
+    window.cancelAnimationFrame = raf.cancelAnimationFrame;
+    document.body.innerHTML =
+      '<div data-composition-id="main" data-root="true" data-start="0" data-duration="1">' +
+      '<video data-start="0"></video></div>';
+    const video = document.querySelector("video")!;
+    vi.spyOn(video, "play").mockResolvedValue(undefined);
+    vi.spyOn(video, "pause").mockImplementation(() => {});
+    const authored = gsap.timeline({ paused: true });
+    window.gsap = gsap;
+    window.__timelines = { main: authored };
+    const timelines = vi.spyOn(gsap, "timeline");
+    const messages = vi.spyOn(window.parent, "postMessage");
+
+    try {
+      initSandboxRuntimeModular();
+      vi.advanceTimersByTime(0);
+      window.__player!.play();
+      nowMs = 1250;
+      raf.step(250);
+      Object.defineProperty(video, "duration", { value: 12, configurable: true });
+      video.dispatchEvent(new Event("loadedmetadata"));
+      vi.advanceTimersByTime(100);
+
+      expect(
+        messages.mock.calls.some(
+          ([message]) =>
+            (message as { code?: string }).code === "timeline_rebind_after_media_metadata",
+        ),
+      ).toBe(true);
+      const rebound = timelines.mock.results.at(-1)?.value as gsap.core.Timeline;
+      expect(authored.parent).toBe(rebound);
+      expect(window.__player!.isPlaying()).toBe(true);
+      expect(rebound.paused()).toBe(true);
+      const time = rebound.time();
+      gsap.updateRoot(gsap.globalTimeline.time() + 0.5);
+      expect(rebound.time()).toBe(time);
+      expect(window.__player!.getTime()).toBe(0.25);
+      nowMs = 1350;
+      raf.step(100);
+      expect(rebound.time()).toBeCloseTo(0.35, 5);
+    } finally {
+      window.__hfRuntimeTeardown?.();
+      for (const result of timelines.mock.results) {
+        if (result.type === "return") (result.value as gsap.core.Timeline).kill();
+      }
+      authored.kill();
+    }
+  });
+
   it("sets __renderReady only after timeline is bound, not at __playerReady time", async () => {
     const root = document.createElement("div");
     root.setAttribute("data-composition-id", "main");
@@ -3773,6 +4148,29 @@ describe("initSandboxRuntimeModular", () => {
     await Promise.resolve();
 
     expect(window.__renderReady).toBe(true);
+  });
+
+  it("a torn-down runtime's pending readiness check leaves the next document alone", () => {
+    vi.useFakeTimers();
+    try {
+      const root = document.createElement("div");
+      root.setAttribute("data-composition-id", "main");
+      root.setAttribute("data-root", "true");
+      root.setAttribute("data-start", "0");
+      document.body.appendChild(root);
+      window.__timelines = { main: createMockTimeline(10) };
+
+      initSandboxRuntimeModular();
+      window.__hfRuntimeTeardown?.();
+      // The next document is still batching its timelines when the old check fires.
+      delete window.__renderReady;
+      window.__hfTimelinesBuilding = true;
+      vi.runAllTimers();
+
+      expect(window.__renderReady).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("sets __renderReady even without a GSAP timeline (CSS/WAAPI compositions)", () => {
@@ -4970,6 +5368,37 @@ describe("initSandboxRuntimeModular", () => {
         player?.renderSeek(2);
       }).not.toThrow();
     });
+
+    const throwingDurationGetter = Object.defineProperty({ seek() {} }, "duration", {
+      get() {
+        throw new Error("getter");
+      },
+    });
+    it.each([
+      ["a number", { duration: 4, seek() {} }],
+      [
+        "a method that throws",
+        {
+          duration() {
+            throw new Error("boom");
+          },
+          seek() {},
+        },
+      ],
+      ["a getter that throws", throwingDurationGetter],
+    ])("starts and seeks when a sub-composition's registered duration is %s", (_, extra) => {
+      document.body.innerHTML = `
+        <div data-composition-id="main" data-root="true" data-start="0" data-duration="10" data-width="1920" data-height="1080">
+          <div data-composition-id="extra" data-start="0"></div>
+        </div>`;
+      window.__timelines = {
+        main: createMockTimeline(10),
+        extra: extra as unknown as RuntimeTimelineLike,
+      };
+
+      expect(() => initSandboxRuntimeModular()).not.toThrow();
+      expect(() => window.__player?.renderSeek(1)).not.toThrow();
+    });
   });
 
   // jsdom has no AudioContext; without one `WebAudioTransport.init()` fails, Web Audio scheduling
@@ -5070,6 +5499,92 @@ describe("initSandboxRuntimeModular", () => {
 
       expect(captureSpy).not.toHaveBeenCalled();
       expect(decodeSpy).toHaveBeenCalledWith(audio);
+    });
+
+    it("holds a decoded clip a split half cut until that half starts, timed from the clip's own start", async () => {
+      const audio = mountAudio("https://cdn.example.com/track.mp3", {
+        "data-start": "2",
+        "data-duration": "4",
+      });
+      // A half at 2 s with in-point 3 puts the clip's own t=0 at 1 s; the half cuts it to 2-5 s.
+      const half = document.createElement("div");
+      for (const [name, value] of Object.entries({
+        "data-composition-id": "half",
+        "data-composition-file": "half.html",
+        "data-start": "2",
+        "data-duration": "4",
+        "data-playback-start": "3",
+      }))
+        half.setAttribute(name, value);
+      audio.replaceWith(half);
+      half.appendChild(audio);
+      vi.spyOn(console, "info").mockImplementation(() => {});
+      const buffer = {} as AudioBuffer;
+      vi.spyOn(WebAudioTransport.prototype, "decodeAudioElement").mockResolvedValue(buffer);
+      const schedule = vi
+        .spyOn(WebAudioTransport.prototype, "schedulePlayback")
+        .mockResolvedValue(null);
+
+      await startPlayback();
+
+      await vi.waitFor(() => expect(schedule).toHaveBeenCalled());
+      const [el, decoded, clipStart, mediaStart, , , , , clipDuration, windowStart] =
+        schedule.mock.calls[0]!;
+      expect([el, decoded, clipStart, mediaStart, clipDuration, windowStart]).toEqual([
+        audio,
+        buffer,
+        1,
+        0,
+        4,
+        2,
+      ]);
+    });
+
+    it("stops a decoded clip at the end of a scene whose length comes from its animation", async () => {
+      const audio = mountAudio("https://cdn.example.com/track.mp3", { "data-start": "1" });
+      audio.removeAttribute("data-duration");
+      const scene = document.createElement("div");
+      scene.setAttribute("data-composition-id", "scene");
+      scene.setAttribute("data-composition-file", "scene.html");
+      scene.setAttribute("data-start", "0");
+      audio.replaceWith(scene);
+      scene.appendChild(audio);
+      window.__timelines = { main: createMockTimeline(10), scene: createMockTimeline(3) };
+      vi.spyOn(console, "info").mockImplementation(() => {});
+      vi.spyOn(WebAudioTransport.prototype, "decodeAudioElement").mockResolvedValue(
+        {} as AudioBuffer,
+      );
+      const schedule = vi
+        .spyOn(WebAudioTransport.prototype, "schedulePlayback")
+        .mockResolvedValue(null);
+
+      await startPlayback();
+
+      await vi.waitFor(() => expect(schedule).toHaveBeenCalled());
+      expect(schedule.mock.calls[0]![8]).toBe(2);
+    });
+
+    it("never routes a clip that an in-point host cuts away entirely", async () => {
+      const audio = mountAudio("/assets/early.mp3", { "data-start": "0", "data-duration": "3" });
+      // A half at 5 s with in-point 5: the clip's own 0-3 s plays at 0-3 s, before the half starts.
+      const half = document.createElement("div");
+      for (const [name, value] of Object.entries({
+        "data-composition-id": "half",
+        "data-composition-file": "half.html",
+        "data-start": "5",
+        "data-duration": "5",
+        "data-playback-start": "5",
+      }))
+        half.setAttribute(name, value);
+      audio.replaceWith(half);
+      half.appendChild(audio);
+      const capture = vi
+        .spyOn(WebAudioTransport.prototype, "scheduleMediaElementPlayback")
+        .mockResolvedValue(null);
+
+      await startPlayback();
+
+      expect(capture).not.toHaveBeenCalled();
     });
 
     it("leaves the element audible on native output when decode also fails", async () => {
@@ -5366,6 +5881,69 @@ describe("initSandboxRuntimeModular", () => {
       await Promise.resolve();
 
       expect(ctx.mediaElementSources).toBe(0);
+    });
+
+    describe("under a composition root with a master chain", () => {
+      const MASTER_CHAIN = '{"version":1,"nodes":[]}';
+      const setRootChain = () =>
+        document.querySelector("[data-root]")?.setAttribute("data-fx-chain", MASTER_CHAIN);
+
+      it("joins the graph for a plain audible video at unity, so the master bus limits it", async () => {
+        const video = mountMedia("video", { "data-has-audio": "true", "data-volume": "1" });
+        setRootChain();
+        const captureSpy = spyCapture();
+
+        await startPlayback();
+
+        expect(captureSpy).toHaveBeenCalledTimes(1);
+        expect(captureSpy.mock.calls[0]?.[0]).toBe(video);
+        expect(captureSpy.mock.calls[0]?.[4]).toBe(1);
+      });
+
+      it("acquires a media element source for it", async () => {
+        mountMedia("video", { "data-has-audio": "true" });
+        setRootChain();
+
+        await startPlayback();
+        await Promise.resolve();
+
+        expect(ctx.mediaElementSources).toBe(1);
+      });
+
+      it("joins a video whose only audio is the composition, and every audio clip beside it", async () => {
+        const video = mountMedia("video", { "data-has-audio": "true" });
+        const audio = mountMedia("audio");
+        setRootChain();
+        const captureSpy = spyCapture();
+
+        await startPlayback();
+
+        expect(captureSpy.mock.calls.map((call) => call[0])).toEqual([video, audio]);
+      });
+
+      it("still keeps a muted or data-has-audio=false video out of the graph", async () => {
+        mountMedia("video", { "data-has-audio": "true", muted: "" });
+        mountMedia("video", { "data-has-audio": "false" });
+        setRootChain();
+        const captureSpy = spyCapture();
+
+        await startPlayback();
+
+        expect(captureSpy).not.toHaveBeenCalled();
+      });
+
+      it("does not count a chain on a sub-composition root", async () => {
+        const video = mountMedia("video", { "data-has-audio": "true" });
+        const inner = document.createElement("div");
+        inner.setAttribute("data-composition-id", "inner");
+        inner.setAttribute("data-fx-chain", MASTER_CHAIN);
+        video.before(inner);
+        const captureSpy = spyCapture();
+
+        await startPlayback();
+
+        expect(captureSpy).not.toHaveBeenCalled();
+      });
     });
 
     it.each([

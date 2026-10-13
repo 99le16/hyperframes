@@ -1,7 +1,8 @@
 // The edit accuracy grid: one flat-coloured element in a generated project, crossed with one gesture.
 // Projects are written to a tmp dir per case; nothing checked in is edited.
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, statSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { dragCases } from "./drags.mjs";
 
 export const COMPOSITION = { width: 1920, height: 1080 };
@@ -10,7 +11,19 @@ export const PLAYHEAD = 1;
 export const TARGET = { width: 240, height: 160, color: "#f0c020" };
 export const BACKGROUND = "#202020";
 const NESTED_HOST = { left: 160, top: 90, width: 1600, height: 900 };
-const GSAP_CDN = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js";
+// Fixtures keep the CDN URL users author; the bench serves it from the repo's gsap (`localAsset`).
+const require = createRequire(import.meta.url);
+export const FIXTURE_CDN = "https://cdn.jsdelivr.net/";
+const GSAP_DIST = `${FIXTURE_CDN}npm/gsap@${require("gsap/package.json").version}/dist/`;
+const GSAP_CDN = `${GSAP_DIST}gsap.min.js`;
+const LOCAL_GSAP_DIST = dirname(require.resolve("gsap/dist/gsap.min.js"));
+
+/** The repo file a CDN URL is served from (the installed gsap's dist), so no case waits on the network. */
+export function localAsset(url) {
+  if (!url.startsWith(GSAP_DIST)) return undefined;
+  const file = join(LOCAL_GSAP_DIST, url.slice(GSAP_DIST.length));
+  return statSync(file, { throwIfNoEntry: false })?.isFile() ? file : undefined;
+}
 
 // Studio has corner handles only (ResizeHandle is nw|ne|sw|se); its edge strips crop, so there is no edge resize.
 const GESTURES = ["move", "resize", "rotate", "crop", "nudge"];
@@ -23,7 +36,7 @@ const AXES = {
   zoom: [50, 100, 200],
 };
 
-// Timelines with keyframes at 0, 2 and 3 s on the property each animates: `css` is what that property is in CSS.
+// Timelines with keyframes at `times` (0, 2 and 3 s unless set) on the property each animates; `css` is it in CSS.
 const T = '"#target"';
 const KEYFRAMED = {
   size: {
@@ -66,10 +79,23 @@ const KEYFRAMED = {
     props: ["x"],
     css: ["left", "top", "translate", "transform"],
   },
+  late: {
+    lines: [
+      `tl.to(${T}, { width: 300, height: 200, duration: 1, ease: "none" }, 1);`,
+      `tl.to(${T}, { width: 360, height: 240, duration: 1, ease: "none" }, 2);`,
+    ],
+    props: ["width", "height"],
+    css: ["width", "height"],
+    times: [1, 2, 3],
+  },
 };
 const KEY_TIMES = [0, 2, 3];
-// On a keyframe the edit changes that keyframe; between two it adds one at the playhead.
-const AT = { on: 2, mid: 1 };
+// On a keyframe the edit changes that keyframe; anywhere else, before or after the range too, it adds one there.
+const AT = { on: 2, mid: 1, before: 0.5, after: 3.5 };
+const playheadsFor = (times) =>
+  Object.keys(AT).filter(
+    (at) => at === "on" || (!times.includes(AT[at]) && (at !== "before" || AT.before < times[0])),
+  );
 
 function keyframedCases() {
   return product({
@@ -79,18 +105,21 @@ function keyframedCases() {
     nesting: AXES.nesting,
     zoom: AXES.zoom,
     gesture: GESTURES,
-    at: Object.keys(AT),
-  }).map((c) => ({
-    id: `${caseId(c)}-${c.at}`,
-    ...c,
-    playhead: AT[c.at],
-    keys: {
-      times: KEY_TIMES.filter((t) => t !== AT[c.at]),
-      props: KEYFRAMED[c.gsap].props,
-      css: KEYFRAMED[c.gsap].css,
-      render: KEY_TIMES.at(-1),
-    },
-  }));
+  }).flatMap((c) => {
+    const times = KEYFRAMED[c.gsap].times ?? KEY_TIMES;
+    return playheadsFor(times).map((at) => ({
+      id: `${caseId(c)}-${at}`,
+      ...c,
+      at,
+      playhead: AT[at],
+      keys: {
+        times: times.filter((t) => t !== AT[at]),
+        props: KEYFRAMED[c.gsap].props,
+        css: KEYFRAMED[c.gsap].css,
+        render: times.at(-1),
+      },
+    }));
+  });
 }
 
 const product = (axes) =>
@@ -149,6 +178,11 @@ function gsapLines(spec) {
   if (spec.gsap === "idle") return [`tl.to("#other", { x: 120, duration: 4, ease: "none" }, 0);`];
   const percent = spec.placement === "xpercent" ? ", xPercent: -50, yPercent: -50" : "";
   if (spec.gsap === "hold") return [`gsap.set("#target", { x: 40, y: 20${percent} });`];
+  if (spec.gsap === "tlhold")
+    return [
+      `tl.to("#other", { x: 120, duration: 10 }, 0);`,
+      `tl.set("#target", { x: 40, y: 20 }, 0);`,
+    ];
   const lines = [`tl.to("#target", { x: 120, y: 60, duration: 4, ease: "none" }, 0);`];
   if (percent) lines.unshift(`gsap.set("#target", { ${percent.slice(2)} });`);
   return lines;

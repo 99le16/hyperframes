@@ -317,10 +317,59 @@ describe("resolveSessionMotionBlur rejects what accumulation cannot render", () 
     expect(() => resolveSessionMotionBlur(session)).toThrow(/format "png"/);
   });
 
-  it("rejects injected video frames, which cannot follow a sub-frame seek", () => {
-    expect(() =>
-      resolveSessionMotionBlur(withOptions({ onBeforeCapture: async () => {} })),
-    ).toThrow(/video/);
+  it("accepts a session that injects video frames (#5144)", () => {
+    const plan = resolveSessionMotionBlur(withOptions({ onBeforeCapture: async () => {} }));
+    expect(plan).not.toBeUndefined();
+  });
+});
+
+describe("injected video is held for the whole shutter window (#5144)", () => {
+  function recordInjections() {
+    const calls: Array<{ time: number; held: number | undefined; seeksBefore: number }> = [];
+    const hook: CaptureSession["onBeforeCapture"] = async (_page, time, held) => {
+      calls.push({ time, held, seeksBefore: seeks.length });
+    };
+    return { calls, hook };
+  }
+  const sampleSeekTimes = () =>
+    seeks.filter((s) => s.subFrameDivisions !== undefined).map((s) => s.time);
+
+  it("injects at the frame time first, then each sample at its own time holding the frame", async () => {
+    const { calls, hook } = recordInjections();
+
+    await captureFrameToBuffer(makeSession({ onBeforeCapture: hook }), 10, 10 / 30);
+
+    // The first call comes right after the eventful seek, before any sample seek.
+    expect(calls[0]).toEqual({ time: 10 / 30, held: 10 / 30, seeksBefore: 1 });
+    const sampleCalls = calls.slice(1);
+    expect(sampleCalls.map((call) => call.time)).toEqual(sampleSeekTimes());
+    expect(new Set(sampleCalls.map((call) => call.time)).size).toBe(16);
+    expect(sampleCalls.map((call) => call.held)).toEqual(Array(16).fill(10 / 30));
+  });
+
+  it("holds the frame time for the adaptive probes too", async () => {
+    const { calls, hook } = recordInjections();
+
+    await captureFrameToBuffer(
+      makeSession({ onBeforeCapture: hook, motionBlur: resolveMotionBlurPlan({}) ?? undefined }),
+      10,
+      10 / 30,
+    );
+
+    expect(calls.map((call) => call.time)).toEqual([10 / 30, ...sampleSeekTimes()]);
+    expect(calls.map((call) => call.held)).toEqual(Array(calls.length).fill(10 / 30));
+  });
+
+  it("holds nothing on a frame without blur", async () => {
+    const { calls, hook } = recordInjections();
+
+    await captureFrameToBuffer(
+      makeSession({ onBeforeCapture: hook, motionBlur: undefined }),
+      10,
+      10 / 30,
+    );
+
+    expect(calls).toEqual([{ time: 10 / 30, held: undefined, seeksBefore: 1 }]);
   });
 });
 
@@ -540,5 +589,49 @@ describe("computeStaticFrameSet's real page-side property matching (not a canned
     const result = await computeStaticFrameSet(page, 30);
 
     expect(result.nonSpatialOnlyFrameSet.has(0)).toBe(true);
+  });
+});
+
+describe("a stall on a motion-blurred frame names the step in progress", () => {
+  it("names the frame seek, the injection and the restore seek, not the previous frame's step", async () => {
+    const steps: string[] = [];
+    const session = makeSession({
+      captureStep: "capturing the frame",
+      onBeforeCapture: async () => {
+        steps.push(`inject:${session.captureStep}`);
+      },
+    });
+    const page = globalThis as unknown as {
+      window: { __hf: { seek: (time: number, options?: { subFrameDivisions?: number }) => void } };
+    };
+    page.window.__hf.seek = (_time, options) => {
+      if (options?.subFrameDivisions === undefined) steps.push(`seek:${session.captureStep}`);
+    };
+
+    await captureFrameToBuffer(session, 10, 10 / 30);
+
+    expect(steps[0]).toBe("seek:seeking the timeline");
+    expect(steps[1]).toBe("inject:injecting video frames");
+    expect(steps[steps.length - 1]).toBe("seek:seeking the timeline");
+  });
+
+  it("names the seek and the injection on a frame without motion blur too", async () => {
+    const steps: string[] = [];
+    const session = makeSession({
+      motionBlur: undefined,
+      captureStep: "capturing the frame",
+      onBeforeCapture: async () => {
+        steps.push(`inject:${session.captureStep}`);
+      },
+    });
+    const page = globalThis as unknown as { window: { __hf: { seek: () => void } } };
+    page.window.__hf.seek = () => {
+      steps.push(`seek:${session.captureStep}`);
+    };
+
+    await captureFrameToBuffer(session, 10, 10 / 30);
+
+    expect(steps).toEqual(["seek:seeking the timeline", "inject:injecting video frames"]);
+    expect(session.captureStep).toBe("capturing the frame");
   });
 });

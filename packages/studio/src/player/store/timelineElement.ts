@@ -8,6 +8,7 @@
  */
 
 import type { ClipManifestClip } from "../lib/playbackTypes";
+import { roundToCenti } from "../../utils/rounding";
 
 export interface TimelineElement {
   id: string;
@@ -61,9 +62,10 @@ export interface TimelineElement {
   /** Clip-edge fades from `data-fade-in` / `data-fade-out`, seconds; absent means none. */
   fadeIn?: number;
   fadeOut?: number;
-  /** Verbatim `data-fx-chain` / `data-automation`; see automationLaneData. */
+  /** Verbatim `data-fx-chain` / `data-automation` (`masterChain`: the root's); see automationLaneData. */
   fxChain?: string;
   automation?: string;
+  masterChain?: string;
   /** Path from data-composition-src — identifies sub-composition elements */
   compositionSrc?: string;
   /** Set by data-timeline-locked on the host element — disables move and trim in Studio. */
@@ -112,8 +114,19 @@ type RowClock = Pick<
   TimelineElement,
   "start" | "parentCompositionStart" | "authoredStartIsMasterTime"
 >;
+type SavedClip = RowClock & Pick<TimelineElement, "duration">;
 const authoredOffset = (element: RowClock) =>
   element.authoredStartIsMasterTime ? 0 : (element.parentCompositionStart ?? 0);
+
+/**
+ * Where a clip's edges sit once saved: its file stores the local start to the centisecond, and the
+ * duration too when a resize writes it; a move keeps the authored duration.
+ */
+export function savedClipEdges(element: SavedClip, start: number, resizedDuration?: number) {
+  const savedStart = authoredOffset(element) + roundToCenti(toAuthoredStart(element, start));
+  const duration = resizedDuration === undefined ? element.duration : roundToCenti(resizedDuration);
+  return { start: savedStart, end: savedStart + duration };
+}
 
 /** The earliest master start this row can take: its host's start, or its own if already earlier. */
 export function clampToHostStart(element: RowClock, masterTime: number): number {

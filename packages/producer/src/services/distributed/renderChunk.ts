@@ -55,6 +55,8 @@ import {
   deriveBeginFrameProbeTimeTicks,
   type EngineConfig,
   type ExtractedFrames,
+  extractVideoFramesRange,
+  type FrameRange,
   type FrameLookupTable,
   getEncoderPreset,
   initializeSession,
@@ -63,9 +65,11 @@ import {
   resolveConfig,
 } from "@hyperframes/engine";
 import { defaultLogger } from "../../logger.js";
+import { applyRenderWarningPolicy } from "../renderOrchestrator.js";
 import { runEncodeStage } from "../render/stages/encodeStage.js";
 import { runCaptureStage } from "../render/stages/captureStage.js";
 import { resolveVideoCaptureBeyondViewport } from "../render/captureBeyondViewport.js";
+import { resolveCaptureJpegQuality } from "../render/captureImageFormat.js";
 import { createCapturePlan } from "../render/capturePlan.js";
 import {
   type ChunkSliceJson,
@@ -408,6 +412,92 @@ export function rebuildExtractedFramesFromPlanDir(
   return result;
 }
 
+function contiguousRuns(sortedIndexes: readonly number[]): FrameRange[] {
+  const runs: FrameRange[] = [];
+  for (const index of sortedIndexes) {
+    const last = runs[runs.length - 1];
+    if (last && last.firstFrame + last.frames === index) last.frames++;
+    else runs.push({ firstFrame: index, frames: 1 });
+  }
+  return runs;
+}
+
+/**
+ * Extract the frames this chunk shows from videos the planner left
+ * unextracted. Frames land in `outputRoot/<videoId>/` under the names a full
+ * extraction gives them, so the lookup indexes them exactly as it would
+ * frames the planner wrote.
+ */
+export async function extractDeferredVideoFramesForChunk(input: {
+  planDir: string;
+  planVideos: PlanVideosJson;
+  slice: ChunkSliceJson;
+  fps: { num: number; den: number };
+  outputRoot: string;
+  cfg: Pick<EngineConfig, "ffmpegProcessTimeout">;
+}): Promise<ExtractedFrames[]> {
+  const deferred = input.planVideos.extracted.filter((video) => video.deferredRange);
+  if (deferred.length === 0) return [];
+  const table = createFrameLookupTable(
+    input.planVideos.videos,
+    deferred.map((video) => ({
+      ...video,
+      outputDir: input.outputRoot,
+      framePaths: new Map(Array.from({ length: video.totalFrames }, (_, i) => [i, String(i)])),
+    })),
+    resolveRenderFpsConfig(input.fps).value,
+  );
+  const shown = new Map<string, Set<number>>();
+  for (let frame = input.slice.startFrame; frame < input.slice.endFrame; frame++) {
+    const globalTime = (frame * input.fps.den) / input.fps.num;
+    for (const [videoId, payload] of table.getActiveFramePayloads(globalTime)) {
+      const indexes = shown.get(videoId) ?? new Set<number>();
+      indexes.add(payload.frameIndex);
+      shown.set(videoId, indexes);
+    }
+  }
+  return Promise.all(
+    deferred.map(async (video) => {
+      const outputDir = join(input.outputRoot, video.videoId);
+      const indexes = [...(shown.get(video.videoId) ?? [])].sort((a, b) => a - b);
+      if (indexes.length === 0) {
+        return { ...video, outputDir, framePaths: new Map<number, string>(), ownedByLookup: false };
+      }
+      const range = video.deferredRange!;
+      const sourcePath = join(input.planDir, ...range.sourcePath.split("/"));
+      if (!existsSync(sourcePath)) {
+        throw new RenderChunkValidationError(
+          MISSING_PLAN_ARTIFACT,
+          `[renderChunk] planDir is missing the source for video ${JSON.stringify(video.videoId)}: ${range.sourcePath}`,
+        );
+      }
+      const extracted = await extractVideoFramesRange(
+        sourcePath,
+        video.videoId,
+        range.startTime,
+        range.durationSeconds,
+        {
+          fps: input.fps,
+          outputDir: input.outputRoot,
+          format: range.format,
+          frameRanges: contiguousRuns(indexes),
+        },
+        undefined,
+        input.cfg,
+      );
+      const missing = indexes.find((index) => !extracted.framePaths.has(index));
+      if (missing !== undefined) {
+        throw new RenderChunkValidationError(
+          INVALID_VIDEO_METADATA,
+          `[renderChunk] video ${JSON.stringify(video.videoId)} has no frame ${missing}; ` +
+            `the plan expected ${video.totalFrames} frames from ${range.sourcePath}.`,
+        );
+      }
+      return { ...video, outputDir, framePaths: extracted.framePaths, ownedByLookup: false };
+    }),
+  );
+}
+
 /** Plan-time JSON manifest written by `freezePlan`. */
 interface PlanJson {
   protocol?: unknown;
@@ -666,28 +756,6 @@ export async function renderChunk(
       forceScreenshotExplicitlyOptedOut: !encoder.forceScreenshot,
     };
 
-    // Build the immutable frame lookup once. Each browser session/worker gets
-    // its own injector hook because the hook remembers the last injected frame
-    // per video; sharing that state across a fresh retry page can suppress the
-    // first injection and produce a blank/stale frame.
-    const videoFrameLookup =
-      planVideos && planVideos.extracted.length > 0
-        ? createFrameLookupTable(
-            planVideos.videos,
-            rebuildExtractedFramesFromPlanDir(
-              planDir,
-              planVideos.extracted,
-              v2Manifest === null ? "dense-v1" : "sparse-v2",
-            ),
-            resolveRenderFpsConfig(job.config.fps).value,
-          )
-        : null;
-    const createChunkVideoFrameInjector = createChunkVideoFrameInjectorFactory(videoFrameLookup);
-
-    const videoCaptureBeyondViewport = resolveVideoCaptureBeyondViewport(
-      planVideos?.videos.length ?? 0,
-    );
-
     // ── Per-chunk work + frames directories ──
     // Suffix workDir with pid + random bytes so concurrent invocations on
     // the SAME `(planDir, chunkIndex)` (e.g. a scheduler that double-fires
@@ -699,6 +767,40 @@ export async function renderChunk(
     mkdirSync(workDir, { recursive: true });
     const framesDir = join(workDir, "captured-frames");
     mkdirSync(framesDir, { recursive: true });
+    // Beside workDir, not in it: a screenshot retry wipes workDir.
+    const videoFramesDir = `${workDir}.video-frames`;
+
+    // Build the immutable frame lookup once. Each browser session/worker gets
+    // its own injector hook because the hook remembers the last injected frame
+    // per video; sharing that state across a fresh retry page can suppress the
+    // first injection and produce a blank/stale frame.
+    const videoFrameLookup =
+      planVideos && planVideos.extracted.length > 0
+        ? createFrameLookupTable(
+            planVideos.videos,
+            [
+              ...rebuildExtractedFramesFromPlanDir(
+                planDir,
+                planVideos.extracted.filter((video) => !video.deferredRange),
+                v2Manifest === null ? "dense-v1" : "sparse-v2",
+              ),
+              ...(await extractDeferredVideoFramesForChunk({
+                planDir,
+                planVideos,
+                slice,
+                fps: { num: plan.dimensions.fpsNum, den: plan.dimensions.fpsDen },
+                outputRoot: videoFramesDir,
+                cfg,
+              })),
+            ],
+            resolveRenderFpsConfig(job.config.fps).value,
+          )
+        : null;
+    const createChunkVideoFrameInjector = createChunkVideoFrameInjectorFactory(videoFrameLookup);
+
+    const videoCaptureBeyondViewport = resolveVideoCaptureBeyondViewport(
+      planVideos?.videos.length ?? 0,
+    );
 
     // ── File server with the seeded-random shim ──
     // `Math.random` / `crypto.getRandomValues` are seeded from virtual
@@ -718,7 +820,10 @@ export async function renderChunk(
       height: plan.dimensions.height,
       fps: { num: plan.dimensions.fpsNum, den: plan.dimensions.fpsDen },
       format: plan.dimensions.format === "mp4" ? "jpeg" : "png",
-      quality: plan.dimensions.format === "mp4" ? 80 : undefined,
+      quality:
+        plan.dimensions.format === "mp4"
+          ? resolveCaptureJpegQuality(job.config.quality)
+          : undefined,
       deviceScaleFactor: encoder.deviceScaleFactor,
       // Re-inject the controller's snapshotted variables so the chunk's
       // first capture sees the same `window.__hfVariables` the in-process
@@ -726,6 +831,7 @@ export async function renderChunk(
       // declare `data-composition-variables` leave this undefined and the
       // engine skips the `evaluateOnNewDocument` injection.
       variables: encoder.variables,
+      subTimelineWaitMemo: {},
       ...(videoCaptureBeyondViewport !== undefined
         ? { captureBeyondViewport: videoCaptureBeyondViewport }
         : {}),
@@ -924,6 +1030,11 @@ export async function renderChunk(
         },
       });
       captureStageMs = Date.now() - captureStarted;
+      applyRenderWarningPolicy(
+        job,
+        capturePerfs.flatMap((perf) => perf.warnings ?? []),
+        log,
+      );
       framesEncoded = framesInChunk;
 
       // ── Encode the chunk ──
@@ -1042,6 +1153,7 @@ export async function renderChunk(
     // leaves the framesDir in place for inspection.
     try {
       rmSync(workDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      rmSync(videoFramesDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     } catch (err) {
       log.warn("[renderChunk] failed to remove work dir", {
         workDir,

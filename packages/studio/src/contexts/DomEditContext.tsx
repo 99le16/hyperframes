@@ -24,6 +24,7 @@ const SAVES_AN_EDIT = {
   handleDomAttributeBatchCommit: true,
   handleDomPathOffsetCommit: true,
   handleDomGroupPathOffsetCommit: true,
+  handleDomGroupMoveBy: true,
   handleDomZIndexReorderCommit: true,
   handleDomBoxSizeCommit: true,
   handleDomRotationCommit: true,
@@ -76,6 +77,7 @@ const SAVES_AN_EDIT = {
   handleUnroll: true,
   invalidateGsapCache: false,
   previewIframeRef: false,
+  domEditSelectionRef: false,
   commitMutation: true,
   applyMarqueeSelection: false,
   handleUpdateKeyframeEase: true,
@@ -105,7 +107,9 @@ function trackEditCommits(actions: DomEditActionsValue): DomEditActionsValue {
   const tracked: Record<string, unknown> = { ...actions };
   for (const key of Object.keys(SAVES_AN_EDIT) as Array<keyof typeof SAVES_AN_EDIT>) {
     if (!SAVES_AN_EDIT[key]) continue;
-    tracked[key] = trackedStudioEdit(actions[key] as (...args: unknown[]) => unknown);
+    tracked[key] = trackedStudioEdit(actions[key] as (...args: unknown[]) => unknown, {
+      afterOlderSaves: true,
+    });
   }
   return tracked as unknown as DomEditActionsValue;
 }
@@ -179,6 +183,7 @@ export function DomEditProvider({
     handleDomAttributeBatchCommit,
     handleDomPathOffsetCommit,
     handleDomGroupPathOffsetCommit,
+    handleDomGroupMoveBy,
     handleDomZIndexReorderCommit,
     handleDomBoxSizeCommit,
     handleDomRotationCommit,
@@ -274,6 +279,7 @@ export function DomEditProvider({
       handleDomAttributeBatchCommit,
       handleDomPathOffsetCommit,
       handleDomGroupPathOffsetCommit,
+      handleDomGroupMoveBy,
       handleDomZIndexReorderCommit,
       handleDomBoxSizeCommit,
       handleDomRotationCommit,
@@ -326,6 +332,7 @@ export function DomEditProvider({
       handleUnroll,
       invalidateGsapCache,
       previewIframeRef,
+      domEditSelectionRef,
       commitMutation: stableCommitMutation,
       applyMarqueeSelection,
       handleUpdateKeyframeEase,
@@ -350,6 +357,7 @@ export function DomEditProvider({
       handleDomAttributeBatchCommit,
       handleDomPathOffsetCommit,
       handleDomGroupPathOffsetCommit,
+      handleDomGroupMoveBy,
       handleDomZIndexReorderCommit,
       handleDomBoxSizeCommit,
       handleDomRotationCommit,
@@ -402,6 +410,7 @@ export function DomEditProvider({
       handleUnroll,
       invalidateGsapCache,
       previewIframeRef,
+      domEditSelectionRef,
       stableCommitMutation,
       applyMarqueeSelection,
       handleUpdateKeyframeEase,

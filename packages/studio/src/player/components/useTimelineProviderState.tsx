@@ -72,6 +72,7 @@ export function useTimelineProviderState({
   onDuplicateClip,
   canPasteClip,
   clipMenuItems,
+  splitShortcut,
   theme: themeOverrides,
   showAudioEffects = true,
   showKeyframes = true,
@@ -130,7 +131,7 @@ export function useTimelineProviderState({
   const timelineSessionEpoch = usePlayerStore((s) => s.timelineSessionEpoch);
   const sessionEpoch = sessionEpochProp ?? timelineSessionEpoch;
   const setFocusedEaseSegment = usePlayerStore((s) => s.setFocusedEaseSegment);
-  const { zoomMode, manualZoomPercent, setZoomMode, setManualZoomPercent } = useTimelineZoom();
+  const { zoomMode, manualZoomPercent } = useTimelineZoom();
   const playheadRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -222,7 +223,6 @@ export function useTimelineProviderState({
     onResizeElements: pinnedOnResizeElements,
     onBlockedEditAttempt: oneShotEdits.onBlockedEditAttempt,
     onLinkEdit: oneShotEdits.onLinkEdit,
-    onSeek,
     setShowPopover,
     setRangeSelectionRef,
     readZIndex: zSyncEnabled ? readClipZIndex : undefined,
@@ -258,22 +258,21 @@ export function useTimelineProviderState({
       timelineElements.length,
       displayLayout.totalH,
     ]);
-  const { pps, fitPps, displayContentWidth, displayDuration, zoomModeRef, manualZoomPercentRef } =
-    useTimelineGeometry({
-      viewportWidth: viewport.clientWidth,
-      effectiveDuration,
-      zoomMode,
-      manualZoomPercent,
-      ppsRef,
-      fitPpsRef,
-      draggedClip,
-      resizingClip,
-      expandedElements: timelineElements,
-      isDragging,
-      scrollRef,
-      lastScrollLeftRef,
-      contentOrigin,
-    });
+  const { pps, fitPps, displayContentWidth, displayDuration, zoomModeRef } = useTimelineGeometry({
+    viewportWidth: viewport.clientWidth,
+    effectiveDuration,
+    zoomMode,
+    manualZoomPercent,
+    ppsRef,
+    fitPpsRef,
+    draggedClip,
+    resizingClip,
+    expandedElements: timelineElements,
+    isDragging,
+    scrollRef,
+    lastScrollLeftRef,
+    contentOrigin,
+  });
   const timelineFocus = useTimelineLogicalFocus({
     scrollRef,
     tracks,
@@ -337,22 +336,19 @@ export function useTimelineProviderState({
   const { seekFromX, autoScrollDuringDrag, dragScrollRaf } = useTimelinePlayhead({
     playheadRef,
     scrollRef,
+    syncScrollViewport,
     ppsRef,
     durationRef,
     isDragging,
     currentTime,
     zoomMode,
-    manualZoomPercent,
     zoomModeRef,
-    manualZoomPercentRef,
     fitPps,
     fitPpsRef,
     effectiveDuration,
     pps,
     timelineReady,
     elementsLength: timelineElements.length,
-    setZoomMode,
-    setManualZoomPercent,
     onSeek,
     contentOrigin,
   });
@@ -387,6 +383,7 @@ export function useTimelineProviderState({
     onDuplicateClip,
     canPasteClip,
     clipMenuItems,
+    splitShortcut,
     onSelectElement,
     selectedElementId,
     setRangeSelectionRef,

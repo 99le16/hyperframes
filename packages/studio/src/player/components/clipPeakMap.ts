@@ -1,8 +1,9 @@
 import { buildProjectApiPath } from "../../utils/projectRouting";
+import { studioApiFetch } from "../../utils/studioApiFetch";
 import { resolvePreviewRelative } from "../../utils/previewRelativePath";
 import type { TimelineElement } from "../store/timelineElement";
 import { clipSourcePeak, isPeakMap, type ClipSourceWindow, type PeakMap } from "./clipPeakRuns";
-import { encodePreviewPath, resolveMediaPreviewUrl } from "./thumbnailUtils";
+import { authoredSrcPath, encodePreviewPath, resolveMediaPreviewUrl } from "./thumbnailUtils";
 
 const peakMapRequests = new Map<string, Promise<PeakMap | null>>();
 
@@ -10,7 +11,7 @@ const peakMapRequests = new Map<string, Promise<PeakMap | null>>();
 export function loadPeakMap(url: string): Promise<PeakMap | null> {
   const pending = peakMapRequests.get(url);
   if (pending) return pending;
-  const request = fetch(url)
+  const request = studioApiFetch(url)
     .then((res) => (res.ok ? res.json() : null))
     .then((body: unknown) => (isPeakMap(body) ? body : null))
     .catch(() => null);
@@ -22,7 +23,7 @@ export function loadPeakMap(url: string): Promise<PeakMap | null> {
 export function clipPeaksUrl(src: string | undefined, projectId: string): string | undefined {
   const origin = window.location.origin;
   const relative = resolvePreviewRelative(
-    resolveMediaPreviewUrl(src ?? "", projectId, origin),
+    resolveMediaPreviewUrl(authoredSrcPath(src ?? ""), projectId, origin),
     projectId,
     origin,
   );

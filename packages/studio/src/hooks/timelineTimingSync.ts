@@ -17,6 +17,7 @@ import {
   GsapOwnershipProtocolError,
   GsapPreviewConvergenceError,
   postGsapMutation,
+  postGsapMutations,
   requireGsapOwnershipProtocol,
   rollbackOwnedMutation,
   type GsapMutationStatus,
@@ -28,12 +29,14 @@ import {
   serializeStudioFileMutations,
   type StudioProjectFileWriter,
 } from "../utils/studioFileMutationCoordinator";
+import { studioApiFetch } from "../utils/studioApiFetch";
+import { moveLiveTweens } from "../utils/gsapLiveRetime";
 
 export async function readFileContent(projectId: string, targetPath: string): Promise<string> {
   if (targetPath.includes("\0") || targetPath.includes("..")) {
     throw new Error(`Unsafe path: ${targetPath}`);
   }
-  const response = await fetch(
+  const response = await studioApiFetch(
     `/api/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(targetPath)}`,
   );
   if (!response.ok) {
@@ -81,8 +84,8 @@ function rebindPreviewTiming(iframe: HTMLIFrameElement | null, currentTime: numb
 }
 
 /**
- * Sync the live preview after a TIMING-ONLY edit (move / resize), preferring a
- * soft reload over the full iframe reload that flashes every clip.
+ * Sync the live preview after a timing-only edit (move / resize): move the live tweens when only
+ * their timing changed, else a soft reload rather than the full reload that flashes every clip.
  *
  * Why this is safe WITHOUT re-deriving timeline elements: a move/resize commit has
  * already (a) patched the live DOM timing attributes, (b) updated the store's
@@ -114,32 +117,41 @@ function rebindPreviewTiming(iframe: HTMLIFrameElement | null, currentTime: numb
  *   script is now stale, so a rebind against it would show wrong positions →
  *   full-reload.
  */
-function syncTimingEditPreview(
+async function syncTimingEditPreview(
   iframe: HTMLIFrameElement | null,
   outcome: GsapMutationStatus,
-  currentTime: number,
+  projectId: string | null,
   reloadPreview: () => void,
   rebindWhenUnmutated: boolean,
-  nestedFiles: Map<string, string> | null | undefined,
-): void {
+): Promise<void> {
+  const currentTime = () => usePlayerStore.getState().currentTime;
   if (!outcome.mutated && rebindWhenUnmutated) {
-    if (!rebindPreviewTiming(iframe, currentTime)) reloadPreview();
+    if (!rebindPreviewTiming(iframe, currentTime())) reloadPreview();
     return;
   }
-  if (!iframe || !outcome.scriptText) {
+  const { scriptText } = outcome;
+  if (!iframe || !scriptText) {
     reloadPreview();
     return;
   }
-  const result = applySoftReload(iframe, outcome.scriptText, {
+  if (moveLiveTweens(iframe, scriptText, currentTime(), reloadPreview)) return;
+  const nestedFiles = await settleNestedReads(
+    projectId
+      ? readNestedFiles(iframe, scriptText, (path) => readFileContent(projectId, path))
+      : null,
+  );
+  const result = applySoftReload(iframe, scriptText, {
     onAsyncFailure: reloadPreview,
-    currentTimeOverride: currentTime,
+    currentTimeOverride: currentTime(),
     authoredHtml: outcome.after,
     nestedFiles,
   });
   if (result === "cannot-soft-reload") reloadPreview();
 }
 
-async function finishTimelineTimingFallback(input: {
+const UNMUTATED: GsapMutationStatus = { mutated: false, scriptText: null };
+
+export async function finishTimelineTimingFallback(input: {
   iframe: HTMLIFrameElement | null;
   projectId: string | null;
   reloadPreview: () => void;
@@ -154,7 +166,7 @@ async function finishTimelineTimingFallback(input: {
    */
   rebindWhenUnmutated: boolean;
 }): Promise<void> {
-  let outcome: GsapMutationStatus = { mutated: false, scriptText: null };
+  let outcome = UNMUTATED;
   if (input.gsapMutation) {
     try {
       outcome = await input.gsapMutation();
@@ -166,27 +178,29 @@ async function finishTimelineTimingFallback(input: {
       return;
     }
   }
-  const { projectId } = input;
-  const nestedFiles = await settleNestedReads(
-    projectId && outcome.scriptText
-      ? readNestedFiles(input.iframe, outcome.scriptText, (path) =>
-          readFileContent(projectId, path),
-        )
-      : null,
-  );
-  syncTimingEditPreview(
+  await syncTimingEditPreview(
     input.iframe,
     outcome,
-    usePlayerStore.getState().currentTime,
+    input.projectId,
     input.reloadPreview,
     input.rebindWhenUnmutated,
-    nestedFiles,
   );
 }
 
-// Coalesce window for folding a GSAP mutation into the preceding timing edit; only has to
-// outlast one GSAP server round-trip, never a real second edit.
-const GSAP_HISTORY_COALESCE_MS = 10_000;
+// Held until the next edit: the key is the gesture's own, so only its GSAP fold can join it.
+const UNTIL_NEXT_EDIT = Number.POSITIVE_INFINITY;
+let timingGestures = 0;
+
+/** One timing gesture's undo step, shared by its timing write and its GSAP fold however long the fold takes. */
+export function timingGestureStep(
+  kind: string,
+  given?: { coalesceKey?: string },
+): { coalesceKey: string; coalesceMs: number } {
+  return {
+    coalesceKey: given?.coalesceKey ?? `${kind}:${++timingGestures}`,
+    coalesceMs: UNTIL_NEXT_EDIT,
+  };
+}
 
 type OwnedMutationStep = {
   path: string;
@@ -264,7 +278,7 @@ async function foldGsapMutationInQueue(input: {
   const ownedSteps: OwnedMutationStep[] = [];
   const runOwnedMutation: OwnedMutationRunner = async (path, mutation) => {
     const pending = mutation();
-    if (!pending) return { mutated: false, scriptText: null };
+    if (!pending) return UNMUTATED;
     const status = await pending;
     if (!status.mutated) return status;
     if (status.before === undefined || status.after === undefined) {
@@ -312,7 +326,7 @@ async function foldGsapMutationInQueue(input: {
         await input.recordEdit({
           label: input.label,
           coalesceKey: input.coalesceKey,
-          coalesceMs: GSAP_HISTORY_COALESCE_MS,
+          coalesceMs: UNTIL_NEXT_EDIT,
           files,
         });
       }
@@ -324,7 +338,7 @@ async function foldGsapMutationInQueue(input: {
 }
 
 // The mutations, the ownership read and any rollback hold every touched file's queue.
-function foldGsapMutationIntoHistory(
+export function foldGsapMutationIntoHistory(
   input: Parameters<typeof foldGsapMutationInQueue>[0] & {
     writeFile: StudioProjectFileWriter;
     paths: readonly string[];
@@ -333,6 +347,30 @@ function foldGsapMutationIntoHistory(
   return serializeStudioFileMutations(input.writeFile, input.paths, () =>
     foldGsapMutationInQueue(input),
   );
+}
+
+export function shiftGsapMutation(elementId: string | undefined, delta: number) {
+  if (delta === 0 || !elementId) return null;
+  return { type: "shift-positions", targetSelector: `#${elementId}`, delta };
+}
+
+export function scaleGsapMutation(
+  elementId: string | undefined,
+  oldStart: number,
+  oldDuration: number,
+  newStart: number,
+  newDuration: number,
+) {
+  if (!elementId || oldDuration <= 0 || newDuration <= 0) return null;
+  if (oldStart === newStart && oldDuration === newDuration) return null;
+  return {
+    type: "scale-positions",
+    targetSelector: `#${elementId}`,
+    oldStart,
+    oldDuration,
+    newStart,
+    newDuration,
+  };
 }
 
 /**
@@ -346,20 +384,12 @@ export async function shiftGsapPositions(
   elementId: string,
   delta: number,
 ): Promise<GsapMutationStatus> {
-  if (delta === 0 || !elementId) return { mutated: false, scriptText: null };
-  return postGsapMutation(
-    projectId,
-    filePath,
-    {
-      type: "shift-positions",
-      targetSelector: `#${elementId}`,
-      delta,
-    },
-    "shift-positions failed",
-  );
+  const mutation = shiftGsapMutation(elementId, delta);
+  if (!mutation) return UNMUTATED;
+  return postGsapMutation(projectId, filePath, mutation, "shift-positions failed");
 }
 
-export async function scaleGsapPositions(
+async function scaleGsapPositions(
   projectId: string,
   filePath: string,
   elementId: string,
@@ -368,23 +398,9 @@ export async function scaleGsapPositions(
   newStart: number,
   newDuration: number,
 ): Promise<GsapMutationStatus> {
-  if (!elementId || oldDuration <= 0 || newDuration <= 0)
-    return { mutated: false, scriptText: null };
-  if (oldStart === newStart && oldDuration === newDuration)
-    return { mutated: false, scriptText: null };
-  return postGsapMutation(
-    projectId,
-    filePath,
-    {
-      type: "scale-positions",
-      targetSelector: `#${elementId}`,
-      oldStart,
-      oldDuration,
-      newStart,
-      newDuration,
-    },
-    "scale-positions failed",
-  );
+  const mutation = scaleGsapMutation(elementId, oldStart, oldDuration, newStart, newDuration);
+  if (!mutation) return UNMUTATED;
+  return postGsapMutation(projectId, filePath, mutation, "scale-positions failed");
 }
 
 /** The GSAP sync a committed SDK timing write made, or null when its timeline script is unchanged. */
@@ -501,8 +517,8 @@ export async function finishGroupTimingGsapFallback<C extends { element: Timelin
   activeCompPath: string | null;
   changes: readonly C[];
   resolveChangePath: (element: TimelineElement) => string;
-  /** Per-change GSAP mutation; return null to skip a change with no timing delta. */
-  mutateChange: (change: C, changePath: string) => Promise<GsapMutationStatus> | null;
+  /** The change's GSAP mutation; null skips a change with no timing delta. */
+  mutationFor: (change: C) => Record<string, unknown> | null;
   sdkGsap?: GsapMutationStatus | null;
 }): Promise<void> {
   const activePath = input.activeCompPath || "index.html";
@@ -538,14 +554,18 @@ export async function finishGroupTimingGsapFallback<C extends { element: Timelin
           let mutated = false;
           let scriptText: GsapMutationStatus["scriptText"] = null;
           let after: string | undefined;
+          const byPath = new Map<string, Record<string, unknown>[]>();
           for (const change of input.changes) {
+            const mutation = input.mutationFor(change);
+            if (!mutation) continue;
             const changePath = input.resolveChangePath(change.element);
+            byPath.set(changePath, [...(byPath.get(changePath) ?? []), mutation]);
+          }
+          for (const [changePath, mutations] of byPath) {
             const status = await runOwnedMutation(changePath, () =>
-              input.mutateChange(change, changePath),
+              postGsapMutations(input.projectId, changePath, mutations, input.errorLabel),
             );
             mutated = mutated || status.mutated;
-            // The LAST mutation against the active comp carries the cumulative
-            // rewritten script for that file.
             if (changePath === activePath) ({ scriptText, after } = status);
           }
           return { mutated, scriptText: otherFileChanged ? null : scriptText, after };

@@ -1,4 +1,5 @@
-import { probeSourceElement } from "./probeSourceElement";
+import { PREVIEW_ONLY_ATTRS } from "@hyperframes/core/studio-preview-mark";
+import { knownSourceAnswer, probeSourceElement, type ProbeTarget } from "./probeSourceElement";
 import { isAudibleVideoNode } from "../../player/lib/timelineElementHelpers";
 import type { PatchOperation } from "../../utils/sourcePatcher";
 import {
@@ -55,6 +56,8 @@ function getTextFieldLabel(
   return `Text ${index + 1}`;
 }
 
+const NOT_COPIED_ATTRS = new Set<string>(["style", ...PREVIEW_ONLY_ATTRS]);
+
 function buildTextField(
   el: HTMLElement,
   index: number,
@@ -70,7 +73,7 @@ function buildTextField(
     value: el.textContent ?? "",
     tagName,
     attributes: Array.from(el.attributes)
-      .filter((attribute) => attribute.name !== "style")
+      .filter((attribute) => !NOT_COPIED_ATTRS.has(attribute.name))
       .map((attribute) => ({
         name: attribute.name,
         value: attribute.value,
@@ -288,6 +291,7 @@ export async function resolveDomEditSelection(
     projectId?: string | null;
     skipSourceProbe?: boolean;
     exactTarget?: boolean;
+    previous?: DomEditSelection | null;
   },
 ): Promise<DomEditSelection | null> {
   if (!startEl) return null;
@@ -330,14 +334,14 @@ export async function resolveDomEditSelection(
       isCompositionRootLayer(current, doc, computedStyles);
     const textFields = collectDomEditTextFields(current);
     const isInsideLocked = Boolean(findClosestByAttribute(current, ["data-timeline-locked"]));
-    let existsInSource: boolean | undefined;
-    if (!options.skipSourceProbe && options.projectId && (current.id || selector || hfId)) {
-      const probeTarget: { id?: string; hfId?: string; selector?: string; selectorIndex?: number } =
-        {};
-      if (current.id) probeTarget.id = current.id;
-      if (hfId) probeTarget.hfId = hfId;
-      if (selector) probeTarget.selector = selector;
-      if (selectorIndex != null) probeTarget.selectorIndex = selectorIndex;
+    const probeTarget: ProbeTarget = {};
+    if (current.id) probeTarget.id = current.id;
+    if (hfId) probeTarget.hfId = hfId;
+    if (selector) probeTarget.selector = selector;
+    if (selectorIndex != null) probeTarget.selectorIndex = selectorIndex;
+    let existsInSource = knownSourceAnswer(options.previous, current, sourceFile, probeTarget);
+    const probe = existsInSource === undefined && !options.skipSourceProbe;
+    if (probe && options.projectId && (current.id || selector || hfId)) {
       existsInSource = await probeSourceElement(options.projectId, sourceFile, probeTarget);
     }
     const capabilities = resolveEditingAffordances(
@@ -380,6 +384,7 @@ export async function resolveDomEditSelection(
       computedStyles,
       textFields,
       capabilities,
+      existsInSource,
     };
   }
 

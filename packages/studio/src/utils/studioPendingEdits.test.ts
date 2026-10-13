@@ -2,15 +2,44 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   addStudioPendingEditFlushListener,
+  adoptingStudioPendingEdit,
   beginStudioPendingEdit,
   flushStudioPendingEdits,
+  afterStudioPendingEdits,
   hasStudioPendingEdits,
-  revertNewestStudioPendingEdit,
+  isStudioEditSaving,
+  paintBackNewestStudioPendingEdit,
+  setStudioWaitingPressCancel,
   trackStudioPendingEdit,
   trackedStudioEdit,
 } from "./studioPendingEdits";
 import { StudioFileConflictError } from "./studioSaveDiagnostics";
 import { revertNewestStudioPendingEdit as hostRevert } from "../index";
+
+describe("a canvas press still waiting to run", () => {
+  it("is not what a host's revert takes back, since the host steps history after it", () => {
+    const cancel = vi.fn(() => true);
+    setStudioWaitingPressCancel(cancel);
+    try {
+      expect(hostRevert()).toBeNull();
+      expect(cancel).not.toHaveBeenCalled();
+    } finally {
+      setStudioWaitingPressCancel(null);
+    }
+  });
+
+  it("is never a pending edit, since a reload waits for those and the press waits for the reload", () => {
+    setStudioWaitingPressCancel(() => true);
+    const reload = vi.fn();
+    try {
+      afterStudioPendingEdits(reload);
+      expect(reload).toHaveBeenCalledOnce();
+      expect(hasStudioPendingEdits()).toBe(false);
+    } finally {
+      setStudioWaitingPressCancel(null);
+    }
+  });
+});
 
 describe("studio pending edit flush", () => {
   it("waits for mounted panels to persist pending local edits", async () => {
@@ -198,6 +227,128 @@ describe("a drain that meets a conflict", () => {
   });
 });
 
+describe("a new edit after a debounced one", () => {
+  it("commits the debounced edit first, so history records them in the order they were made", () => {
+    const order: string[] = [];
+    const remove = addStudioPendingEditFlushListener(() => void order.push("nudge"));
+    trackedStudioEdit(() => void order.push("panel"))();
+    const drag = beginStudioPendingEdit(null);
+    drag.adopt(() => void order.push("drag"));
+    drag.settle();
+    remove();
+    expect(order).toEqual(["nudge", "panel", "nudge", "drag"]);
+  });
+  it("starts a new edit only after a flushed save that was still waiting has written", async () => {
+    const order: string[] = [];
+    let fetched!: () => void;
+    // A nudge on an animated layer: its save waits on the animation fetch before it writes.
+    const remove = addStudioPendingEditFlushListener(async () => {
+      await new Promise<void>((resolve) => (fetched = resolve));
+      order.push("nudge write");
+    });
+    const panelEdit = trackedStudioEdit(async () => void order.push("width write"), {
+      afterOlderSaves: true,
+    })();
+    fetched();
+    await panelEdit;
+    remove();
+    expect(order).toEqual(["nudge write", "width write"]);
+  });
+
+  it("keeps every later edit behind one that waits on a flushed save, so the newest value lands last", async () => {
+    const order: string[] = [];
+    let fetched!: () => void;
+    let saving = false;
+    const remove = addStudioPendingEditFlushListener(() => {
+      if (saving) return undefined;
+      saving = true;
+      return new Promise<void>((resolve) => (fetched = resolve)).then(
+        () => void order.push("nudge"),
+      );
+    });
+    const userEdit = (body: () => unknown) => trackedStudioEdit(body, { afterOlderSaves: true });
+    const first = userEdit(async () => void order.push("W 200"))();
+    const second = userEdit(async () => void order.push("W 300"))();
+    const drag = beginStudioPendingEdit(null);
+    const dragged = drag.adopt(() => Promise.resolve().then(() => void order.push("resize")));
+    fetched();
+    await Promise.all([first, second, dragged]);
+    drag.settle();
+    remove();
+    expect(order).toEqual(["nudge", "W 200", "W 300", "resize"]);
+  });
+
+  it("never waits on itself: a deferred edit or a flushed save may call a wrapped edit", async () => {
+    let fetched!: () => void;
+    let saving = false;
+    const internal = trackedStudioEdit(async () => undefined);
+    // The flushed save calls an internal wrapped commit after its fetch, as an animated nudge does.
+    const remove = addStudioPendingEditFlushListener(() => {
+      if (saving) return undefined;
+      saving = true;
+      return new Promise<void>((resolve) => (fetched = resolve)).then(() => internal());
+    });
+    const userEdit = (body: () => unknown) => trackedStudioEdit(body, { afterOlderSaves: true });
+    const panel = userEdit(() => internal())();
+    const drag = beginStudioPendingEdit(null);
+    const dragged = drag.adopt(() => internal());
+    fetched();
+    await Promise.all([panel, dragged]);
+    drag.settle();
+    await userEdit(async () => undefined)();
+    remove();
+    expect(isStudioEditSaving()).toBe(false);
+  });
+
+  it("lets a second burst flushed behind the first one save, though its commit is a panel action", async () => {
+    const order: string[] = [];
+    let fetched!: () => void;
+    const commitNudge = trackedStudioEdit(
+      async (name: string) => {
+        if (name === "nudge A") await new Promise<void>((resolve) => (fetched = resolve));
+        else await Promise.resolve();
+        order.push(name);
+      },
+      { afterOlderSaves: true },
+    );
+    let burst: { name: string; edit: ReturnType<typeof beginStudioPendingEdit> } | null = null;
+    const startBurst = (name: string) => {
+      const edit = beginStudioPendingEdit(null);
+      burst = { name, edit };
+    };
+    const remove = addStudioPendingEditFlushListener(() => {
+      if (!burst) return undefined;
+      const { name, edit } = burst;
+      burst = null;
+      const saved = edit.adopt(() => commitNudge(name));
+      edit.settle(saved);
+      return saved;
+    });
+    const panelEdit = trackedStudioEdit(async (name: string) => void order.push(name), {
+      afterOlderSaves: true,
+    });
+    startBurst("nudge A");
+    const first = panelEdit("W 200");
+    startBurst("nudge B");
+    const second = panelEdit("W 300");
+    fetched();
+    await Promise.all([first, second]);
+    remove();
+    expect(order).toEqual(["nudge A", "W 200", "nudge B", "W 300"]);
+    expect(isStudioEditSaving()).toBe(false);
+  });
+
+  it("never flushes from inside an edit's own save, where a flushed save would go untracked", () => {
+    let flushes = 0;
+    const remove = addStudioPendingEditFlushListener(() => void (flushes += 1));
+    const drag = beginStudioPendingEdit(null);
+    drag.adopt(() => trackedStudioEdit(() => undefined)());
+    drag.settle();
+    remove();
+    expect(flushes).toBe(1);
+  });
+});
+
 describe("trackedStudioEdit", () => {
   it("counts each call as a pending edit until it settles, and reports a failure to the drain", async () => {
     let fail!: () => void;
@@ -227,12 +378,12 @@ describe("a pending edit undo can paint back", () => {
     shown.length = 0;
     const first = edit("first");
     const second = edit("second");
-    const again = revertNewestStudioPendingEdit();
+    const again = paintBackNewestStudioPendingEdit();
     expect(shown).toEqual(["second undone"]);
     expect(second.reverted()).toBe(true);
     expect(first.reverted()).toBe(false);
-    expect(revertNewestStudioPendingEdit()).toBeNull();
-    again!();
+    expect(paintBackNewestStudioPendingEdit()).toBeNull();
+    again!.showAgain();
     expect(shown).toEqual(["second undone", "second again"]);
     first.settle();
     second.settle();
@@ -243,7 +394,7 @@ describe("a pending edit undo can paint back", () => {
     const move = edit("move");
     let saved!: () => void;
     trackStudioPendingEdit(new Promise<void>((resolve) => (saved = resolve)));
-    expect(revertNewestStudioPendingEdit()).toBeNull();
+    expect(paintBackNewestStudioPendingEdit()).toBeNull();
     expect(shown).toEqual([]);
     saved();
     move.settle();
@@ -258,7 +409,7 @@ describe("a pending edit undo can paint back", () => {
       trackStudioPendingEdit(new Promise<void>((resolve) => (saved = resolve))),
     );
     move.settle(save);
-    revertNewestStudioPendingEdit();
+    paintBackNewestStudioPendingEdit();
     expect(shown).toEqual(["move undone"]);
     saved();
     await expect(flushStudioPendingEdits()).resolves.toEqual({ status: "clean" });
@@ -294,4 +445,72 @@ describe("the package's public revert", () => {
       await flushStudioPendingEdits();
     }
   });
+});
+
+describe("a drain of only the current edits", () => {
+  it("ends once the edits pending at its start land, without waiting for one started after", async () => {
+    let landFirst!: () => void;
+    let landLater!: () => void;
+    trackStudioPendingEdit(new Promise<void>((resolve) => (landFirst = resolve)));
+    let drained = false;
+    const drain = flushStudioPendingEdits({ onlyCurrent: true }).then(() => (drained = true));
+    await Promise.resolve();
+    trackStudioPendingEdit(new Promise<void>((resolve) => (landLater = resolve)));
+    landFirst();
+    await drain;
+    expect(drained).toBe(true);
+    expect(hasStudioPendingEdits()).toBe(true);
+    landLater();
+  });
+});
+
+describe("an edit undo painted back while it saves", () => {
+  function paintedBackEdit() {
+    const box = { look: "edited" };
+    const edit = beginStudioPendingEdit(() => {
+      const shown = box.look;
+      box.look = "start";
+      return () => (box.look = shown);
+    });
+    let landSave!: () => void;
+    const inFlight = edit.adopt(() => adoptingStudioPendingEdit())!;
+    edit.settle(new Promise<void>((resolve) => (landSave = resolve)));
+    const shown = paintBackNewestStudioPendingEdit()!;
+    return { box, inFlight, shown, landSave };
+  }
+
+  it("draws on the edit as shown, then shows it undone again in the same task", () => {
+    const { box, inFlight, shown, landSave } = paintedBackEdit();
+    let drawnOver = "";
+    inFlight.drawKeepingUndone(() => {
+      drawnOver = box.look;
+      box.look += "+size";
+    });
+    expect(drawnOver).toBe("edited");
+    expect(box.look).toBe("start");
+    shown.showAgain();
+    expect(box.look).toBe("edited+size");
+    landSave();
+  });
+
+  it("keeps a redraw until the edit is shown again", () => {
+    const { inFlight, shown, landSave } = paintedBackEdit();
+    const redraw = vi.fn();
+    inFlight.drawUnlessUndone(redraw);
+    expect(redraw).not.toHaveBeenCalled();
+    shown.showAgain();
+    expect(redraw).toHaveBeenCalledTimes(1);
+    landSave();
+  });
+});
+
+it("counts an edit whose later write failed as saved once an earlier write landed, so undo still steps it", async () => {
+  const edit = beginStudioPendingEdit(() => () => undefined);
+  const committed = edit.adopt(async () => {
+    adoptingStudioPendingEdit()!.markSaved();
+    throw new Error("the crop save failed");
+  });
+  edit.settle(committed.catch(() => undefined));
+  const shown = paintBackNewestStudioPendingEdit()!;
+  await expect(shown.landed()).resolves.toBe(true);
 });

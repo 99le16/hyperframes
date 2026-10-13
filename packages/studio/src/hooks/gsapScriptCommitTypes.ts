@@ -2,8 +2,17 @@ import type { ParsedGsap } from "@hyperframes/core/gsap-parser";
 import type { Composition } from "@hyperframes/sdk";
 import type { DomEditSelection } from "../components/editor/domEditingTypes";
 import type { PublishSdkSession } from "../utils/sdkCutover";
+import type { StudioEditInFlight } from "../utils/studioPendingEdits";
 import type { RuntimeTweenChange } from "./gsapRuntimePatch";
 import type { KeyframeUsageAction } from "../utils/keyframeUsage";
+
+/** The file a selection's GSAP write goes to. */
+export function gsapWriteFile(
+  selection: Pick<DomEditSelection, "sourceFile">,
+  activeCompPath: string | null | undefined,
+): string {
+  return selection.sourceFile || activeCompPath || "index.html";
+}
 
 export interface MutationResult {
   ok: boolean;
@@ -36,9 +45,10 @@ export interface CommitMutationOptions {
    * error handling — a failed write still throws.
    */
   deferPreviewSync?: boolean;
-  /** Shares an in-place patch miss with the final render of one multi-write action. */
+  /** Carries a deferred write not yet on screen (no patch, or a missed one) to the final render. */
   previewFallbackLatch?: { pending: boolean };
   beforeReload?: () => void;
+  pendingEdit?: StudioEditInFlight;
   /**
    * Serialize this commit against others sharing the same key. Used to chain
    * per-animationId GSAP meta updates. Every commit independently takes the

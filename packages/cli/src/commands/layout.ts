@@ -1,3 +1,4 @@
+import { launchManagedBrowser, resolveManagedGpuMode } from "../browser/launch.js";
 import { failCommand, setCommandExitCode } from "../utils/commandResult.js";
 import { defineCommand } from "citty";
 import { existsSync, readFileSync } from "node:fs";
@@ -33,6 +34,7 @@ import {
   installPageFunctionGuard,
   seekCompositionTimeline,
   waitForCompositionFonts,
+  waitForRuntimeReady,
   type SeekCompositionTimelineOptions,
 } from "../capture/captureCompositionFrame.js";
 
@@ -206,8 +208,8 @@ async function runLayoutAudit(
   const {
     assertWebGpuAdapterAvailable,
     compositionRequiresWebGpu,
-    resolveCaptureBrowserGpuMode,
     resolveLocalBrowserGpuMode,
+    resolveLocalWebGpu,
   } = await import("../browser/gpuPolicy.js");
   const html = await bundleProjectHtml(projectDir);
   const server = await serveStaticProjectHtml(
@@ -220,17 +222,15 @@ async function runLayoutAudit(
   try {
     const browser = await ensureBrowser();
     const requestedGpuMode = resolveLocalBrowserGpuMode();
-    const resolvedGpuMode = await resolveCaptureBrowserGpuMode(
-      requestedGpuMode,
-      browser.executablePath,
-    );
+    const resolvedGpuMode = await resolveManagedGpuMode(requestedGpuMode, browser.executablePath);
     const requiresWebGpu = compositionRequiresWebGpu(html);
-    chromeBrowser = await puppeteer.default.launch({
+    const { gpuConfig, softwareWebGpu } = resolveLocalWebGpu(resolvedGpuMode, requiresWebGpu);
+    chromeBrowser = await launchManagedBrowser(puppeteer.default, {
       headless: true,
       executablePath: browser.executablePath,
       args: buildChromeArgs(
         { width: 1920, height: 1080, captureMode: "screenshot", requiresWebGpu },
-        { browserGpuMode: resolvedGpuMode },
+        gpuConfig,
       ),
     });
 
@@ -241,13 +241,9 @@ async function runLayoutAudit(
       waitUntil: "domcontentloaded",
       timeout: resolveDiagnosticNavigationTimeoutMs(),
     });
-    await assertWebGpuAdapterAvailable(page, requiresWebGpu);
+    await assertWebGpuAdapterAvailable(page, requiresWebGpu, softwareWebGpu);
     await alignViewportToComposition(page, server.url);
-    await page
-      .waitForFunction(() => !!(window as unknown as { __timelines?: unknown }).__timelines, {
-        timeout: opts.timeout,
-      })
-      .catch(() => {});
+    await waitForRuntimeReady(page, opts.timeout);
     await waitForCompositionFonts(page, 750);
     await new Promise((resolveSettle) => setTimeout(resolveSettle, 250));
 

@@ -1,3 +1,4 @@
+import { launchManagedBrowser, resolveManagedGpuMode } from "../browser/launch.js";
 // Onion-skin motion screenshot: seek the LIVE timeline at N equal-time steps and
 // project the REAL element at each step, so an agent can SELF-VERIFY motion (the
 // rendered result — every channel: position, rotation, scale, opacity, colour),
@@ -14,11 +15,12 @@ import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { resolveDiagnosticNavigationTimeoutMs } from "../utils/renderArgs.js";
 import { resolveCompositionViewportFromHtml } from "../utils/compositionViewport.js";
+import { waitForRuntimeReady } from "../capture/captureCompositionFrame.js";
 import {
   assertWebGpuAdapterAvailable,
   compositionRequiresWebGpu,
-  resolveCaptureBrowserGpuMode,
   resolveLocalBrowserGpuMode,
+  resolveLocalWebGpu,
 } from "../browser/gpuPolicy.js";
 import {
   buildOnionSvg,
@@ -42,8 +44,8 @@ function pathsReferToSameFile(firstPath: string, secondPath: string): boolean {
   const second = resolve(secondPath);
   if (first === second) return true;
   try {
-    const firstStat = statSync(first);
-    const secondStat = statSync(second);
+    const firstStat = statSync(first, { bigint: true });
+    const secondStat = statSync(second, { bigint: true });
     return firstStat.dev === secondStat.dev && firstStat.ino === secondStat.ino;
   } catch {
     return false;
@@ -400,34 +402,33 @@ async function openCompositionPage(
   const { buildChromeArgs } = await import("@hyperframes/engine");
   const size = resolveCompositionViewportFromHtml(html);
   const requestedGpuMode = resolveLocalBrowserGpuMode();
-  const resolvedGpuMode = await resolveCaptureBrowserGpuMode(requestedGpuMode, executablePath);
+  const resolvedGpuMode = await resolveManagedGpuMode(requestedGpuMode, executablePath);
   const requiresWebGpu = compositionRequiresWebGpu(html);
-  const browser = await puppeteer.default.launch({
+  const { gpuConfig, softwareWebGpu } = resolveLocalWebGpu(resolvedGpuMode, requiresWebGpu);
+  const browser = await launchManagedBrowser(puppeteer.default, {
     headless: true,
     executablePath,
-    args: buildChromeArgs(
-      { ...size, captureMode: "screenshot", requiresWebGpu },
-      { browserGpuMode: resolvedGpuMode },
-    ),
+    args: buildChromeArgs({ ...size, captureMode: "screenshot", requiresWebGpu }, gpuConfig),
   });
-  const page = await browser.newPage();
-  const navigationTimeout = resolveDiagnosticNavigationTimeoutMs();
-  await page.setViewport(size);
-  await page.goto(url, { waitUntil: "domcontentloaded", timeout: navigationTimeout });
-  await assertWebGpuAdapterAvailable(page, requiresWebGpu);
-  await page
-    .waitForFunction(() => !!(window as unknown as { __timelines?: unknown }).__timelines, {
-      timeout: 10000,
-    })
-    .catch(() => {});
-  await page
-    .evaluate(async () => {
-      const d = document as unknown as { fonts?: { ready?: Promise<unknown> } };
-      if (d.fonts?.ready) await d.fonts.ready;
-    })
-    .catch(() => {});
-  await installSeekHelper(page);
-  return { browser, page, size };
+  try {
+    const page = await browser.newPage();
+    const navigationTimeout = resolveDiagnosticNavigationTimeoutMs();
+    await page.setViewport(size);
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: navigationTimeout });
+    await assertWebGpuAdapterAvailable(page, requiresWebGpu, softwareWebGpu);
+    await waitForRuntimeReady(page, 10000);
+    await page
+      .evaluate(async () => {
+        const d = document as unknown as { fonts?: { ready?: Promise<unknown> } };
+        if (d.fonts?.ready) await d.fonts.ready;
+      })
+      .catch(() => {});
+    await installSeekHelper(page);
+    return { browser, page, size };
+  } catch (err) {
+    await browser.close().catch(() => {});
+    throw err;
+  }
 }
 
 // Longest seekable duration (seconds) across registered timelines, player/root

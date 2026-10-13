@@ -20,13 +20,14 @@ import {
   getShaderModeFromElement,
   prepareSrcForElement,
   prepareSrcdocForElement,
+  runtimeSrcFromElement,
 } from "./shader-options.js";
 import { createShaderLoader } from "./shader-loader-element.js";
 import { ShaderLoaderState } from "./shader-loader-state.js";
 import { PLAYER_STYLES } from "./styles.js";
 import { type DirectTimelineAdapter } from "./timeline-adapters.js";
 import { createVideoSource, isVideoType, type VideoSource } from "./video-source.js";
-import { runtimeProtocolMetadata } from "@hyperframes/core/runtime/protocol";
+import { frameDisplayScale, runtimeProtocolMetadata } from "@hyperframes/core/runtime/protocol";
 import {
   FIRST_FRAME_READINESS_SCOPE,
   scanPendingCompositionAssets,
@@ -204,6 +205,7 @@ class HyperframesPlayer extends HTMLElement {
     });
 
     this.probe = new CompositionProbe(this.iframe, {
+      resolveRuntimeUrl: () => runtimeSrcFromElement(this),
       onReady: (result) => this._onProbeReady(result),
       onError: (message) => this._emit(new CustomEvent("error", { detail: { message } })),
     });
@@ -431,6 +433,7 @@ class HyperframesPlayer extends HTMLElement {
     // starts playback — this premature call must not ALSO dispatch "play"
     // for what hasn't started, or a host listener sees it fire twice.
     let queuedForReady = false;
+    this._sendDisplayScale();
     if (!directTimelineStarted) {
       this._sendControl("play");
       // Only start the parent tick clock once the composition is ready and
@@ -1002,6 +1005,12 @@ class HyperframesPlayer extends HTMLElement {
       disabled: this._isSlideshowPlayer(),
     });
     this._sendControl("set-idle-heartbeat", { slow: this.hasAttribute(LOW_POWER_IDLE_ATTR) });
+    this._sendDisplayScale();
+  }
+
+  private _sendDisplayScale(): void {
+    const scale = frameDisplayScale(this.iframe);
+    if (scale) this._sendControl("set-display-scale", { scale });
   }
 
   private _reloadShaderOptions(): void {
@@ -1192,8 +1201,8 @@ class HyperframesPlayer extends HTMLElement {
    * iframe on every frame. Used for the runtime bridge path so that animation
    * advances even when the composition iframe's own rAF is throttled by
    * Chromium (e.g. deeply nested cross-origin iframes in Electron / Claude desktop).
-   * The runtime's own rAF loop still runs — ticking GSAP twice per frame is
-   * harmless because seekTimelineAndAdapters is idempotent.
+   * The runtime skips a tick seek only when that timeline time is already
+   * rendered. Host ticks still advance a throttled iframe.
    */
   private _startParentTickClock(): void {
     this._stopParentTickClock();
@@ -1216,7 +1225,7 @@ class HyperframesPlayer extends HTMLElement {
 
   private _onMessage(e: MessageEvent) {
     // The iframe window outlives its documents: a late composition message must not reach a video.
-    if (this._videoSource) return;
+    if (this._videoSource || this.probe.failed) return;
     this._applyThenEmit(() => this._handleRuntimeMessage(e));
   }
 
@@ -1378,7 +1387,7 @@ class HyperframesPlayer extends HTMLElement {
     });
     const win = doc.defaultView as (Window & { __renderReady?: boolean }) | null;
     console.warn(
-      `[hyperframes-player] assets-loading timed out after ${ASSETS_READY_TIMEOUT_MS}ms — playing anyway`,
+      `[hyperframes-player] assets-loading timed out after ${ASSETS_READY_TIMEOUT_MS}ms, playing anyway`,
       {
         stuckMedia: pendingMedia.map(
           (el) => el.currentSrc || el.getAttribute("src") || `<${el.tagName.toLowerCase()}>`,
@@ -1413,6 +1422,7 @@ class HyperframesPlayer extends HTMLElement {
   /** Every host-driven navigation or teardown: the old document's handshake, asset wait and
    *  data deliveries end here. A queued play is the caller's, so only its owners clear it. */
   private _abandonComposition(reason: string): void {
+    this.probe.stop();
     this._ready = false;
     this._readyDocument = null;
     this._invalidateAssetsWait();
@@ -1537,9 +1547,10 @@ class HyperframesPlayer extends HTMLElement {
     // why in the field. Surface it once (not on every ResizeObserver tick —
     // a legitimately hidden/zero-sized player, e.g. a collapsed tab or
     // off-screen carousel card, would otherwise spam the console forever).
+    if (applied) this._sendDisplayScale();
     if (!applied && this._ready && !this._rescaleWarned) {
       this._rescaleWarned = true;
-      console.warn("[hyperframes-player] rescale no-op after ready — zero-size player element", {
+      console.warn("[hyperframes-player] rescale no-op after ready: zero-size player element", {
         src: this.getAttribute("src"),
         offsetWidth: this.offsetWidth,
         offsetHeight: this.offsetHeight,
@@ -1552,7 +1563,7 @@ class HyperframesPlayer extends HTMLElement {
   private _onIframeLoad() {
     // In video mode the iframe only ever loads about:blank; its load must not reset the video.
     if (!this._connected || this._videoSource) return;
-    // The runtime posts its timeline at DOMContentLoaded, before `load`, and every
+    // The runtime posts its timeline once its scripts ran, before or after `load`, and every
     // host-initiated navigation clears `_ready` first. So a ready player already holds this
     // document's handshake (an opaque origin reads as null); a paused runtime never posts it again.
     const doc = this._getSameOriginIframeDocument();
@@ -1563,8 +1574,8 @@ class HyperframesPlayer extends HTMLElement {
     }
 
     this._ready = false;
-    // The runtime installs its bridge at DOMContentLoaded, posts `ready`, and only then does the
-    // iframe's load event fire. Do not erase that authoritative handshake here: doing so strands
+    // The runtime installs its bridge once its scripts ran and posts `ready`, which can come before
+    // the iframe's load event. Do not erase that authoritative handshake here: doing so strands
     // retained data set after load until a second `ready` that never comes. Source setters and
     // sandbox-policy reloads already clear bridge readiness before starting a navigation.
     this._invalidateAssetsWait();

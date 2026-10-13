@@ -1,3 +1,9 @@
+import {
+  parseSnapshotRange,
+  sampleSnapshotRange,
+  resolveSnapshotCompositionRange,
+  type SnapshotRange,
+} from "./snapshotSampling.js";
 import { failCommand } from "../utils/commandResult.js";
 // fallow-ignore-file complexity
 import { defineCommand } from "citty";
@@ -436,6 +442,8 @@ async function captureSnapshots(
   projectDir: string,
   opts: {
     frames?: number;
+    range?: SnapshotRange;
+    composition?: string;
     timeout?: number;
     at?: number[];
     outputDir?: string;
@@ -517,13 +525,38 @@ async function captureSnapshots(
         return [];
       }
 
-      // Calculate seek positions — explicit timestamps or evenly spaced, always
-      // including a readable end-of-timeline frame (FINDING [7]).
-      const { times: positions, appendedTail } = computeSnapshotTimes(duration, {
-        frames: numFrames,
-        at: opts.at,
-        includeEnd: opts.includeEnd,
-      });
+      let range = opts.range;
+      if (opts.composition) {
+        const timing = await page.evaluate(() => ({
+          html: document.documentElement.outerHTML,
+          durations: Object.fromEntries(
+            Object.entries((window as any).__timelines ?? {}).map(([id, timeline]) => [
+              id,
+              Number((timeline as any).duration?.()),
+            ]),
+          ),
+        }));
+        range = resolveSnapshotCompositionRange(
+          timing.html,
+          timing.durations,
+          opts.composition,
+          duration,
+        );
+      }
+      const { times: positions, appendedTail } = range
+        ? {
+            times: sampleSnapshotRange(range, numFrames, duration, !!opts.composition),
+            appendedTail: false,
+          }
+        : computeSnapshotTimes(duration, {
+            frames: numFrames,
+            at: opts.at,
+            includeEnd: opts.includeEnd,
+          });
+      if (range)
+        console.log(
+          `   Sampling ${positions.length} frames within ${range[0]}–${range[1]}s${opts.composition ? ` (composition ${opts.composition})` : ""}`,
+        );
       if (appendedTail) {
         console.log(
           `   ${c.dim(`Note: added an end-of-timeline frame at ${positions[positions.length - 1]!.toFixed(2)}s. Short beats between your --at times may still be skipped — pass them explicitly.`)}`,
@@ -842,6 +875,16 @@ export default defineCommand({
       description:
         "Comma-separated timestamps in seconds (e.g., --at 3.0,10.5,18.0). Each is captured at that exact instant, not snapped to a frame.",
     },
+    range: {
+      type: "string",
+      description:
+        "Root-timeline range START,END in seconds; sample --frames evenly within it, without adding the full-video tail",
+    },
+    composition: {
+      type: "string",
+      description:
+        "data-composition-id to sample; take --frames within its effective root-timeline interval, without adding the full-video tail",
+    },
     timeout: {
       type: "string",
       description: "Ms to wait for runtime to initialize (default: 5000)",
@@ -892,6 +935,13 @@ export default defineCommand({
     },
   },
   async run({ args }) {
+    if ([args.at, args.range, args.composition].filter((value) => value !== undefined).length > 1)
+      throw new Error("Use only one of --at, --range, or --composition");
+    const frames = parseInt(args.frames as string, 10) || 5;
+    const range = args.range === undefined ? undefined : parseSnapshotRange(String(args.range));
+    const composition =
+      args.composition === undefined ? undefined : String(args.composition).trim();
+    if (composition === "") throw new Error("--composition requires a composition ID");
     const project = resolveProject(args.dir);
     const lintResult = await lintProject(project.dir);
     if (hasDefinitiveEntryMismatch(lintResult)) {
@@ -920,7 +970,6 @@ export default defineCommand({
       console.log("");
       failCommand();
     }
-    const frames = parseInt(args.frames as string, 10) || 5;
     const timeout = parseInt(args.timeout as string, 10) || 5000;
     const atTimestamps = args.at
       ? String(args.at)
@@ -963,6 +1012,8 @@ export default defineCommand({
         : join(project.dir, "snapshots");
       const paths = await captureSnapshots(project.dir, {
         frames,
+        range,
+        composition,
         timeout,
         at: atTimestamps,
         outputDir: snapshotDir,
@@ -1001,13 +1052,13 @@ export default defineCommand({
           snapshotDir,
           join(snapshotDir, "contact-sheet.jpg"),
         );
-        if (sheets.length > 0) {
-          const label =
-            sheets.length === 1 ? "contact-sheet.jpg" : `contact-sheet-1..${sheets.length}.jpg`;
-          console.log(`   ${c.dim(label)} (grid view for AI review)`);
+        for (const sheet of sheets) {
+          console.log(`   ${resolve(sheet)} (grid view for AI review)`);
         }
-      } catch {
-        /* non-critical */
+      } catch (err) {
+        console.warn(
+          `   ${c.warn("⚠")} Contact sheet skipped: ${normalizeErrorMessage(err)}. Individual snapshot PNGs are still available.`,
+        );
       }
 
       // Gemini vision descriptions. Runs by default — see describeArg
@@ -1017,7 +1068,8 @@ export default defineCommand({
         try {
           const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
           if (!geminiKey) {
-            console.log(`   ${c.dim("--describe: GEMINI_API_KEY not set, skipping")}`);
+            if (args.describe !== undefined)
+              console.log(`   ${c.dim("--describe: GEMINI_API_KEY not set, skipping")}`);
           } else if (paths.length > 0) {
             console.log(`   ${c.dim("Describing frames with Gemini vision...")}`);
             const { GoogleGenAI } = await loadOptionalPackage("@google/genai", "--describe");

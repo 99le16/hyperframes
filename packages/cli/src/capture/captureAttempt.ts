@@ -1,3 +1,4 @@
+import { launchManagedBrowser } from "../browser/launch.js";
 import { LottieDiscovery } from "./lottieDiscovery.js";
 import { createCaptureDownloadBudget } from "./readBoundedResponse.js";
 /**
@@ -16,7 +17,7 @@ import type { DiscoveredLottie } from "./mediaCapture.js";
 import { detectLibraries } from "./contentExtractor.js";
 import { loadEnvFile, generateProjectScaffold } from "./scaffolding.js";
 import { captureProtocolTimeoutMs } from "./captureTimeout.js";
-import { CAPTURE_PHASE_SCHEMA } from "./types.js";
+import { CAPTURE_PHASE_SCHEMA, DEFAULT_MAX_SCREENSHOTS } from "./types.js";
 import type {
   CaptureOptions,
   CapturePhase,
@@ -48,7 +49,7 @@ export async function captureWebsiteAttempt(
     viewportHeight = 1080,
     timeout = 120000,
     settleTime = 3000,
-    maxScreenshots: _maxScreenshots = 24,
+    maxScreenshots = DEFAULT_MAX_SCREENSHOTS,
     skipAssets = false,
     skipVision = false,
     postNavigationBudgetMs = DEFAULT_POST_NAVIGATION_BUDGET_MS,
@@ -111,7 +112,7 @@ export async function captureWebsiteAttempt(
   const { ensureBrowser } = await import("../browser/manager.js");
   const browser = await ensureBrowser();
   const puppeteer = await import("puppeteer-core");
-  const chromeBrowser = await puppeteer.default.launch({
+  const chromeBrowser = await launchManagedBrowser(puppeteer.default, {
     headless: true,
     executablePath: browser.executablePath,
     protocolTimeout: captureProtocolTimeoutMs(timeout, budgetMs),
@@ -253,6 +254,7 @@ export async function captureWebsiteAttempt(
       screenshots,
       downloadByteBudget,
       canWrite,
+      maxScreenshots,
     });
     ({
       animationCatalog,
@@ -266,7 +268,9 @@ export async function captureWebsiteAttempt(
       screenshots,
     } = coreResult);
 
-    phase("core-extraction", "completed");
+    const screenshotOutcome = coreResult.screenshotOutcome;
+    if (screenshotOutcome.kind === "complete") phase("core-extraction", "completed");
+    else phase("core-extraction", "degraded", screenshotOutcome.reason);
     const postResult = await runPostExtraction({
       state,
       outputDir,
@@ -309,11 +313,18 @@ export async function captureWebsiteAttempt(
     }
     phase("scaffold", "completed");
 
-    progress("done", "Capture complete");
-    phase("complete", "completed");
+    progress(
+      "done",
+      screenshotOutcome.kind === "failed"
+        ? "Capture failed: no screenshots captured"
+        : "Capture complete",
+    );
+    if (screenshotOutcome.kind === "failed")
+      phase("complete", "degraded", screenshotOutcome.reason);
+    else phase("complete", "completed");
 
     return {
-      ok: true,
+      ok: screenshotOutcome.kind !== "failed",
       projectDir: outputDir,
       url,
       httpStatus,

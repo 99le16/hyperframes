@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { trackStudioEvent } from "../../utils/studioTelemetry";
 // @vitest-environment happy-dom
 import React, { act } from "react";
@@ -7,7 +8,11 @@ import { installReactActEnvironment, makeSelection } from "../../hooks/domSelect
 import { useDomEditNudge, type UseDomEditNudgeParams } from "./useDomEditNudge";
 import { CANVAS_NUDGE_COMMIT_DEBOUNCE_MS, CANVAS_NUDGE_STEP_PX } from "./domEditNudge";
 import { __resetForTests } from "../../utils/canvasNudgeGate";
-import { flushStudioPendingEdits, hasStudioPendingEdits } from "../../utils/studioPendingEdits";
+import {
+  flushStudioPendingEdits,
+  hasStudioPendingEdits,
+  trackedStudioEdit,
+} from "../../utils/studioPendingEdits";
 import type { DomEditSelection } from "./domEditing";
 import type { OverlayRect } from "./domEditOverlayGeometry";
 
@@ -34,9 +39,11 @@ let flushNudge = () => {};
 function Harness({
   selection,
   onPathOffsetCommit,
+  onManualDragStart = () => {},
 }: {
   selection: DomEditSelection | null;
   onPathOffsetCommit: UseDomEditNudgeParams["onPathOffsetCommitRef"]["current"];
+  onManualDragStart?: () => void;
 }) {
   flushNudge = useDomEditNudge({
     selection,
@@ -48,7 +55,7 @@ function Harness({
     gestureRef: makeRef(null),
     groupGestureRef: makeRef(null),
     blockedMoveRef: makeRef(null),
-    onManualDragStartRef: makeRef(() => {}),
+    onManualDragStartRef: makeRef(onManualDragStart),
     onBlockedMoveRef: makeRef(() => {}),
     onPathOffsetCommitRef: makeRef(onPathOffsetCommit),
     onGroupPathOffsetCommitRef: makeRef(async () => {}),
@@ -340,23 +347,82 @@ describe("useDomEditNudge carries the route its press chose", () => {
   });
 });
 
-describe("useDomEditNudge — undo right after a burst", () => {
-  it("undo's drain commits a burst still inside its debounce and waits for its save", async () => {
-    __resetForTests();
-    vi.useFakeTimers();
-    const root = createRoot(document.body.appendChild(document.createElement("div")));
-    const element = document.body.appendChild(document.createElement("div"));
-    element.id = "dot-undo";
-    let saved!: () => void;
-    const commit = vi.fn(() => new Promise<void>((resolve) => (saved = resolve)));
+describe("useDomEditNudge pauses playback before it snapshots the timelines", () => {
+  let reactRoot: ReturnType<typeof createRoot> | null = null;
+  const pause = vi.fn();
+  const mount = (selection: DomEditSelection | null) => {
+    reactRoot = createRoot(document.createElement("div"));
     act(() => {
-      root.render(
+      reactRoot!.render(
         React.createElement(Harness, {
-          selection: makeSelection("Dot", element),
-          onPathOffsetCommit: commit,
+          selection,
+          onPathOffsetCommit: vi.fn(),
+          onManualDragStart: pause,
         }),
       );
     });
+  };
+  beforeEach(() => {
+    vi.useFakeTimers();
+    __resetForTests();
+    pause.mockReset();
+  });
+  afterEach(() => {
+    act(() => reactRoot?.unmount());
+    reactRoot = null;
+    document.body.innerHTML = "";
+    vi.useRealTimers();
+    delete (window as { __timelines?: unknown }).__timelines;
+  });
+
+  it("does not resume a timeline the playback pause stopped", () => {
+    let playing = true;
+    const root = { pause: () => void (playing = false), paused: () => !playing };
+    (window as { __timelines?: unknown }).__timelines = { root };
+    pause.mockImplementation(root.pause);
+    const element = document.body.appendChild(document.createElement("div"));
+    mount(makeSelection("Dot", element));
+
+    act(() => dispatchArrowRight());
+
+    expect(element.hasAttribute("data-hf-drag-paused-timelines")).toBe(false);
+  });
+
+  it("leaves playback alone when no layer can move", () => {
+    mount(null);
+
+    act(() => dispatchArrowRight());
+
+    expect(pause).not.toHaveBeenCalled();
+  });
+});
+
+/** A burst-ready Harness on a fresh element, under fake timers. */
+function mountBurstHarness(
+  id: string,
+  onPathOffsetCommit: UseDomEditNudgeParams["onPathOffsetCommitRef"]["current"],
+) {
+  __resetForTests();
+  vi.useFakeTimers();
+  const root = createRoot(document.body.appendChild(document.createElement("div")));
+  const element = document.body.appendChild(document.createElement("div"));
+  element.id = id;
+  act(() => {
+    root.render(
+      React.createElement(Harness, {
+        selection: makeSelection("Dot", element),
+        onPathOffsetCommit,
+      }),
+    );
+  });
+  return root;
+}
+
+describe("useDomEditNudge — undo right after a burst", () => {
+  it("undo's drain commits a burst still inside its debounce and waits for its save", async () => {
+    let saved!: () => void;
+    const commit = vi.fn(() => new Promise<void>((resolve) => (saved = resolve)));
+    const root = mountBurstHarness("dot-undo", commit);
     act(() => dispatchArrowRight());
 
     let drained = false;
@@ -372,21 +438,9 @@ describe("useDomEditNudge — undo right after a burst", () => {
   });
 
   it("counts the burst as a pending edit from its first key until its save lands", async () => {
-    __resetForTests();
-    vi.useFakeTimers();
-    const root = createRoot(document.body.appendChild(document.createElement("div")));
-    const element = document.body.appendChild(document.createElement("div"));
-    element.id = "dot-pending";
     let saved!: () => void;
     const commit = vi.fn(() => new Promise<void>((resolve) => (saved = resolve)));
-    act(() => {
-      root.render(
-        React.createElement(Harness, {
-          selection: makeSelection("Dot", element),
-          onPathOffsetCommit: commit,
-        }),
-      );
-    });
+    const root = mountBurstHarness("dot-pending", commit);
     expect(hasStudioPendingEdits()).toBe(false);
     act(() => dispatchArrowRight());
     expect(hasStudioPendingEdits()).toBe(true);
@@ -397,6 +451,25 @@ describe("useDomEditNudge — undo right after a burst", () => {
     saved();
     await vi.waitFor(() => expect(hasStudioPendingEdits()).toBe(false));
     act(() => root.unmount());
+  });
+});
+
+describe("useDomEditNudge — a Design-panel edit during a burst", () => {
+  it("commits the burst before the panel edit, so one undo takes back the panel edit", async () => {
+    const order: string[] = [];
+    const root = mountBurstHarness("dot-panel", async () => void order.push("nudge"));
+    try {
+      act(() => dispatchArrowRight());
+      const panelEdit = trackedStudioEdit(async () => void order.push("width"), {
+        afterOlderSaves: true,
+      })();
+      vi.useRealTimers();
+      await panelEdit;
+      expect(order).toEqual(["nudge", "width"]);
+    } finally {
+      vi.useRealTimers();
+      act(() => root.unmount());
+    }
   });
 });
 

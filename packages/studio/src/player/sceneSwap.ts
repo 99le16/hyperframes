@@ -1,3 +1,4 @@
+import { studioApiFetch } from "../utils/studioApiFetch";
 type SwapWindow = Window & {
   __hfSwapScenes?: (html: string, signal?: AbortSignal) => Promise<void>;
 };
@@ -5,14 +6,28 @@ type SwapWindow = Window & {
 const SCENES_SWAPPED = "hf-scenes-swapped";
 export const SCENE_SWAP_MS = 5000;
 
+const PREVIEW_DOCUMENT_LOADED = "hf-preview-document-loaded";
+
+export function announcePreviewDocumentLoaded(iframe: HTMLIFrameElement): void {
+  iframe.dispatchEvent(new Event(PREVIEW_DOCUMENT_LOADED));
+}
+
+export function onPreviewDocumentLoaded(
+  iframe: HTMLIFrameElement,
+  onLoaded: () => void,
+): () => void {
+  iframe.addEventListener(PREVIEW_DOCUMENT_LOADED, onLoaded);
+  return () => iframe.removeEventListener(PREVIEW_DOCUMENT_LOADED, onLoaded);
+}
+
 export function onPreviewContentReplaced(
   iframe: HTMLIFrameElement,
   onReplaced: () => void,
 ): () => void {
-  iframe.addEventListener("load", onReplaced);
+  const stopLoaded = onPreviewDocumentLoaded(iframe, onReplaced);
   iframe.addEventListener(SCENES_SWAPPED, onReplaced);
   return () => {
-    iframe.removeEventListener("load", onReplaced);
+    stopLoaded();
     iframe.removeEventListener(SCENES_SWAPPED, onReplaced);
   };
 }
@@ -72,7 +87,7 @@ export function sceneSwapFor(
     );
     cancel?.addEventListener("abort", () => deadline.abort(cancel.reason), { once: true });
     const swapping = (async () => {
-      const response = await fetch(url, { signal: deadline.signal });
+      const response = await studioApiFetch(url, { signal: deadline.signal });
       if (!response.ok) throw new Error(`preview request failed with ${response.status}`);
       const html = await response.text();
       if (!isCurrent()) throw new Error("superseded by a newer reload");

@@ -3,6 +3,8 @@ import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { FONT_EXT } from "../utils/mediaTypes";
 import { fontFamilyFromAssetPath, type ImportedFontAsset } from "../components/editor/fontAssets";
 import { captureProjectProvenance } from "../components/feedback/projectProvenance";
+import { studioApiFetch } from "../utils/studioApiFetch";
+import { encodeUrlPath } from "@hyperframes/parsers";
 
 interface UseFileTreeOptions {
   projectId: string | null;
@@ -38,7 +40,7 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
     if (!projectId) return;
     let cancelled = false;
     setFetched({ projectId, loaded: false, fileTree: [], compositionPaths: [], projectDir: null });
-    fetch(buildProjectApiPath(projectId))
+    studioApiFetch(buildProjectApiPath(projectId))
       // An unresolvable project answers 404 with a JSON body, so without this
       // the error path parsed cleanly and the success branch below recorded an
       // empty tree — and an empty provenance snapshot — for a project that was
@@ -84,7 +86,7 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
     refreshAbortRef.current = controller;
     let data: { files?: string[]; compositions?: string[] };
     try {
-      const res = await fetch(buildProjectApiPath(pid), { signal: controller.signal });
+      const res = await studioApiFetch(buildProjectApiPath(pid), { signal: controller.signal });
       data = await res.json();
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -118,7 +120,7 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
         .map((asset) => ({
           family: fontFamilyFromAssetPath(asset),
           path: asset,
-          url: projectId ? buildProjectApiPath(projectId, `/preview/${asset}`) : "",
+          url: projectId ? buildProjectApiPath(projectId, `/preview/${encodeUrlPath(asset)}`) : "",
         })),
     [assets, projectId],
   );

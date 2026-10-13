@@ -9,6 +9,7 @@ import type { RuntimeColorGradingApi } from "./colorGrading";
 import type { HyperframePickerApi } from "../inline-scripts/pickerApi";
 import type { PlayerAPI } from "../core.types";
 import type { ClipTree } from "./clipTree";
+import type { SvgSelectorAliases } from "../compiler/svgSelectorAliases";
 
 type ThreeClockLike = {
   elapsedTime: number;
@@ -34,9 +35,12 @@ type ThreeLike = {
 
 declare global {
   interface Window {
+    __hfHasFrameSources?: () => boolean;
     __timelines: Record<string, RuntimeTimelineLike>;
     __player?: PlayerAPI;
     __hyperframes?: {
+      registerFrameSource: typeof import("./frameSources").registerFrameSource;
+      createFilmBridge: typeof import("./filmBridge").createFilmBridge;
       /** A path the calling composition wrote relative to its own file, as a URL the page can load. */
       assetUrl?: (path: string) => string;
       registerRuntimeDataHandler?: (
@@ -49,6 +53,7 @@ declare global {
     };
     __clipManifest?: RuntimeTimelineMessage;
     __clipTree?: ClipTree;
+    __hfSvgSelectorAliases?: SvgSelectorAliases;
     __hf?: {
       colorGrading?: RuntimeColorGradingApi;
       onSwallowed?: (label: string, err: unknown) => void;
@@ -87,6 +92,8 @@ declare global {
     };
     __playerReady?: boolean;
     __renderReady?: boolean;
+    /** Set when start-up or the render-ready publish threw; readiness waits fail with it instead of seeking. */
+    __hfStartupError?: string;
     __hfRuntimeTeardown?: (() => void) | null;
     /** What each composition's scripts started on gsap's global timeline, by composition id. */
     __hfSceneAnimations?: Record<string, SceneAnimation[]> | null;
@@ -138,6 +145,7 @@ declare global {
     gsap?: {
       timeline: (params?: { paused?: boolean }) => RuntimeTimelineLike;
       set?: (target: Element, vars: Record<string, unknown>) => unknown;
+      config?: (vars: Record<string, unknown>) => unknown;
       parseEase?: (
         ease: string | ((progress: number) => number),
         ...args: unknown[]

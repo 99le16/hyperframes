@@ -1,0 +1,44 @@
+{
+  "name": "@hyperframes/inspector",
+  "version": "0.8.140",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "bun": "./src/service.ts",
+      "types": "./dist/types/inspector/src/service.d.ts",
+      "default": "./dist/service.js"
+    },
+    "./live": {
+      "types": "./dist/types/inspector/src/live.d.ts",
+      "default": "./dist/live.js"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "serve": "bun run build && bun src/server.ts",
+    "mcp": "bun run build && bun src/mcp.ts",
+    "test:timeline": "bun tests/timeline.ts",
+    "test:timeline-compositions": "bun tests/timelineCompositions.ts",
+    "prepack": "node build.mjs",
+    "test:live": "bun run build && bun tests/live.ts",
+    "test:source-release": "bun tests/sourceRelease.ts",
+    "serve:node": "node dist/server.js"
+  },
+  "dependencies": {
+    "@hyperframes/core": "workspace:*",
+    "@jridgewell/trace-mapping": "^0.3.29",
+    "acorn": "^8.17.0",
+    "esbuild": "^0.25.12",
+    "eslint-scope": "^9.1.2",
+    "postcss": "^8.5.8",
+    "puppeteer-core": "^25.8.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.10",
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.11"
+  }
+}

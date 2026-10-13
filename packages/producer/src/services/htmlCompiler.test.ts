@@ -315,6 +315,19 @@ describe("inlineExternalScripts", () => {
     expect(result).toBe(html);
   });
 
+  it("leaves a CDN runtime link for the file server to strip", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = mock(async () => new Response("window.__hyperframeRuntime = {};"));
+    globalThis.fetch = fetchMock as any;
+    try {
+      const html = `<html><head><script src="https://cdn.example.com/hyperframe.runtime.iife.js"></script></head><body></body></html>`;
+      expect(await inlineExternalScripts(html)).toBe(html);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("inlines a CDN script on successful fetch", async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = mock(async () => new Response("var gsap = {};", { status: 200 })) as any;
@@ -729,6 +742,25 @@ describe("detectRenderModeHints", () => {
       "compositions/sibling.png",
     );
     expect(document.querySelector("#root")?.getAttribute("src")).toBe("root.png");
+  });
+
+  it("reads the root's data-fx-chain as the composition's master chain, apart from any clip", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "hf-master-chain-"));
+    const chain = '{"version":1,"nodes":[]}';
+    writeFileSync(
+      join(projectDir, "index.html"),
+      `<!doctype html><html><body>
+  <div data-composition-id="main" data-width="100" data-height="100" data-duration="1" data-fx-chain='${chain}'>
+    <video id="talk" src="talk.mp4" data-start="0" data-duration="1"></video>
+  </div>
+</body></html>`,
+    );
+
+    const compiled = await compileForRender(projectDir, join(projectDir, "index.html"), projectDir);
+
+    expect(compiled.masterFxChain).toBe(chain);
+    expect(compiled.audios.map((audio) => audio.id)).toEqual(["talk-audio"]);
+    expect(compiled.audios[0]).not.toHaveProperty("fxChain");
   });
 
   // Shared fixture builder for the assertSubCompositionsUsable / EmptyCompositionError
@@ -1673,7 +1705,7 @@ describe("crossorigin attribute stripping", () => {
 //
 // Tests run on localizeRemoteMediaSources directly (exported for testing) to
 // avoid invoking ffprobe / the full compileForRender pipeline. fetch is patched
-// in-process for success cases; real 404s from example.com cover fallback.
+// in-process for success cases; the unit lane's refused network covers fallback.
 
 describe("localizeRemoteMediaSources", () => {
   it("rewrites remote <video> src to _remote_media path when download succeeds", async () => {
@@ -2396,6 +2428,37 @@ describe("resolveCompositionDurations strict literal timing", () => {
       getElementById: () => ({
         getAttribute: (name: string) =>
           name === "data-duration" ? "   " : name === "data-composition-duration" ? "5" : null,
+      }),
+    } as any;
+    try {
+      const page = {
+        evaluate: async (fn: (arg: unknown) => unknown, arg: unknown) => fn(arg),
+      } as any;
+      const result = await resolveCompositionDurations(page, [
+        { id: "scene", tagName: "div", start: 0, mediaStart: 0, playbackRate: 1 },
+      ]);
+      expect(result).toEqual([{ id: "scene", duration: 5 }]);
+    } finally {
+      globalThis.document = previousDocument;
+      globalThis.window = previousWindow;
+    }
+  });
+
+  it("falls back to the authored duration when the registered duration() throws", async () => {
+    const previousDocument = globalThis.document;
+    const previousWindow = globalThis.window;
+    globalThis.window = {
+      __timelines: {
+        scene: {
+          duration() {
+            throw new Error("boom");
+          },
+        },
+      },
+    } as any;
+    globalThis.document = {
+      getElementById: () => ({
+        getAttribute: (name: string) => (name === "data-composition-duration" ? "5" : null),
       }),
     } as any;
     try {

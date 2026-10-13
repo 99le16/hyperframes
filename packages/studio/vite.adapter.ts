@@ -282,8 +282,8 @@ export function createViteAdapter(
     },
 
     async transformPreviewHtml({ html }) {
-      const producer = await import("../producer/src/services/deterministicFonts.js");
-      return producer.injectDeterministicFontFaces(html);
+      const fonts = await import("../core/src/fonts/deterministicFonts.js");
+      return fonts.injectDeterministicFontFaces(html);
     },
 
     getProjectSignature(projectDir: string): string {
@@ -351,6 +351,7 @@ export function createViteAdapter(
             outputResolution: opts.outputResolution,
             ...(opts.composition ? { entryFile: opts.composition } : {}),
             ...(opts.variables ? { variables: opts.variables } : {}),
+            ...(opts.useGpu ? { useGpu: true } : {}),
           });
           const onProgress = (j: { progress: number; currentStage?: string }) => {
             state.progress = j.progress;

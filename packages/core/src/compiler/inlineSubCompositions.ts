@@ -1,3 +1,4 @@
+import { SVG_REFERENCE_ALIASES_ATTR, readSvgReferenceAliases } from "./svgSelectorAliases";
 import { readExternalScriptAttributes, type ExternalScriptAttributes } from "./externalScripts";
 import { parseImportMap, type ImportMap } from "./importMaps";
 import {
@@ -42,7 +43,7 @@ import {
 import {
   enumerateNestedCompositionHosts,
   planCompositionAssembly,
-  EXTRACTED_COMPOSITION_ASSET_SELECTOR,
+  extractedCompositionAssets,
 } from "./compositionAssembly";
 import { SCENE_NO_SWAP_ATTR, SCENE_PART_ATTR } from "../sceneParts";
 
@@ -332,6 +333,7 @@ export function inlineSubCompositions(
     tagScenes = false,
   } = options;
 
+  const rootStyles = [...document.querySelectorAll("style")];
   const styles: CompositionStyle[] = [];
   const styleScenes: string[] = [];
   const scripts: string[] = [];
@@ -608,8 +610,7 @@ export function inlineSubCompositions(
     // Inject content into the host element
     if (innerRoot) {
       innerRoot.setAttribute("data-composition-file", src);
-      for (const child of [...innerRoot.querySelectorAll(EXTRACTED_COMPOSITION_ASSET_SELECTOR)])
-        child.remove();
+      for (const child of extractedCompositionAssets(innerRoot)) child.remove();
       if (flattenInnerRoot) {
         const prepared = flattenInnerRoot(innerRoot);
         if (!compId && scopeCompId) {
@@ -633,14 +634,15 @@ export function inlineSubCompositions(
         }
       }
     } else {
-      for (const child of [...contentDoc.querySelectorAll(EXTRACTED_COMPOSITION_ASSET_SELECTOR)])
-        child.remove();
+      for (const child of extractedCompositionAssets(contentDoc)) child.remove();
       // linkedom fragment parsing: when content is `<div data-composition-id="X">...</div>`,
       // the div becomes documentElement and body is empty. Fall back to documentElement.outerHTML
       // to preserve the composition wrapper.
       const bodyHtml = contentDoc.body?.innerHTML || "";
       hostEl.innerHTML = bodyHtml || contentDoc.documentElement?.outerHTML || "";
     }
+    for (const el of plan.inertScriptsOutsideRoot)
+      hostEl.insertAdjacentHTML("beforeend", el.outerHTML);
 
     hostEl.setAttribute("data-composition-file", src);
     hostEl.removeAttribute("data-composition-src");
@@ -676,22 +678,43 @@ export function inlineSubCompositions(
   // `<style>` text gets the same substitution its DOM just received. See
   // svgIdNamespacing.ts for why this is a rename, unlike the sibling
   // getElementById/media-id fixes.
-  const svgIdMaps = namespaceCollidingSvgIds(
-    document,
-    svgIdScopes.map(({ root, namespace, exclude, styleStart, styleEnd }) => ({
+  const svgIdMaps = namespaceCollidingSvgIds(document, [
+    ...svgIdScopes.map(({ root, namespace, exclude, styleStart, styleEnd }) => ({
       root,
       namespace,
       exclude,
       cssTexts: styles.slice(styleStart, styleEnd).map((style) => style.css),
     })),
-  );
-  svgIdMaps.forEach((idMap, index) => {
-    if (idMap.size === 0) return;
+    {
+      root: document.documentElement,
+      namespace: "",
+      referenceTarget: "document",
+      exclude: svgIdScopes.map(({ root }) => root),
+      cssTexts: rootStyles.map((style) => style.textContent ?? ""),
+    },
+  ]);
+  svgIdMaps.slice(0, svgIdScopes.length).forEach((idMap, index) => {
     const { styleStart, styleEnd } = svgIdScopes[index]!;
+    const references = readSvgReferenceAliases(
+      svgIdScopes[index]!.root,
+      SVG_REFERENCE_ALIASES_ATTR,
+    );
     for (let i = styleStart; i < styleEnd; i += 1) {
-      styles[i]!.css = rewriteSvgIdReferencesInCss(styles[i]!.css, idMap);
+      styles[i]!.css = rewriteSvgIdReferencesInCss(styles[i]!.css, idMap, references);
     }
   });
+
+  const rootReferences = readSvgReferenceAliases(
+    document.documentElement,
+    SVG_REFERENCE_ALIASES_ATTR,
+  );
+  for (const style of rootStyles) {
+    style.textContent = rewriteSvgIdReferencesInCss(
+      style.textContent ?? "",
+      svgIdMaps[svgIdScopes.length]!,
+      rootReferences,
+    );
+  }
 
   return {
     styles,

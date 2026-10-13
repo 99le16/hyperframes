@@ -50,6 +50,33 @@ export function isExternalFfmpegInterruption(
   return result.exitCode === 255 && FFMPEG_SIGTERM_EXIT_LINE.test(result.stderr);
 }
 
+/** ffmpeg's stats line as it writes: frames encoded so far and seconds of output written. */
+export interface FfmpegStats {
+  frames?: number;
+  seconds?: number;
+}
+
+/** Reads stderr chunks, which split stats lines anywhere, and reports each complete stats line. */
+export function ffmpegStatsReader(onStats: (stats: FfmpegStats) => void): (chunk: string) => void {
+  let rest = "";
+  return (chunk) => {
+    const lines = (rest + chunk).split(/[\r\n]/);
+    rest = lines.pop() ?? "";
+    for (const line of lines) {
+      const frame = /frame=\s*(\d+)/.exec(line)?.[1];
+      const time = /time=\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(line);
+      if (frame === undefined && !time) continue;
+      onStats({
+        frames: frame === undefined ? undefined : Number(frame),
+        seconds: time
+          ? Math.round((Number(time[1]) * 3600 + Number(time[2]) * 60 + Number(time[3])) * 100) /
+            100
+          : undefined,
+      });
+    }
+  };
+}
+
 const DEFAULT_TIMEOUT = 300_000;
 
 const DEFAULT_STDERR_TAIL_LINES = 15;
@@ -111,6 +138,19 @@ export function formatFfmpegError(
     : `FFmpeg exited with code ${exitCode}`;
 }
 
+/** formatFfmpegError, led by the timeout when this process was killed at its deadline. */
+export function describeFfmpegFailure(
+  result: Pick<RunFfmpegResult, "exitCode" | "stderr" | "terminationReason">,
+  timeoutMs: number,
+): string {
+  const error = formatFfmpegError(result.exitCode, result.stderr);
+  if (result.terminationReason !== "deadline") return error;
+  return (
+    `FFmpeg timed out after ${timeoutMs} ms (ffmpegProcessTimeout; long renders can raise ` +
+    `FFMPEG_PROCESS_TIMEOUT_MS). ${error}`
+  );
+}
+
 function spawnFfmpeg(args: string[]): ChildProcess {
   // windowsHide: ffmpeg/ffprobe are console-subsystem binaries, so without
   // this Node opens a visible console window per spawn on Windows. A render
@@ -141,7 +181,18 @@ function toResult(outcome: ManagedChildProcessOutcome, stderr = outcome.stderr):
   return result;
 }
 
+/** A run whose signal had already aborted starts no process. */
+const ABORTED_BEFORE_START: RunFfmpegResult = {
+  success: false,
+  exitCode: null,
+  signal: null,
+  stderr: "",
+  durationMs: 0,
+  terminationReason: "abort",
+};
+
 export async function runFfmpeg(args: string[], opts?: RunFfmpegOptions): Promise<RunFfmpegResult> {
+  if (opts?.signal?.aborted) return { ...ABORTED_BEFORE_START };
   const timeout = opts?.timeout ?? DEFAULT_TIMEOUT;
   const managed = new ManagedChildProcess(spawnFfmpeg(args), {
     signal: opts?.signal,
@@ -160,6 +211,7 @@ export async function runFfmpegPipeline(
   consumerArgs: string[],
   opts?: RunFfmpegOptions,
 ): Promise<RunFfmpegResult> {
+  if (opts?.signal?.aborted) return { ...ABORTED_BEFORE_START };
   const deadlineAtMs = Date.now() + (opts?.timeout ?? DEFAULT_TIMEOUT);
   const producer = spawnFfmpeg(producerArgs);
   const consumer = spawnFfmpeg(consumerArgs);

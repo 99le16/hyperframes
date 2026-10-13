@@ -3,7 +3,12 @@ import { useCallback, useMemo } from "react";
 import { STUDIO_MOTION_PATH } from "../components/editor/studioMotion";
 import { serializeStudioFileMutations } from "../utils/studioFileMutationCoordinator";
 import type { RestoreFiles } from "../utils/gsapUndoRestore";
-import { revertNewestStudioPendingEdit } from "../utils/studioPendingEdits";
+import {
+  beginStudioShownRestore,
+  cancelNewestStudioWaitingPress,
+  hasStudioPendingEdits,
+  paintBackNewestStudioPendingEdit,
+} from "../utils/studioPendingEdits";
 
 interface HistoryResult {
   ok: boolean;
@@ -18,11 +23,13 @@ interface HistoryResult {
 interface HistoryFileCallbacks {
   readFile: (path: string) => Promise<string>;
   serialize?: <T>(paths: readonly string[], task: () => Promise<T>) => Promise<T>;
+  claimedAfter?: number;
 }
 export interface EditHistoryHandle {
   undo: (cb: HistoryFileCallbacks) => Promise<HistoryResult>;
   redo: (cb: HistoryFileCallbacks) => Promise<HistoryResult>;
   predict?: (direction: "undo" | "redo") => { id: string; files: RestoreFiles } | null;
+  claims?: () => number;
   state: {
     undo: ReadonlyArray<{ createdAt: number }>;
     redo: ReadonlyArray<{ createdAt: number }>;
@@ -30,7 +37,7 @@ export interface EditHistoryHandle {
 }
 
 export interface UseEditHistoryActionsOptions {
-  editHistory: Pick<EditHistoryHandle, "undo" | "redo" | "predict">;
+  editHistory: Pick<EditHistoryHandle, "undo" | "redo" | "predict" | "claims">;
   readOptionalProjectFile: (path: string) => Promise<string>;
   readProjectFile: (path: string) => Promise<string>;
   writeProjectFile: (path: string, content: string) => Promise<void>;
@@ -73,26 +80,38 @@ export function useEditHistoryActions({
   const apply = useCallback(
     async (direction: "undo" | "redo") => {
       const noun = direction === "undo" ? "Undo" : "Redo";
-      // Paint the step in the key's own task when this tab knows it; the server's answer then confirms or corrects.
-      const predicted = editHistory.predict?.(direction) ?? null;
+      if (direction === "undo" && cancelNewestStudioWaitingPress()) return;
+      // An edit still saving is newer than any step this tab predicts, so it paints back first.
+      const pendingEditShown = direction === "undo" ? paintBackNewestStudioPendingEdit() : null;
+      const predicted = pendingEditShown ? null : (editHistory.predict?.(direction) ?? null);
       const predictedShown = predicted ? (showHistoryRestoreNow?.(predicted.files) ?? null) : null;
-      const pendingEditShown =
-        !predictedShown && direction === "undo" ? revertNewestStudioPendingEdit() : null;
-      const putBack = predictedShown ?? pendingEditShown;
+      const shownLanded = predictedShown ? beginStudioShownRestore() : null;
+      const putBack = predictedShown ?? pendingEditShown?.showAgain;
+      const claimedAfter =
+        pendingEditShown?.claimsAtBegin ??
+        (direction === "undo" && hasStudioPendingEdits() ? editHistory.claims?.() : undefined);
       let result: HistoryResult = { ok: false, reason: "failed" };
       let serverSteppedShown = false;
+      let revertIsTheUndo = false;
       try {
         await waitForPendingDomEditSaves();
+        revertIsTheUndo = Boolean(pendingEditShown && !(await pendingEditShown.landed()));
+        if (revertIsTheUndo) return;
         result = await editHistory[direction]({
           readFile: readHistoryFile,
           serialize: serializeHistoryFiles,
+          claimedAfter,
         });
         const stepped = Boolean(result.ok && result.label);
+        const editClaimed =
+          pendingEditShown !== null &&
+          (editHistory.claims?.() ?? 0) > pendingEditShown.claimsAtBegin;
         serverSteppedShown = predictedShown
           ? stepped && result.undoes === predicted?.id
-          : stepped && Boolean(pendingEditShown);
+          : stepped && editClaimed;
       } finally {
-        if (putBack && !serverSteppedShown) putBack();
+        if (putBack && !serverSteppedShown && !revertIsTheUndo) putBack();
+        shownLanded?.();
       }
       if (!result.ok && result.reason === "content-mismatch") {
         showToast(

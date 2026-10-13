@@ -1,3 +1,4 @@
+import { decodedUrlPath } from "@hyperframes/parsers/asset-paths";
 // fallow-ignore-file code-duplication complexity
 /**
  * HTML Compiler for Producer
@@ -15,6 +16,7 @@ import { createReadStream, existsSync, mkdirSync, readFileSync } from "fs";
 import { join, dirname, resolve, basename, relative } from "path";
 import { parseHTML } from "linkedom";
 import {
+  COMPOSITION_SOURCE_URL,
   compileTimingAttrs,
   injectDurations,
   extractResolvedMedia,
@@ -34,6 +36,7 @@ import {
   type UnresolvedElement,
 } from "@hyperframes/core";
 import { MAX_AUDIO_GAIN } from "@hyperframes/core/audio-gain";
+import { gsapCdnDist } from "@hyperframes/core/gsap-cdn";
 import {
   assignBundledRuntimeCompositionIds,
   assignMediaRenderIds,
@@ -42,15 +45,19 @@ import {
   inlineSubCompositions as inlineSubCompositionsShared,
   ensureExternalLinkTag,
   ensureExternalScriptTag,
+  deferScriptsUntilFonts,
   emitMountedModuleScripts,
+  isJavaScriptType,
   prepareFlattenedInnerRoot,
   emitRootCompositionVariableStyles,
   readDeclaredDefaults,
   parseHostVariableValues,
   headStyleRuns,
   inlineScriptRuns,
+  parsesAsScript,
   styleElementsFor,
   insertBeforeCloseTag,
+  isRuntimeFileUrl,
 } from "@hyperframes/core/compiler";
 import {
   checkSubCompositionUsability,
@@ -72,6 +79,7 @@ import {
   analyzeKeyframeIntervals,
   assertMediaPayload,
   NotMediaPayloadError,
+  parseMasterFxChain,
   probeMediaProfile,
 } from "@hyperframes/engine";
 import {
@@ -85,7 +93,7 @@ import type { Page } from "puppeteer-core";
 import {
   injectDeterministicFontFaces,
   normalizeSystemFontPrimaryFamilies,
-} from "./deterministicFonts.js";
+} from "@hyperframes/core/fonts/embed";
 import { prepareAnimatedGifInputs } from "./animatedGifPrep.js";
 import { createStudioPositionSeekReapplyScript } from "@hyperframes/studio-server/manual-edits-render-script";
 import { getPositionEditsRenderScript } from "@hyperframes/core/runtime/position-edits-render";
@@ -103,6 +111,8 @@ export interface CompiledComposition {
   videos: VideoElement[];
   audios: AudioElement[];
   images: ImageElement[];
+  droppedMediaIds: Set<string>;
+  masterFxChain?: string;
   unresolvedCompositions: UnresolvedElement[];
   /** Assets that resolve outside projectDir. Keys are the path used in HTML, values are absolute filesystem paths. */
   externalAssets: Map<string, string>;
@@ -126,12 +136,32 @@ function parseSubCompHtmlForValidity(html: string): ParsableDocumentLike {
   return parseHTML(html).document as unknown as ParsableDocumentLike;
 }
 
+function endsWithSourceUrl(code: string): boolean {
+  const trimmed = code.trimEnd();
+  const lastLine = trimmed.slice(trimmed.lastIndexOf("\n") + 1).trimStart();
+  return lastLine.startsWith("//# sourceURL=") || lastLine.startsWith("//@ sourceURL=");
+}
+
+// One name for the composition's inline code lets a render keep its errors and not a widget's.
+function prepareCompositionScripts(html: string): string {
+  const { document } = parseHTML(html);
+  for (const el of document.querySelectorAll("script:not([src])")) {
+    const isModule = (el.getAttribute("type") || "").trim().toLowerCase() === "module";
+    const runsAsScript = isModule || isJavaScriptType(el as unknown as Element);
+    const code = el.textContent ?? "";
+    if (!runsAsScript || endsWithSourceUrl(code)) continue;
+    el.textContent = `${code}\n//# sourceURL=${COMPOSITION_SOURCE_URL}`;
+  }
+  deferScriptsUntilFonts(document as unknown as Document);
+  return document.toString();
+}
+
 export function injectSdkPositionEditsRenderScript(html: string): string {
   if (!html.includes("data-hf-edit-base-x") && !html.includes("data-hf-edit-base-y")) {
     return html;
   }
   const scriptBody = getPositionEditsRenderScript().replace(/<\/script/gi, "<\\/script");
-  const script = `<script>${scriptBody}</script>`;
+  const script = `<script>${scriptBody}\n//# sourceURL=hyperframes://position-edits</script>`;
   return insertBeforeCloseTag(html, "body", script) ?? `${html}${script}`;
 }
 
@@ -457,8 +487,9 @@ async function resolveMediaDuration(
       // The element will get duration 0 and be excluded from the render.
       return { duration: null, resolvedPath: src };
     }
-  } else if (!filePath.startsWith("/")) {
-    filePath = join(baseDir, filePath);
+  } else {
+    filePath = decodedUrlPath(src);
+    if (!filePath.startsWith("/")) filePath = join(baseDir, filePath);
   }
 
   if (!existsSync(filePath)) {
@@ -512,7 +543,7 @@ async function resolveMediaDuration(
           // as `prepare/ffmpeg_failed` with owner "system".
           log?.warn(
             `[compile] Audio "${elementIdentity}" (${src}) is a text document, not a media ` +
-              "file — the element is dropped from the render. Point it at a rendered media file.",
+              "file, so the element is dropped from the render. Point it at a rendered media file.",
           );
         }
         return { duration: null, resolvedPath: filePath };
@@ -641,7 +672,7 @@ async function compileHtmlFile(
       // thread `log` through parseSubCompositions to warn for it too.
       log?.warn(
         `[compile] Audio "${r.id}" (${r.src}) is ${r.maxDuration.toFixed(2)}s but its ` +
-          `data-duration is ${r.duration.toFixed(2)}s — the slot is shortened to the media ` +
+          `data-duration is ${r.duration.toFixed(2)}s, so the slot is shortened to the media ` +
           `length. Set data-duration to ~${r.maxDuration.toFixed(2)}s, trim data-media-start, ` +
           `or use a longer/looping source if that isn't intended.`,
       );
@@ -879,9 +910,9 @@ function coalesceHeadStylesAndBodyScripts(html: string): string {
   const { document } = parseHTML(html);
   const head = document.querySelector("head");
   const body = document.querySelector("body");
-  if (!head) return html;
+  if (!head && !body) return html;
 
-  const styleEls = Array.from(head.querySelectorAll("style"));
+  const styleEls = head ? Array.from(head.querySelectorAll("style")) : [];
   const importRe = /@import\s+url\([^)]*\)\s*;|@import\s+["'][^"']+["']\s*;/gi;
   for (const run of styleEls.length > 1 ? headStyleRuns(styleEls) : []) {
     const imports: string[] = [];
@@ -918,6 +949,7 @@ function coalesceHeadStylesAndBodyScripts(html: string): string {
         .filter(Boolean)
         .join("\n;\n")
         .trim();
+      if (mergedJs && !parsesAsScript(mergedJs)) continue;
       for (const el of members) el.remove();
       if (!mergedJs) continue;
       const script = document.createElement("script");
@@ -999,7 +1031,6 @@ function inlineSubCompositions(
       // Mirrors the preview bundler: a sub-composition's SIBLING assets resolve
       // against its own directory, project-root refs stay as authored.
       assetExists: (path: string) => existsSync(resolve(projectDir, path)),
-      scriptErrorLabel: "[Compiler] Composition script failed",
       // Preserve the authored root wrapper as a child of the host, matching
       // the preview bundler's shape (htmlBundler.ts's prepareFlattenedInnerRoot,
       // which the runtime compositionLoader mirrors with its own copy for the
@@ -1077,9 +1108,12 @@ function inlineSubCompositions(
     let pending = variablesByCompScript ? [variablesByCompScript] : [];
     const flushInline = () => {
       if (!pending.length) return;
-      const scriptEl = document.createElement("script");
-      scriptEl.textContent = pending.join("\n;\n");
-      body.appendChild(scriptEl);
+      const joined = pending.join("\n;\n");
+      for (const text of parsesAsScript(joined) ? [joined] : pending) {
+        const scriptEl = document.createElement("script");
+        scriptEl.textContent = text;
+        body.appendChild(scriptEl);
+      }
       pending = [];
     };
     for (const item of result.scriptItems) {
@@ -1200,7 +1234,7 @@ export async function inlineExternalScripts(html: string): Promise<string> {
 
   for (const el of scripts) {
     const src = (el.getAttribute("src") || "").trim();
-    if (src && isHttpUrl(src)) {
+    if (src && isHttpUrl(src) && !isRuntimeFileUrl(src)) {
       externalScripts.push({ el: el as unknown as Element, src });
     }
   }
@@ -1234,7 +1268,7 @@ export async function inlineExternalScripts(html: string): Promise<string> {
         if (attr.name.toLowerCase() === "src") continue;
         inlineScript.setAttribute(attr.name, attr.value);
       }
-      inlineScript.textContent = `/* inlined: ${src} */\n${safeText}\n`;
+      inlineScript.textContent = `/* inlined: ${src} */\n${safeText}\n//# sourceURL=${new URL(src).href}\n`;
       el.replaceWith(inlineScript);
       defaultLogger.info(`[Compiler] Inlined CDN script: ${src}`);
     } else {
@@ -1242,7 +1276,7 @@ export async function inlineExternalScripts(html: string): Promise<string> {
       // browser support for integrity metadata (including casing) can differ.
       if (download.reason instanceof ScriptIntegrityError) throw download.reason;
       defaultLogger.warn(
-        `[Compiler] WARNING: Failed to download CDN script: ${src} — ${download.reason}. ` +
+        `[Compiler] WARNING: Failed to download CDN script: ${src} (${download.reason}). ` +
           `The render may fail if this script is required (e.g. GSAP). ` +
           `Consider bundling it locally in your project.`,
       );
@@ -1320,7 +1354,7 @@ export function collectExternalAssets(
 
   if (externalAssets.size > 0) {
     defaultLogger.info(
-      `[Compiler] Found ${externalAssets.size} asset(s) outside project directory — will copy to render output`,
+      `[Compiler] Found ${externalAssets.size} asset(s) outside project directory, will copy to render output`,
     );
   }
 
@@ -1330,7 +1364,7 @@ export function collectExternalAssets(
   };
 }
 
-const REMOTE_MEDIA_SUBDIR = "_remote_media";
+export const REMOTE_MEDIA_SUBDIR = "_remote_media";
 // Match opening tags of <video> or <audio> elements that carry an HTTP(S) src.
 // Uses [^>]* to span attributes — safe for composition elements that won't
 // have `>` inside quoted attribute values (data-title etc.).
@@ -1378,7 +1412,7 @@ async function downloadAndRewriteUrls(
         urlToLocal.set(url, localPath);
       } catch (err) {
         const identity = safeDownloadUrlIdentity(url);
-        defaultLogger.warn(`[Compiler] ${warnLabel} — using original URL as fallback.`, {
+        defaultLogger.warn(`[Compiler] ${warnLabel}, using original URL as fallback.`, {
           urlFingerprint: identity.urlFingerprint,
           host: identity.host,
           error: err instanceof Error ? err.message : String(err),
@@ -1570,7 +1604,7 @@ async function fetchExternalStylesheetCss(href: string): Promise<string | null> 
       timeoutMs: 15_000,
     });
   } catch (err) {
-    defaultLogger.warn("[Compiler] External stylesheet fetch failed — preserving link tag.", {
+    defaultLogger.warn("[Compiler] External stylesheet fetch failed, preserving link tag.", {
       urlFingerprint: identity.urlFingerprint,
       host: identity.host,
       error: err instanceof Error ? err.message : String(err),
@@ -1768,7 +1802,7 @@ async function readLocalFont(absPath: string): Promise<LocalFontRead> {
 
 // fallow-ignore-next-line complexity
 async function embedLocalFontFaces(html: string, projectDir: string): Promise<string> {
-  const { fontToDataUri: toDataUri } = await import("./fontCompression.js");
+  const { fontToDataUri: toDataUri } = await import("@hyperframes/core/fonts/embed");
   const styleBlockRe = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
   const fontFaceRe = /@font-face\s*\{([^}]*)\}/gi;
   let result = html;
@@ -1884,7 +1918,7 @@ export interface CompileForRenderOptions {
   variables?: Record<string, unknown>;
 }
 
-const GSAP_CDN_BASE = "https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/";
+const GSAP_CDN_BASE = gsapCdnDist();
 
 function rewriteUnresolvableGsapToCdn(html: string, projectDir: string): string {
   return html.replace(
@@ -2009,6 +2043,7 @@ export async function compileForRender(
   );
 
   const coalescedHtml = await injectDeterministicFontFaces(normalizedFontHtml, {
+    logger: defaultLogger,
     failClosedFontFetch: options.failClosedFontFetch === true,
     allowSystemFontCapture: options.allowSystemFontCapture,
     abortSignal: options.abortSignal,
@@ -2032,10 +2067,12 @@ export async function compileForRender(
     ? (insertBeforeCloseTag(
         assembledHtml,
         "body",
-        `<script>${createStudioPositionSeekReapplyScript()}</script>`,
+        `<script>${createStudioPositionSeekReapplyScript()}\n//# sourceURL=hyperframes://position-seek-reapply</script>`,
       ) ?? assembledHtml)
     : assembledHtml;
-  const htmlWithSdkPositionScript = injectSdkPositionEditsRenderScript(htmlWithPositionScript);
+  const htmlWithDeferredScripts = prepareCompositionScripts(
+    injectSdkPositionEditsRenderScript(htmlWithPositionScript),
+  );
 
   // Download remote <video> and <audio> sources to compiledDir and rewrite the
   // src attributes so the renderer reads from localhost. Remote S3 URLs cause
@@ -2043,7 +2080,7 @@ export async function compileForRender(
   // over the network; any that don't reach readyState >= 2 in time render as
   // blank black frames. Localising them eliminates the race.
   const { html: htmlWithLocalMedia, remoteMediaAssets } = await localizeRemoteMediaSources(
-    htmlWithSdkPositionScript,
+    htmlWithDeferredScripts,
     downloadDir,
   );
 
@@ -2111,7 +2148,8 @@ export async function compileForRender(
   // within one composition file: two scenes declaring `<video id="clip">` — or
   // two bare `<video>`s, both auto-numbered `hf-video-0` — collapsed into one
   // entry and injected frames onto whichever element came first. See #3340.
-  const { videos, audios, images } = collectRenderMedia(html);
+  const { videos, audios, images, droppedMediaIds } = collectRenderMedia(html);
+  const masterFxChain = parseMasterFxChain(html);
 
   // Advisory video checks (sparse keyframes, VFR). Fire-and-forget — these spawn
   // ffprobe subprocesses and should not block compilation since they only produce warnings.
@@ -2164,6 +2202,8 @@ export async function compileForRender(
     videos,
     audios,
     images,
+    droppedMediaIds,
+    ...(masterFxChain ? { masterFxChain } : {}),
     unresolvedCompositions,
     externalAssets,
     width,
@@ -2628,12 +2668,15 @@ export async function resolveCompositionDurations(
     for (const id of compIds) {
       // Try window.__timelines[id].duration() first (GSAP timeline)
       const tl = timelines[id];
-      if (tl && typeof tl.duration === "function") {
-        const dur = tl.duration();
-        if (dur > 0) {
-          resolved.push({ id, duration: dur, source: "__timelines" });
-          continue;
-        }
+      let dur = 0;
+      try {
+        dur = typeof tl?.duration === "function" ? Number(tl.duration()) : 0;
+      } catch {
+        dur = 0;
+      }
+      if (dur > 0) {
+        resolved.push({ id, duration: dur, source: "__timelines" });
+        continue;
       }
 
       // Fallback: check for authored duration on the element itself

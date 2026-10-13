@@ -1,6 +1,6 @@
 {
   "name": "@hyperframes/studio",
-  "version": "0.8.114",
+  "version": "0.8.150",
   "description": "",
   "repository": {
     "type": "git",
@@ -83,6 +83,7 @@
     "test:timeline-virtualization": "TIMELINE_ROW_VIRTUALIZATION=on TIMELINE_ELEMENT_COUNT=50000 node tests/e2e/timeline-virtualization.mjs",
     "test:watch": "vitest",
     "test:colors:browser": "node tests/e2e/native-css-colors.mjs",
+    "test:motion-path-home:browser": "node tests/e2e/motion-path-home.mjs",
     "report:sdk-cutover": "bun src/utils/sdkCutoverPolicy.report.ts",
     "test:timeline-default": "bun run test:timeline-virtualization"
   },
@@ -121,6 +122,7 @@
     "@types/react-dom": "19",
     "@vitejs/plugin-react": "^4.0.0",
     "chokidar": "^4.0.3",
+    "esbuild": "^0.25.12",
     "fake-indexeddb": "^6.2.5",
     "puppeteer-core": "^25.2.1",
     "tailwindcss": "^4.3.3",

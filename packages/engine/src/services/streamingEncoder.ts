@@ -31,11 +31,19 @@ import {
   buildVideoToolboxRateControlArgs,
   mapPresetForGpuEncoder,
 } from "../utils/gpuEncoder.js";
-import { formatFfmpegError, isExternalFfmpegInterruption } from "../utils/runFfmpeg.js";
+import {
+  ffmpegStatsReader,
+  formatFfmpegError,
+  isExternalFfmpegInterruption,
+} from "../utils/runFfmpeg.js";
 import { getFfmpegBinary } from "../utils/ffmpegBinaries.js";
 import { getHdrEncoderColorParams } from "../utils/hdr.js";
 import { withEvenDimensionPad } from "../utils/evenDimensions.js";
-import { SDR_CAPTURE_TO_BT709_FILTER, SDR_RGB_TO_BT709_FILTER } from "../utils/sdrCaptureColor.js";
+import {
+  SDR_CAPTURE_TO_BT709_FILTER,
+  SDR_RGB_TO_BT709_FILTER,
+  SDR_RGB_TO_TAGGED_BT709_FILTER,
+} from "../utils/sdrCaptureColor.js";
 import { DEFAULT_CONFIG, type EngineConfig } from "../config.js";
 import { fpsToFfmpegArg, fpsToNumber, type Fps } from "@hyperframes/core";
 import { appendVp9CpuUsedArg } from "./vp9Options.js";
@@ -187,7 +195,8 @@ export interface StreamingEncoder {
    * calls would interleave frame bytes on the pipe and race the drain wait.
    */
   writeFrame: (buffer: Buffer) => Promise<boolean>;
-  close: () => Promise<StreamingEncoderResult>;
+  /** `onFramesEncoded` hears ffmpeg's encoded-frame count while close waits for it to finish. */
+  close: (onFramesEncoded?: (frames: number) => void) => Promise<StreamingEncoderResult>;
   getExitStatus: () => "running" | "success" | "error";
   /**
    * The FFmpeg failure reason (exit code + tail of stderr), or `undefined`
@@ -364,10 +373,10 @@ export function buildStreamingArgs(
       } else {
         args.push(xParamsFlag, `aq-mode=3:aq-strength=0.8:deblock=1,1:${colorParams}${gopParams}`);
       }
-      // Apple devices require hvc1 tag for HEVC playback (default hev1 won't open in QuickTime)
-      if (codec === "h265") {
-        args.push("-tag:v", "hvc1");
-      }
+    }
+    // Apple devices require hvc1 tag for HEVC playback (default hev1 won't open in QuickTime)
+    if (codec === "h265") {
+      args.push("-tag:v", "hvc1");
     }
   } else if (codec === "vp9") {
     args.push("-c:v", "libvpx-vp9", "-b:v", bitrate || "0", "-crf", String(quality));
@@ -380,6 +389,7 @@ export function buildStreamingArgs(
     }
   } else if (codec === "prores") {
     args.push("-c:v", "prores_ks", "-profile:v", preset, "-vendor", "apl0");
+    args.push("-vf", SDR_RGB_TO_TAGGED_BT709_FILTER);
     args.push("-pix_fmt", pixelFormat);
     appendRenderProvenanceArgs(args, outputPath);
     return [...args, "-y", outputPath];
@@ -497,9 +507,16 @@ export async function spawnStreamingEncoder(
   // libx264 printed its summary and exited 255, observable as
   // "Streaming encode failed: FFmpeg exited with code 255" with audio:0kB).
   const streamingTimeout = config?.ffmpegStreamingTimeout ?? DEFAULT_CONFIG.ffmpegStreamingTimeout;
+  let framesEncoded = 0;
+  let onFramesEncoded: ((frames: number) => void) | undefined;
   const managed = new ManagedChildProcess(ffmpeg, {
     signal,
     inactivityTimeoutMs: streamingTimeout,
+    onStderr: ffmpegStatsReader(({ frames }) => {
+      if (frames === undefined) return;
+      framesEncoded = frames;
+      onFramesEncoded?.(frames);
+    }),
   });
   const exitPromise = managed.wait().then((outcome) => {
     exitCode = outcome.exitCode;
@@ -604,7 +621,7 @@ export async function spawnStreamingEncoder(
       return true;
     },
 
-    close: async (): Promise<StreamingEncoderResult> => {
+    close: async (onEncoded?: (frames: number) => void): Promise<StreamingEncoderResult> => {
       // INVARIANT: close() is idempotent. The renderOrchestrator HDR cleanup
       // path tracks an `encoderClosed` flag and may still re-call close() in
       // the outer finally if the inner cleanup raised before the flag flipped.
@@ -616,6 +633,10 @@ export async function spawnStreamingEncoder(
       // repeated calls. If you change this method, preserve idempotency or
       // a regression here will silently double-close ffmpeg and produce
       // harder-to-trace errors at the orchestrator layer.
+      if (onEncoded && exitStatus === "running") {
+        onFramesEncoded = onEncoded;
+        onEncoded(framesEncoded);
+      }
       const stdin = ffmpeg.stdin;
       if (stdin && !stdin.destroyed) {
         await new Promise<void>((resolve) => {

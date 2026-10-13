@@ -28,12 +28,13 @@ import {
   formatGsapMutationRejectionToast,
   readJsonResponseBody,
 } from "./gsapScriptCommitHelpers";
-import type {
-  CommitMutation,
-  CommitMutationCall,
-  CommitMutationOptions,
-  GsapScriptCommitsParams,
-  MutationResult,
+import {
+  gsapWriteFile,
+  type CommitMutation,
+  type CommitMutationCall,
+  type CommitMutationOptions,
+  type GsapScriptCommitsParams,
+  type MutationResult,
 } from "./gsapScriptCommitTypes";
 import { useGsapAnimationOps } from "./useGsapAnimationOps";
 import { useGsapArcPathOps } from "./useGsapArcPathOps";
@@ -43,40 +44,16 @@ import {
   useGsapSaveFailureTelemetry,
   useSafeGsapCommitMutation,
 } from "./useSafeGsapCommitMutation";
-import { studioWriteHeaders } from "../utils/studioFileVersion";
+import { requestGsapMutation } from "./gsapMutationClient";
+import { whileScriptWrites } from "../player/previewReloading";
 
 async function mutateGsapScript(
   projectId: string,
+  route: "gsap-mutations" | "gsap-mutations-batch",
   sourceFile: string,
-  mutation: Record<string, unknown>,
+  body: unknown,
 ): Promise<MutationResult> {
-  const res = await fetch(
-    `/api/projects/${encodeURIComponent(projectId)}/gsap-mutations/${encodeURIComponent(sourceFile)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...studioWriteHeaders() },
-      body: JSON.stringify(mutation),
-    },
-  );
-  if (!res.ok) throw new GsapMutationHttpError(res.status, await readJsonResponseBody(res));
-  const result = (await res.json()) as MutationResult;
-  if (!result.ok) throw new Error(`Failed to update GSAP in ${sourceFile}`);
-  return result;
-}
-
-async function mutateGsapScriptBatch(
-  projectId: string,
-  sourceFile: string,
-  mutations: Record<string, unknown>[],
-): Promise<MutationResult> {
-  const res = await fetch(
-    `/api/projects/${encodeURIComponent(projectId)}/gsap-mutations-batch/${encodeURIComponent(sourceFile)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...studioWriteHeaders() },
-      body: JSON.stringify({ mutations }),
-    },
-  );
+  const res = await requestGsapMutation(projectId, route, sourceFile, body);
   if (!res.ok) throw new GsapMutationHttpError(res.status, await readJsonResponseBody(res));
   const result = (await res.json()) as MutationResult;
   if (!result.ok) throw new Error(`Failed to update GSAP in ${sourceFile}`);
@@ -104,7 +81,7 @@ async function runMutationRequest(
 ): Promise<MutationResult | undefined> {
   const unsafeFields = mutations.flatMap((mutation) => findUnsafeMutationValues(mutation));
   if (unsafeFields.length > 0) {
-    showToast?.("Couldn't read element layout — try again at a different playhead time", "error");
+    showToast?.("Couldn't read element layout. Try again at a different playhead time", "error");
     if (options.skipReload) return;
     throw markStudioSaveErrorAlreadyToasted(
       new Error(
@@ -137,9 +114,16 @@ function finishUnchangedMutation(
     !options.skipReload &&
     (instantPatchesFor(options).length > 0 || options.previewFallbackLatch?.pending)
   ) {
-    applyPreviewSync(iframe, result, options, reloadPreview);
+    redrawUnlessPaintedBack(options, () =>
+      applyPreviewSync(iframe, result, options, reloadPreview),
+    );
   }
   return true;
+}
+
+function redrawUnlessPaintedBack(options: CommitMutationOptions, redraw: () => void): void {
+  if (options.pendingEdit) options.pendingEdit.drawUnlessUndone(redraw);
+  else redraw();
 }
 
 function refreshMutationPreview(
@@ -150,8 +134,10 @@ function refreshMutationPreview(
   onCacheInvalidate: () => void,
   nestedFiles?: Map<string, string> | null,
 ): void {
-  options.beforeReload?.();
-  applyPreviewSync(iframe, result, options, reloadPreview, nestedFiles);
+  redrawUnlessPaintedBack(options, () => {
+    options.beforeReload?.();
+    applyPreviewSync(iframe, result, options, reloadPreview, nestedFiles);
+  });
   onCacheInvalidate();
 }
 
@@ -266,7 +252,8 @@ export function applyPreviewSync(
   nestedFiles?: Map<string, string> | null,
 ): void {
   const patches = instantPatchesFor(options);
-  let needsFallback = options.previewFallbackLatch?.pending === true;
+  const writtenWithoutPatch = patches.length === 0;
+  let needsFallback = options.previewFallbackLatch?.pending === true || writtenWithoutPatch;
   if (patches.length > 0) {
     const deferSeek = options.deferPreviewSync === true;
     const missed = patches.find(
@@ -387,35 +374,36 @@ export function useGsapScriptCommits({ projectIdRef, activeCompPath, previewIfra
     });
   }, [projectIdRef, previewIframeRef, reloadPreview, onCacheInvalidate, onFileContentChanged, forceReloadSdkSession, recordMutationEdit]);
 
-  const runCommit = useCallback(async (pid: string, compositionPath: string | null, targetPath: string, selection: DomEditSelection, mutation: Record<string, unknown>, options: CommitMutationOptions) => {
+  const runCommit = useCallback((pid: string, compositionPath: string | null, targetPath: string, selection: DomEditSelection, mutation: Record<string, unknown>, options: CommitMutationOptions) => whileScriptWrites(async () => {
     const result = await runMutationRequest([mutation], options, showToast, () =>
-      mutateGsapScript(pid, targetPath, mutation),
+      mutateGsapScript(pid, "gsap-mutations", targetPath, mutation),
     );
     if (!result) return;
     trackKeyframeCommit([mutation], result, options);
     options.onResult?.(result);
     await finalizeSuccessfulMutation(pid, compositionPath, selection, mutation, targetPath, result, options);
-  }, [showToast, finalizeSuccessfulMutation]);
+  }), [showToast, finalizeSuccessfulMutation]);
 
-  const runBatchCommit = useCallback(async (pid: string, compositionPath: string | null, targetPath: string, calls: CommitMutationCall[], options: CommitMutationOptions) => {
+  const runBatchCommit = useCallback((pid: string, compositionPath: string | null, targetPath: string, calls: CommitMutationCall[], options: CommitMutationOptions) => whileScriptWrites(async () => {
     const first = calls[0];
     const last = calls.at(-1);
     if (!first || !last) return;
     const mutations = calls.map(({ mutation }) => mutation);
     const result = await runMutationRequest(mutations, options, showToast, () =>
-      mutateGsapScriptBatch(pid, targetPath, mutations),
+      mutateGsapScript(pid, "gsap-mutations-batch", targetPath, { mutations }),
     );
     if (!result) return;
     trackKeyframeCommit(mutations, result, options, calls.map((call) => call.options));
     options.onResult?.(result);
-    // Each call brings its own fast-path patch; the batch wrote them all, so the
-    // preview sync applies them all rather than just the last call's.
-    const instantPatches = calls
-      .map(({ options: callOptions }) => callOptions.instantPatch)
-      .filter((patch) => patch !== undefined);
+    // The batch wrote every call, so patch in place only when every call brought a patch; one
+    // without (a resize's size write) needs the reload, or the preview keeps the old value.
+    const instantPatches = calls.flatMap(({ options: callOptions }) =>
+      callOptions.instantPatch ? [callOptions.instantPatch] : [],
+    );
     const { instantPatch: _instantPatch, ...batchOptions } = options;
-    await finalizeSuccessfulMutation(pid, compositionPath, last.selection, last.mutation, targetPath, result, instantPatches.length > 0 ? { ...batchOptions, instantPatches } : batchOptions);
-  }, [showToast, finalizeSuccessfulMutation]);
+    const allPatched = instantPatches.length === calls.length;
+    await finalizeSuccessfulMutation(pid, compositionPath, last.selection, last.mutation, targetPath, result, allPatched ? { ...batchOptions, instantPatches } : batchOptions);
+  }), [showToast, finalizeSuccessfulMutation]);
 
   // Every GSAP-script commit is a read-modify-write of one file. Overlapping
   // commits to the SAME file (any op type, any animation) interleave server-side,
@@ -442,14 +430,14 @@ export function useGsapScriptCommits({ projectIdRef, activeCompPath, previewIfra
     };
     const commit: CommitMutation = trackedStudioEdit((selection, mutation, options) => {
       if (!activeProjectId) return Promise.resolve();
-      const file = selection.sourceFile || activeCompPath || "index.html";
+      const file = gsapWriteFile(selection, activeCompPath);
       return serializeCommit(file, options.serializeKey, () =>
         runCommit(activeProjectId, activeCompPath, file, selection, mutation, options),
       );
     }) as CommitMutation;
     commit.batch = trackedStudioEdit((calls: CommitMutationCall[], options: CommitMutationOptions) => {
       if (!activeProjectId) return Promise.resolve();
-      const file = calls[0]?.selection.sourceFile || activeCompPath || "index.html";
+      const file = calls[0] ? gsapWriteFile(calls[0].selection, activeCompPath) : "index.html";
       return serializeCommit(file, options.serializeKey, () =>
         runBatchCommit(activeProjectId, activeCompPath, file, calls, options),
       );

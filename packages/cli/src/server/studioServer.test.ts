@@ -62,6 +62,10 @@ vi.mock("../browser/gpuPolicy.js", () => ({
   resolveLocalBrowserGpuMode: () => "software",
   compositionRequiresWebGpu: () => false,
   assertWebGpuAdapterAvailable: async () => {},
+  resolveLocalWebGpu: (browserGpuMode: string) => ({
+    gpuConfig: { browserGpuMode, allowSoftwareWebGpu: false },
+    softwareWebGpu: false,
+  }),
 }));
 vi.mock("../browser/preflight.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../browser/preflight.js")>()),
@@ -135,8 +139,8 @@ describe("Studio thumbnail GPU capture plumbing", () => {
   it("uses the shared auto probe, resolved launch mode, requirement guard, and completion-aware seek", () => {
     const source = readFileSync(new URL("./studioServer.ts", import.meta.url), "utf8");
     expect(source).toContain("resolveCaptureBrowserGpuMode");
-    expect(source).toContain("{ browserGpuMode: resolvedGpuMode }");
-    expect(source).toContain("assertWebGpuAdapterAvailable(page, requiresWebGpu)");
+    expect(source).toContain("resolveLocalWebGpu(resolvedGpuMode, true)");
+    expect(source).toContain("requiresWebGpu && session.softwareWebGpu");
     expect(source).toContain("await seekCompositionTimeline(page, opts.seekTime");
   });
 });
@@ -184,6 +188,44 @@ describe("createStudioServer project history (D-491)", () => {
       await server.shutdown();
     },
   );
+
+  it("never makes a request wait on another process's history lock again once it was busy", async () => {
+    const waits: unknown[] = [];
+    historyState.open = async (options) => {
+      waits.push((options as { ownerWaitMs?: number }).ownerWaitMs);
+      throw new HistoryBusyError(1);
+    };
+    const projectDir = tmpProject();
+    server = createStudioServer({ projectDir, historyRoot: tmpProject() });
+    const historyUrl = `/api/projects/${encodeURIComponent(basename(projectDir))}/history`;
+    await server.app.request(historyUrl);
+    await server.app.request(historyUrl);
+    historyState.open = null;
+    expect(waits).toEqual([undefined, 0]);
+    await server.shutdown();
+  });
+
+  it("waits for the history lock again once a history opened after a busy one", async () => {
+    const waits: unknown[] = [];
+    const reopenable = { replacedAtPath: () => true, close: async () => {} };
+    let opens = 0;
+    historyState.open = async (options) => {
+      waits.push((options as { ownerWaitMs?: number }).ownerWaitMs);
+      opens += 1;
+      if (opens === 1) throw new HistoryBusyError(1);
+      if (opens === 2) return reopenable;
+      historyState.open = null;
+      throw new HistoryBusyError(1);
+    };
+    const projectDir = tmpProject();
+    server = createStudioServer({ projectDir, historyRoot: tmpProject() });
+    const historyUrl = `/api/projects/${encodeURIComponent(basename(projectDir))}/history`;
+    await server.app.request(historyUrl);
+    await server.app.request(historyUrl);
+    historyState.open = null;
+    expect(waits).toEqual([undefined, 0, undefined]);
+    await server.shutdown();
+  });
 
   it("opens a new project's own history once it takes the folder's path", async () => {
     const projectDir = tmpProject();

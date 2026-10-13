@@ -1,4 +1,4 @@
-import { gsapWritesPosition } from "../../hooks/gsapRuntimeKeyframes";
+import { editsPlainCss } from "../../hooks/gsapRuntimeKeyframes";
 import type { DomEditSelection } from "./domEditingTypes";
 import { readStudioBoxSize } from "./manualEdits";
 import { readMoveOffset, UNREADABLE_TRANSLATE } from "./plainTranslate";
@@ -71,11 +71,11 @@ export function createTransformCommitHandlers({
       await commitAnimatedTransformValue(
         axis,
         parsed,
-        "This element's position can't be edited here yet — it is driven by its animation",
+        "This element's position can't be edited here yet: its animation drives it",
       )
     )
       return;
-    const plainTranslate = !gsapWritesPosition(element.element);
+    const plainTranslate = editsPlainCss(element.element, "move");
     const current = readMoveOffset(element.element, plainTranslate);
     if (!Number.isFinite(current.x) || !Number.isFinite(current.y))
       return void showToast?.(UNREADABLE_TRANSLATE);
@@ -97,7 +97,7 @@ export function createTransformCommitHandlers({
       return;
     }
     if (hasGsapAnimation) {
-      showToast?.("This element's size can't be edited here yet — it is driven by its animation");
+      showToast?.("This element's size can't be edited here yet: its animation drives it");
       return;
     }
     const current = readStudioBoxSize(element.element);
@@ -124,7 +124,7 @@ export function createTransformCommitHandlers({
       await commitAnimatedTransformValue(
         "rotation",
         parsed,
-        "This element's rotation can't be edited here yet — it is driven by its animation",
+        "This element's rotation can't be edited here yet: its animation drives it",
       )
     )
       return;

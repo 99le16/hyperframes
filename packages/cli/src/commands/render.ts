@@ -62,6 +62,7 @@ import { resolve, dirname, join, basename } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { loadProducer } from "../utils/producer.js";
 import { c } from "../ui/colors.js";
+import { desktopHint } from "../utils/desktopApp.js";
 import {
   formatBytes,
   formatRenderSummaryDetail,
@@ -71,7 +72,7 @@ import {
   errorBox,
 } from "../ui/format.js";
 import { warnIfWebmAlphaDropped } from "../utils/webmAlphaCheck.js";
-import { renderProgress } from "../ui/progress.js";
+import { renderProgress, renderMachineProgress } from "../ui/progress.js";
 import {
   trackRenderComplete,
   trackRenderError,
@@ -95,6 +96,10 @@ import { buildDockerRunArgs, resolveDockerPlatform } from "../utils/dockerRunArg
 import { createStderrTail, DockerRenderExitError } from "../utils/dockerStderrTail.js";
 import type { BrowserInstallFacts } from "../browser/installFacts.js";
 import { normalizeErrorMessage } from "../utils/errorMessage.js";
+import {
+  DOCKER_BUILD_TIMEOUT_MINUTES,
+  describeDockerBuildFailure,
+} from "../utils/dockerBuildFailure.js";
 import { runEnvironmentChecks } from "../browser/preflight.js";
 import {
   detectH264EncoderModeForRender,
@@ -524,6 +529,8 @@ export interface RenderOptions {
   throwOnError?: boolean;
   /** Skip the interactive feedback prompt after a successful render. */
   skipFeedback?: boolean;
+  /** False for a batch row: one line about the desktop app per batch is noise, not a pointer. */
+  desktopHint?: boolean;
   /**
    * OPT IN to managing the DE parallel-router circuit breaker
    * (`applyDeParallelRouterCircuitBreaker`) for this render. Default OFF —
@@ -702,11 +709,11 @@ function ensureDockerImage(version: string, platform: string, quiet: boolean): s
         tag,
         tmpDir,
       ],
-      { stdio: quiet ? "pipe" : "inherit", timeout: 600_000 },
+      { stdio: quiet ? "pipe" : "inherit", timeout: DOCKER_BUILD_TIMEOUT_MINUTES * 60_000 },
     );
   } catch (error: unknown) {
     const message = normalizeErrorMessage(error);
-    throw new Error(`Failed to build Docker image: ${message}`);
+    throw new Error(`Failed to build Docker image: ${message}`, { cause: error });
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });
   }
@@ -778,15 +785,8 @@ async function renderDocker(
   try {
     imageTag = ensureDockerImage(dockerVersion, platform, options.quiet);
   } catch (error: unknown) {
-    const message = normalizeErrorMessage(error);
-    const isDockerMissing = /connect|not found|ENOENT/i.test(message);
-    errorBox(
-      isDockerMissing ? "Docker not available" : "Docker image build failed",
-      message,
-      isDockerMissing
-        ? "Install Docker: https://docs.docker.com/get-docker/"
-        : "Check Docker is running: docker info",
-    );
+    const failure = describeDockerBuildFailure(error);
+    errorBox(failure.title, failure.message, failure.hint);
     failCommand();
   }
 
@@ -798,6 +798,7 @@ async function renderDocker(
     outputDir: resolve(outputDir),
     outputFilename,
     platform,
+    hostStdoutIsTty: process.stdout.isTTY === true,
     options: {
       fps: options.fps,
       quality: options.quality,
@@ -886,6 +887,8 @@ async function renderDocker(
   runPostRenderStep("printRenderComplete", () =>
     printRenderComplete({
       outputPath,
+      projectDir,
+      desktopHint: wantsDesktopHint(options),
       elapsedMs: elapsed,
       quiet: options.quiet,
       format: options.format,
@@ -1090,8 +1093,9 @@ async function executeLocalRender(
 
   const onProgress = options.quiet
     ? undefined
-    : (progressJob: { progress: number }, message: string) => {
+    : (progressJob: Pick<RenderJob, "progress" | "stageProgress">, message: string) => {
         renderProgress(progressJob.progress, message);
+        renderMachineProgress(progressJob.progress, progressJob.stageProgress);
       };
 
   try {
@@ -1138,6 +1142,8 @@ async function executeLocalRender(
   runPostRenderStep("printRenderComplete", () =>
     printRenderComplete({
       outputPath,
+      projectDir,
+      desktopHint: wantsDesktopHint(options),
       elapsedMs: elapsed,
       quiet: options.quiet,
       format: options.format,
@@ -1647,15 +1653,19 @@ const KNOWN_STAGE_CODES: Readonly<Record<string, string>> = {
   "Render complete": "render_complete",
   "Render cancelled": "render_cancelled",
   pipeline: "pipeline",
+  "Starting browsers": "starting_browsers",
+  // Was "Encoding video" before encode reported frames; keeps the same bucket.
+  "Encoding frame": "encoding_video",
 };
 
+// Live counts in a progress label ("Capturing frame 120/600 (6 workers)") would make a code per render.
+const STAGE_COUNTS = /\([^)]*\)|\d+\/\d+/g;
+
 export function normalizeStageCode(stage: string): string {
-  const known = KNOWN_STAGE_CODES[stage];
+  const base = stage.replace(STAGE_COUNTS, "").trim();
+  const known = KNOWN_STAGE_CODES[base];
   if (known) return known;
-  // The producer's "Starting browsers (k/n ready)" carries live counts; keep one code for it.
-  if (stage.startsWith("Starting browsers")) return "starting_browsers";
-  const slug = stage
-    .trim()
+  const slug = base
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
@@ -1898,8 +1908,16 @@ function readOutputFootprint(outputPath: string): { fileSize: string; isDirector
   }
 }
 
+/** A render points to the desktop app; a batch row does not. Drafts do too: music-to-video delivers one. */
+export function wantsDesktopHint(options: Pick<RenderOptions, "desktopHint">): boolean {
+  return options.desktopHint !== false;
+}
+
 function printRenderComplete(input: {
   outputPath: string;
+  projectDir: string;
+  /** Print the desktop-app line: a delivered render, never a draft or a batch row. */
+  desktopHint: boolean;
   elapsedMs: number;
   quiet: boolean;
   format: RenderFormat;
@@ -1920,6 +1938,8 @@ function printRenderComplete(input: {
   console.log(c.success("\u25C7") + "  " + c.accent(outputPath));
   console.log("   " + c.bold(fileSize) + c.dim(" \u00B7 " + detail));
   if (perf) printRenderPipeline(perf, input.requestedGpuMode);
+  const hint = input.desktopHint ? desktopHint(input.projectDir) : null;
+  if (hint) console.log("   " + c.dim(hint));
 }
 
 function printRenderPipeline(

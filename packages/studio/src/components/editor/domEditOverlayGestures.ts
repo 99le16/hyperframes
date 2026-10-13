@@ -6,6 +6,7 @@ import type {
   StudioRotationSnapshot,
 } from "./manualEdits";
 import type { ManualOffsetDragMember } from "./manualOffsetDrag";
+import type { StudioElementLook } from "./gestureUndoRevert";
 import type { CssRotationTarget, RotationCommit } from "./rotationDraft";
 import type { GroupOverlayItem, OverlayRect } from "./domEditOverlayGeometry";
 import type { SnapContext } from "./snapTargetCollection";
@@ -57,6 +58,7 @@ export interface GestureState {
   initialPathOffset: StudioPathOffsetSnapshot;
   initialRotation: StudioRotationSnapshot;
   initialBoxSize: StudioBoxSizeSnapshot;
+  initialLook: StudioElementLook;
   pathOffsetMember?: ManualOffsetDragMember;
   originLeft: number;
   originTop: number;
@@ -91,6 +93,7 @@ export interface GestureState {
    * when the corner geometry can't be measured (member creation still succeeded).
    */
   resizeFixedCenterStart?: { x: number; y: number };
+  resizePressFromCorner?: { x: number; y: number };
 }
 
 export interface GroupGestureState {
@@ -117,6 +120,22 @@ export interface BlockedMoveState {
   pointerId: number;
   startX: number;
   startY: number;
+}
+
+/** Marks the selection box while its press waits for a reload: it is drawn at the pointer, not at the element. */
+export const PRESS_WAITING_ATTR = "data-dom-edit-press-waiting";
+
+/** A press that landed while the preview reloads: it starts once the new preview shows what it pressed. */
+export interface WaitingPressState {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  draw: ((dx: number, dy: number) => void) | null;
+  frame: number;
+  moved: React.PointerEvent<HTMLDivElement> | null;
+  released: React.PointerEvent<HTMLDivElement> | null;
+  after: WaitingPressState | null;
+  ended: boolean;
 }
 
 export type FocusableDomEditOverlay = {
@@ -243,6 +262,7 @@ export interface DomEditGroupPathOffsetCommit {
 
 // Refs are stable across renders; values are read via .current.
 export type UseDomEditOverlayGesturesOptions = {
+  activeCompositionPathRef: RefObject<string | null>;
   overlayRef: RefObject<HTMLDivElement | null>;
   iframeRef: RefObject<HTMLIFrameElement | null>;
   boxRef: RefObject<HTMLDivElement | null>;
@@ -253,6 +273,7 @@ export type UseDomEditOverlayGesturesOptions = {
   gestureRef: RefObject<GestureState | null>;
   groupGestureRef: RefObject<GroupGestureState | null>;
   blockedMoveRef: RefObject<BlockedMoveState | null>;
+  waitingPressRef: RefObject<WaitingPressState | null>;
   rafPausedRef: RefObject<boolean>;
   suppressNextBoxClickRef: RefObject<boolean>;
   setOverlayRect: (next: OverlayRect | null) => void;
@@ -275,6 +296,7 @@ export type UseDomEditOverlayGesturesOptions = {
       n: { width: number; height: number },
       offset?: { x: number; y: number },
       restore?: () => void,
+      route?: { plainTranslate: boolean },
     ) => Promise<unknown> | void
   >;
   onRotationCommitRef: RefObject<

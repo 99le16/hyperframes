@@ -3,12 +3,14 @@
  * These are pure "start a new gesture" operations — no draft rect updates.
  */
 import { type DomEditSelection } from "./domEditing";
+import type { EditMoment } from "./manualEditsTypes";
 import {
   applyManualOffsetDragDraft,
   createManualOffsetDragMember,
   restoreManualOffsetDragMembers,
   type ManualOffsetDragMember,
 } from "./manualOffsetDrag";
+import { readElementLook } from "./gestureUndoRevert";
 import { readCssRotationTarget, readRotationBase } from "./rotationDraft";
 import {
   beginStudioManualEditGesture,
@@ -32,7 +34,7 @@ import {
   type UseDomEditOverlayGesturesOptions,
 } from "./domEditOverlayGestures";
 import { collectSnapContext, buildExcludeElements } from "./snapTargetCollection";
-import { gsapWritesRotation } from "../../hooks/gsapRuntimeKeyframes";
+import { editsPlainCss } from "../../hooks/gsapRuntimeKeyframes";
 import { logResize, resetResizeMoveLog } from "../../utils/resizeDebug";
 import { logDrag, readDragPositions, resetDragMoveLog } from "../../utils/dragDebug";
 
@@ -48,6 +50,7 @@ export function notifyBlockedPress(
 export function startGroupDrag(
   e: React.PointerEvent<HTMLElement>,
   opts: UseDomEditOverlayGesturesOptions,
+  at?: EditMoment,
 ): boolean {
   const items = opts.groupOverlayItemsRef.current;
   if (items.length <= 1) return false;
@@ -72,6 +75,7 @@ export function startGroupDrag(
       element: item.element,
       rect: item.rect,
       gesture: "drag",
+      at,
     });
     if (!result.ok) {
       restoreManualOffsetDragMembers(members);
@@ -143,8 +147,11 @@ export function startGesture(
     selection?: DomEditSelection;
     rect?: OverlayRect | null;
     resizeHandle?: ResizeHandle;
+    resizeCorner?: { x: number; y: number };
+    at?: EditMoment;
   },
 ): boolean {
+  const at = options?.at;
   const sel = options?.selection ?? opts.selectionRef.current;
   const rect = options?.rect ?? opts.overlayRectRef.current;
   const box = opts.boxRef.current;
@@ -179,22 +186,27 @@ export function startGesture(
     Number.isFinite(rawContentScaleX) && rawContentScaleX > 0 ? rawContentScaleX : 1;
   const contentScaleY =
     Number.isFinite(rawContentScaleY) && rawContentScaleY > 0 ? rawContentScaleY : 1;
+  const initialLook = readElementLook(
+    sel.element,
+    kind !== "drag" && !editsPlainCss(sel.element, kind === "rotate" ? "rotate" : "resize"),
+  );
   let initialPathOffset = captureStudioPathOffset(sel.element);
   let manualEditDragToken: string | undefined;
   let pathOffsetMember: ManualOffsetDragMember | undefined;
 
   if (kind === "drag") {
     opts.onManualDragStartRef.current?.();
-    opts.rafPausedRef.current = true;
     const result = createManualOffsetDragMember({
       key: selectionCacheKey(sel),
       selection: sel,
       element: sel.element,
       rect,
       gesture: "drag",
+      at,
     });
     if (!result.ok) {
       opts.onBlockedMoveRef.current(result.selection, result.reason);
+      e.preventDefault();
       return false;
     }
     pathOffsetMember = result.member;
@@ -212,6 +224,7 @@ export function startGesture(
         element: sel.element,
         rect,
         gesture: "resize",
+        at,
       });
       if (result.ok) {
         pathOffsetMember = result.member;
@@ -220,12 +233,13 @@ export function startGesture(
         // Hold a % translate as the same px now, so a growing box can't drag it along mid-frame.
         if (result.member.plainTranslate) applyManualOffsetDragDraft(result.member, 0, 0);
       } else {
-        manualEditDragToken = beginStudioManualEditGesture(sel.element, "resize");
+        manualEditDragToken = beginStudioManualEditGesture(sel.element, "resize", at);
       }
     } else {
       manualEditDragToken = beginStudioManualEditGesture(
         sel.element,
         kind === "rotate" ? "rotate" : "resize",
+        at,
       );
     }
   }
@@ -234,7 +248,7 @@ export function startGesture(
   try {
     // Rotation base: the angle the element shows. An element GSAP does not turn, or a plain-translate
     // move, never asks GSAP: reading a property makes it bake the CSS into its transform.
-    const plain = !!pathOffsetMember?.plainTranslate || !gsapWritesRotation(sel.element);
+    const plain = !!pathOffsetMember?.plainTranslate || editsPlainCss(sel.element, "rotate");
     const plainRotation = plain && kind === "rotate" ? readCssRotationTarget(sel.element) : null;
     const rotation = { angle: readRotationBase(sel.element, plain) };
     const overlayBounds = overlayEl?.getBoundingClientRect();
@@ -274,6 +288,7 @@ export function startGesture(
       initialPathOffset,
       initialRotation: captureStudioRotation(sel.element),
       initialBoxSize: captureStudioBoxSize(sel.element),
+      initialLook,
       pathOffsetMember,
       originLeft: rect.left,
       originTop: rect.top,
@@ -290,6 +305,10 @@ export function startGesture(
       manualEditDragToken,
       snapContext,
       resizeHandle: kind === "resize" ? (options?.resizeHandle ?? "se") : undefined,
+      resizePressFromCorner:
+        kind === "resize" && options?.resizeCorner
+          ? { x: e.clientX - options.resizeCorner.x, y: e.clientY - options.resizeCorner.y }
+          : undefined,
       resizeFixedCenterStart,
     };
     if (kind === "resize") {

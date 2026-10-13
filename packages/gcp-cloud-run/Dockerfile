@@ -96,6 +96,7 @@ COPY packages/lint/package.json packages/lint/package.json
 COPY packages/parsers/package.json packages/parsers/package.json
 COPY packages/sdk/package.json packages/sdk/package.json
 COPY packages/sdk-playground/package.json packages/sdk-playground/package.json
+COPY packages/inspector/package.json packages/inspector/package.json
 COPY packages/studio-server/package.json packages/studio-server/package.json
 COPY scripts/package-subpaths.mjs scripts/package-subpaths.mjs
 # A corrupt tarball extraction can print an error and then hang instead of
@@ -109,6 +110,7 @@ RUN timeout 300 bun install --frozen-lockfile \
 # argument list with the production engine helper so a launcher-flag regression
 # invalidates this layer and fails the contract instead of testing a duplicate
 # hard-coded profile.
+COPY packages/parsers/ packages/parsers/
 COPY packages/engine/ packages/engine/
 COPY packages/aws-lambda/scripts/probe-beginframe.ts packages/aws-lambda/scripts/probe-beginframe.ts
 RUN bun -e 'import { buildChromeArgs } from "./packages/engine/src/services/browserManager.ts"; await Bun.write("/tmp/hf-gcp-chrome-args.json", JSON.stringify(buildChromeArgs({ width: 800, height: 600, captureMode: "beginframe", platform: "linux" }, { browserGpuMode: "software" })))' \
@@ -142,8 +144,8 @@ COPY packages/studio-server/ packages/studio-server/
 
 # Build workspace dependencies before the producer bundle. The published
 # workspace packages are not prebuilt in a fresh clone, so producer's esbuild
-# resolution otherwise fails on parsers/core compiler entrypoints. Generate
-# embedded font data so glyph layout matches production.
+# resolution otherwise fails on parsers/core compiler entrypoints. Core's build
+# also generates the embedded font data, so glyph layout matches production.
 RUN bun run --cwd packages/parsers build \
     && bun run --cwd packages/lint build \
     && bun run --cwd packages/studio-server build \
@@ -152,7 +154,6 @@ RUN bun run --cwd packages/parsers build \
     && bun run --cwd packages/sdk build \
     && bun run --cwd packages/sdk-playground build \
     && bun run --cwd packages/engine build \
-    && (cd packages/producer && bunx tsx scripts/generate-font-data.ts) \
     && bun run --cwd packages/producer build \
     && bun run --cwd packages/gcp-cloud-run build
 

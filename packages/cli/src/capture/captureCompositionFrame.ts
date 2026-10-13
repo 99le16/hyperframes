@@ -1,11 +1,12 @@
+import { launchManagedBrowser, resolveManagedGpuMode } from "../browser/launch.js";
 import { spawn } from "node:child_process";
 import type { Browser, Page } from "puppeteer-core";
 import { c } from "../ui/colors.js";
 import {
   assertWebGpuAdapterAvailable,
   compositionRequiresWebGpu,
-  resolveCaptureBrowserGpuMode,
   resolveLocalBrowserGpuMode,
+  resolveLocalWebGpu,
   type BrowserGpuMode,
 } from "../browser/gpuPolicy.js";
 import { windowsChromeCrashRemediation } from "../browser/windowsCrash.js";
@@ -96,7 +97,10 @@ export function resolveCliChromeGpuMode(
 }
 
 function compositionRuntimeReadyInBrowser(): boolean {
-  return Boolean(Reflect.get(window, "__renderReady"));
+  return (
+    Boolean(Reflect.get(window, "__renderReady")) ||
+    typeof Reflect.get(window, "__hfStartupError") === "string"
+  );
 }
 
 function shaderTransitionsReadyInBrowser(): boolean {
@@ -125,14 +129,26 @@ function shaderTransitionsReadyInBrowser(): boolean {
   return shaderTransitionRegistryReady() ?? shaderLoadingOverlayReady();
 }
 
+export async function waitForRuntimeReady(
+  page: Required<Pick<CompositionSeekPage, "waitForFunction" | "evaluate">>,
+  timeoutMs: number,
+): Promise<boolean> {
+  const settled = await page
+    .waitForFunction(compositionRuntimeReadyInBrowser, { timeout: timeoutMs })
+    .then(() => true)
+    .catch(() => false);
+  const startupError = await page
+    .evaluate(() => Reflect.get(window, "__hfStartupError"))
+    .catch(() => undefined);
+  if (typeof startupError === "string") throw new Error(startupError);
+  return settled;
+}
+
 async function waitForCompositionSettle(
   page: Page,
   options: OpenSettledCompositionPageOptions,
 ): Promise<boolean> {
-  const runtimeReady = await page
-    .waitForFunction(compositionRuntimeReadyInBrowser, { timeout: options.renderReadyTimeoutMs })
-    .then(() => true)
-    .catch(() => false);
+  const runtimeReady = await waitForRuntimeReady(page, options.renderReadyTimeoutMs);
 
   if (!runtimeReady) {
     console.warn(
@@ -178,14 +194,17 @@ export async function openSettledCompositionPage(
   const { buildChromeArgs } = await import("@hyperframes/engine");
   const requestedGpuMode = options.browserGpuMode ?? resolveCliChromeGpuMode();
   const requiresWebGpu = compositionRequiresWebGpu(html);
+  let softwareWebGpu = false;
   const launch = async (executablePath: string): Promise<Browser> => {
-    const resolvedGpuMode = await resolveCaptureBrowserGpuMode(requestedGpuMode, executablePath);
-    return puppeteer.default.launch({
+    const resolvedGpuMode = await resolveManagedGpuMode(requestedGpuMode, executablePath);
+    const webGpu = resolveLocalWebGpu(resolvedGpuMode, requiresWebGpu);
+    softwareWebGpu = webGpu.softwareWebGpu;
+    return launchManagedBrowser(puppeteer.default, {
       headless: true,
       executablePath,
       args: buildChromeArgs(
         { ...viewport, captureMode: "screenshot", requiresWebGpu },
-        { browserGpuMode: resolvedGpuMode },
+        webGpu.gpuConfig,
       ),
     });
   };
@@ -228,7 +247,7 @@ export async function openSettledCompositionPage(
       waitUntil: "domcontentloaded",
       timeout: resolveDiagnosticNavigationTimeoutMs(process.env, options.navigationTimeoutMs),
     });
-    await assertWebGpuAdapterAvailable(page, requiresWebGpu);
+    await assertWebGpuAdapterAvailable(page, requiresWebGpu, softwareWebGpu);
     const renderReadyTimedOut = !(await waitForCompositionSettle(page, options));
     return { browser: chromeBrowser, page, renderReadyTimedOut };
   } catch (err) {

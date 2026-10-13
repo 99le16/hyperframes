@@ -1,9 +1,10 @@
 import { buildProjectApiPath } from "../../utils/projectRouting";
 import { resolvePreviewRelative } from "../../utils/previewRelativePath";
-import { resolveMediaPreviewUrl } from "./thumbnailUtils";
+import { authoredSrcPath, resolveMediaPreviewUrl } from "./thumbnailUtils";
 import type { TimelineElement } from "../store/timelineElement";
 import { parseAutomation, VOLUME_TARGET } from "@hyperframes/core/audio-automation";
 import type { TimelineEditOutcome } from "../../hooks/timelineEditPermission";
+import { studioApiFetch } from "../../utils/studioApiFetch";
 
 export interface NormalizePlan {
   targetLufs: number;
@@ -74,11 +75,11 @@ function isNormalizePlan(value: unknown): value is NormalizePlan {
 export async function requestNormalizePlan(
   projectId: string,
   el: TimelineElement,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: typeof studioApiFetch = studioApiFetch,
 ): Promise<NormalizePlan> {
   const origin = window.location.origin;
   const relative = resolvePreviewRelative(
-    resolveMediaPreviewUrl(el.src ?? "", projectId, origin),
+    resolveMediaPreviewUrl(authoredSrcPath(el.src ?? ""), projectId, origin),
     projectId,
     origin,
   );

@@ -6,7 +6,8 @@ import { RESPONSIVE_GRID } from "./propertyPanelHelpers";
 import { MetricField, SelectField } from "./propertyPanelPrimitives";
 import { controlPointsForGsapEase } from "./studioMotion";
 import { EASE_LABELS, METHOD_LABELS, METHOD_TOOLTIPS, PROP_LABELS } from "./gsapAnimationConstants";
-import { buildTweenSummary } from "./gsapAnimationHelpers";
+import { buildTweenSummary, uniformSegmentEase } from "./gsapAnimationHelpers";
+import { keyframedTweenEases } from "../../utils/gsapKeyframeEases";
 import { EaseCurveSection } from "./EaseCurveSection";
 import { ArcPathControls } from "./ArcPathControls";
 import type { GsapAnimationEditCallbacks } from "./gsapAnimationCallbacks";
@@ -30,6 +31,9 @@ interface AnimationCardProps extends GsapAnimationEditCallbacks {
   } | null;
   onFocusSegmentConsumed?: () => void;
 }
+
+const easeDisplayName = (ease: string) =>
+  ease.startsWith("custom(") ? "Custom curve" : (EASE_LABELS[ease] ?? ease);
 
 // fallow-ignore-next-line complexity
 export const AnimationCard = memo(function AnimationCard({
@@ -152,9 +156,9 @@ export const AnimationCard = memo(function AnimationCard({
   const methodLabel = METHOD_LABELS[animation.method] ?? animation.method;
   const easeName =
     (animation.keyframes ? animation.keyframes.easeEach : undefined) ?? animation.ease ?? "none";
-  const easeLabel = easeName.startsWith("custom(")
-    ? "Custom curve"
-    : (EASE_LABELS[easeName] ?? easeName);
+  const headerEase = animation.keyframes ? uniformSegmentEase(animation) : easeName;
+  const easeLabel = headerEase === null ? "Mixed" : easeDisplayName(headerEase);
+  const runEase = animation.keyframes ? keyframedTweenEases(animation).run : undefined;
   const endTime =
     typeof animation.position === "number"
       ? animation.position + (animation.duration ?? 0)
@@ -213,11 +217,12 @@ export const AnimationCard = memo(function AnimationCard({
           {typeof animation.position === "number"
             ? `${parseFloat(animation.position.toFixed(3))}s`
             : animation.position}{" "}
-          – {typeof endTime === "number" ? `${parseFloat(endTime.toFixed(3))}s` : endTime}
+          to {typeof endTime === "number" ? `${parseFloat(endTime.toFixed(3))}s` : endTime}
         </span>
         <span
           className={`ml-auto text-[10px] ${flat ? "text-panel-text-3" : "text-neutral-500"}`}
-          title={easeName}
+          title={headerEase ?? "Mixed"}
+          data-card-ease
         >
           {easeLabel}
         </span>
@@ -251,7 +256,12 @@ export const AnimationCard = memo(function AnimationCard({
                         clipPath: "polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)",
                       }}
                     />
-                    Keyframed — click a segment below to edit its curve
+                    Keyframed: click a segment below to edit its curve
+                  </p>
+                )}
+                {runEase && runEase !== "none" && (
+                  <p className="mt-1 text-[9px] text-neutral-500" data-card-run-ease>
+                    Run ease: {easeDisplayName(runEase)}
                   </p>
                 )}
               </div>
@@ -263,7 +273,7 @@ export const AnimationCard = memo(function AnimationCard({
                   setTimeout(() => setCopied(false), 1500);
                 }}
                 className="shrink-0 rounded-sm px-1.5 py-0.5 text-[9px] font-medium text-neutral-500 transition-colors hover:bg-neutral-800 hover:text-neutral-300"
-                title="Copy description to clipboard — paste into agent prompts"
+                title="Copy description for agent prompts"
               >
                 {copied ? "Copied" : "Copy"}
               </button>
@@ -296,7 +306,7 @@ export const AnimationCard = memo(function AnimationCard({
                 {animation.keyframes && onUpdateKeyframeEase ? (
                   <KeyframeEaseList
                     keyframes={animation.keyframes.keyframes}
-                    globalEase={animation.keyframes.easeEach ?? animation.ease ?? "none"}
+                    globalEase={keyframedTweenEases(animation).segment({})}
                     expandedPct={expandedKfPct}
                     collidingAnimationTargets={focusedCollidingAnimationTargets}
                     onToggle={(pct) => {

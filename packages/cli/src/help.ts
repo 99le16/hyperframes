@@ -27,6 +27,8 @@ const GROUPS: Group[] = [
       ["present", "Open a slideshow deck in presenter mode (with audience sync)"],
       ["publish", "Upload a project to a stable URL (private by default)"],
       ["render", "Render a composition to MP4 or WebM"],
+      ["open", "Open a project in the HyperFrames desktop app"],
+      ["catch-up", "See what was done in the desktop app since you last looked"],
     ],
   },
   {
@@ -44,7 +46,7 @@ const GROUPS: Group[] = [
       ["snapshot", "Capture key frames as PNG screenshots for visual verification"],
       [
         "media-treatment",
-        "Discover, apply, or clear deterministic media treatments on one media element",
+        "Discover, apply, or clear deterministic media treatments on media elements",
       ],
       [
         "normalize-audio",
@@ -91,7 +93,7 @@ const GROUPS: Group[] = [
         "transcribe",
         "Transcribe audio/video to word-level timestamps, or import an existing transcript",
       ],
-      ["models", "Download on-device models (models install parakeet)"],
+      ["models", "List or download on-device models (models list, models install parakeet)"],
       ["tts", "Generate speech audio from text using a local AI model (Kokoro-82M)"],
       ["remove-background", "Remove background from a video or image to produce transparent media"],
     ],

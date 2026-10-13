@@ -1,5 +1,7 @@
 export const RUNTIME_PROTOCOL_VERSION = 1 as const;
 
+export const RUNTIME_FILLER = "hf-runtime-filler";
+
 export const RUNTIME_PROTOCOL_CAPABILITIES = [
   "seconds-time",
   "rational-fps",
@@ -66,6 +68,12 @@ export function runtimeProtocolMetadata(fps: number): RuntimeProtocolV1 {
     capabilities: RUNTIME_PROTOCOL_CAPABILITIES,
     fps: runtimeProtocolFpsFromNumber(fps),
   };
+}
+
+export function frameDisplayScale(frame: HTMLElement): number | null {
+  const layoutWidth = frame.offsetWidth;
+  const shownWidth = frame.getBoundingClientRect().width;
+  return layoutWidth > 0 && shownWidth > 0 ? shownWidth / layoutWidth : null;
 }
 
 function hasDeclaredCapabilities(value: unknown): boolean {

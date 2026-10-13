@@ -1,8 +1,10 @@
 /** Drives one edit accuracy case in the built Studio and measures it. All distances are composition px. */
 import { spawn } from "node:child_process";
+import { classifyTweenPropertyGroup } from "../../../../parsers/src/gsapConstants.ts";
+import { parseGsapScript } from "../../../../parsers/src/gsapParser.ts";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { COMPOSITION, PLAYHEAD } from "./grid.mjs";
+import { COMPOSITION, FIXTURE_CDN, PLAYHEAD, localAsset } from "./grid.mjs";
 import {
   angleOf,
   centre,
@@ -19,6 +21,8 @@ import {
   visibleQuad,
 } from "./geometry.mjs";
 import { frameSamplerScript, scoreTeleport, startFrames, stopFrames } from "./teleport.mjs";
+import { terminateWindowsProcessTree } from "../../../../cli/src/utils/processTree.ts";
+import { installWebMcpHost } from "../webmcp-host.mjs";
 
 export const VIEWPORT = { width: 1600, height: 900 };
 const STEPS = 20;
@@ -39,6 +43,12 @@ const up = (port) =>
 const liveServers = new Set();
 /** Signals the server's process group; a group that already exited is not an error. */
 function signalGroup(child, signal) {
+  // Windows has no process groups, so taskkill /T ends the server and its children.
+  if (process.platform === "win32")
+    return void terminateWindowsProcessTree(child.pid).catch((error) => {
+      // taskkill exits 128 when the process is already gone.
+      if (!/status 128$/.test(error.message)) throw error;
+    });
   try {
     process.kill(-child.pid, signal);
   } catch (error) {
@@ -52,16 +62,16 @@ export function killServers() {
 
 const announcedPort = (log) => /http:\/\/localhost:(\d+)/.exec(log.join(""))?.[1];
 
+/** Starts Studio at `port` or, when that is busy, the next free one the CLI binds; returns the port it serves. */
 // fallow-ignore-next-line complexity
 export async function startServer(cli, dir, port, log, home) {
-  // The CLI quietly takes the next free port when asked for a busy one, so only the port it announces counts.
-  if (await up(port)) throw new Error(`port ${port} is already serving`);
   const child = spawn(
     "node",
     [cli, "preview", dir, "--port", String(port), "--no-open", "--foreground", "--force-new"],
     {
       stdio: ["ignore", "pipe", "pipe"],
       detached: true,
+      windowsHide: true,
       // A per-case HOME keeps Studio's undo history inside the case's tmp dir.
       env: {
         ...process.env,
@@ -78,12 +88,8 @@ export async function startServer(cli, dir, port, log, home) {
   for (const deadline = Date.now() + 60_000; Date.now() < deadline; await sleep(200)) {
     if (child.exitCode !== null)
       throw new Error(`studio exited ${child.exitCode}: ${log.join("").slice(-500)}`);
-    const announced = announcedPort(log);
-    if (announced && announced !== String(port)) {
-      await stopServer(child);
-      throw new Error(`studio moved from port ${port} to ${announced}`);
-    }
-    if (announced && (await up(port))) return child;
+    const announced = Number(announcedPort(log));
+    if (announced && (await up(announced))) return { child, port: announced };
   }
   await stopServer(child);
   throw new Error("studio did not start in 60s");
@@ -98,18 +104,11 @@ export async function stopServer(child) {
   await exited;
 }
 
-/** Runs in the top frame before Studio: the WebMCP host plus a frame-interval and long-task recorder. */
+/** Runs in the top frame after installWebMcpHost("__editBench"): a frame-interval and long-task recorder. */
 function instrumentPage() {
   if (window.top !== window) return;
-  const tools = new Map();
-  Object.defineProperty(document, "modelContext", {
-    configurable: true,
-    value: { registerTool: async (tool) => void tools.set(tool.name, tool) },
-  });
   const rec = { on: false, frames: [], long: [] };
-  const call = (name, input) =>
-    tools.get(name).execute(input, { signal: new AbortController().signal });
-  window.__editBench = { has: (name) => tools.has(name), call, rec };
+  window.__editBench.rec = rec;
   // The callback's own clock: Chrome stamps a late frame with the vsync it missed, which hides a stall.
   const loop = () => {
     if (rec.on) rec.frames.push(performance.now());
@@ -308,7 +307,7 @@ export async function openStudio(ctx) {
   return settled(ctx);
 }
 
-async function seekTo(ctx, time) {
+export async function seekTo(ctx, time) {
   const seek = await ctx.page.evaluate(
     (t) => window.__editBench.call("studio_seek", { time: t }),
     time,
@@ -347,6 +346,29 @@ export function keyframeDrift(before, after) {
   return { ...worst, pass: worst.diff <= KEY_TOLERANCE };
 }
 
+const scriptsIn = (html) =>
+  [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script[^>]*>/gi)].map((m) => m[1]);
+const animatesTarget = (anim) => anim.targetSelector === "#target" && !anim.global;
+const keyframeProps = (anim) => (anim.keyframes?.keyframes ?? []).map((k) => k.properties);
+const animatedProps = (anim) =>
+  [anim.properties, anim.fromProperties, ...keyframeProps(anim)].flatMap((props) =>
+    Object.keys(props ?? {}),
+  );
+
+function targetGroups(files) {
+  const props = Object.values(files)
+    .flatMap(scriptsIn)
+    .flatMap((script) => parseGsapScript(script).animations.filter(animatesTarget))
+    .flatMap(animatedProps);
+  return new Set(props.map((prop) => classifyTweenPropertyGroup({ [prop]: 0 })).filter(Boolean));
+}
+
+/** Property groups the edit made the timeline animate on #target that it did not animate before. */
+export function openedGroups(original, saved) {
+  const before = targetGroups(original);
+  return [...targetGroups(saved)].filter((group) => !before.has(group));
+}
+
 const declarations = (text = "") =>
   Object.fromEntries(
     text
@@ -360,6 +382,8 @@ const targetCss = (html) => ({
   rule: declarations(capture(/#target\s*\{([^}]*)\}/, html)),
   inline: declarations(capture(/\bstyle="([^"]*)"/, capture(/(<[^>]*\bid="target"[^>]*>)/, html))),
 });
+
+const keyRule = (drift, opened) => ({ ...drift, opened, pass: drift.pass && opened.length === 0 });
 
 /** Plain CSS the edit wrote for a property GSAP animates: it would override or fight the timeline. */
 export function strayCss(original, saved, props) {
@@ -493,6 +517,15 @@ async function cropOutline(ctx, map) {
   return (await contentQuad(h)).map(map.toComp);
 }
 
+/** Holds every save request `ms` before it is sent, so a later press lands while it is still in flight. */
+function slowSaves(ms) {
+  const send = window.fetch;
+  window.fetch = (url, init) =>
+    /\/file-mutations\/patch-|gsap-mutations/.test(String(url))
+      ? new Promise((resolve) => setTimeout(resolve, ms)).then(() => send(url, init))
+      : send(url, init);
+}
+
 /** Screen path (one point per frame) and the per-frame tracking error for each pointer gesture. */
 function plan(gesture, pre, pressComp) {
   const at = (p) => pre.map.toScreen(p);
@@ -503,10 +536,10 @@ function plan(gesture, pre, pressComp) {
       dist([s.p[0] - s0.p[0], s.p[1] - s0.p[1]], [s.c[0] - s0.c[0], s.c[1] - s0.c[1]]),
   });
   if (gesture === "move") {
-    const local = quadToLocal(pre.quad, pre.size, pressComp);
+    const local = quadToLocal(pre.quad, { width: 1, height: 1 }, pressComp);
     return {
       path: steps.map((k) => at([pressComp[0] + MOVE_BY[0] * k, pressComp[1] + MOVE_BY[1] * k])),
-      ...follow((m) => localToQuad(m.quad, m.size, local)),
+      ...follow((m) => localToQuad(m.quad, { width: 1, height: 1 }, local)),
     };
   }
   if (gesture === "resize") {
@@ -543,10 +576,20 @@ function plan(gesture, pre, pressComp) {
   };
 }
 
+// A press made while the preview reloads waits for it: Studio draws its box at the pointer meanwhile.
+async function waitingQuad(page, map) {
+  const waiting = await page.$("[data-dom-edit-press-waiting]");
+  const quad = waiting && (await contentQuad(waiting)).map(map.toComp);
+  await waiting?.dispose();
+  return quad;
+}
+
 async function sample(ctx, gesture, point, pointerScreen) {
   const m = await measure(ctx);
   if (gesture === "crop") m.outline = await cropOutline(ctx, m.map);
-  return { m, p: point(m), c: m.map.toComp(pointerScreen) };
+  const waiting = await waitingQuad(ctx.page, m.map);
+  const shown = waiting ? { ...m, quad: waiting, visible: waiting } : m;
+  return { m: shown, actual: m.visible, p: point(shown), c: m.map.toComp(pointerScreen) };
 }
 
 const TRACE_CATEGORIES = ["toplevel", "devtools.timeline", "blink.user_timing"];
@@ -638,6 +681,7 @@ export async function controlDrag(browser, gesture) {
   try {
     const page = await context.newPage();
     await page.setViewport(VIEWPORT);
+    await page.evaluateOnNewDocument(installWebMcpHost, "__editBench");
     await page.evaluateOnNewDocument(instrumentPage);
     // The real drags run the frame sampler, so the control pays its cost too.
     await page.evaluateOnNewDocument(frameSamplerScript);
@@ -700,6 +744,8 @@ async function strayMove(page, [x, y]) {
  * `{ pause }` holds still; `{ stray }`: see strayMove. */
 // fallow-ignore-next-line complexity
 export async function pointerGesture(ctx, gesture, pre, route) {
+  const quad = await waitingQuad(ctx.page, pre.map);
+  if (quad) pre = { ...pre, quad, visible: quad };
   const press = await handlePoint(ctx, pre, gesture);
   const pressComp = pre.map.toComp(press);
   const g = { ...plan(gesture, pre, pressComp), ...(route && { path: route(press) }) };
@@ -744,6 +790,8 @@ export async function pointerGesture(ctx, gesture, pre, route) {
     smooth,
     diag: {
       hit,
+      actualAtRelease: last.actual,
+      shownAtRelease: lastQuad,
       grabOffset: gesture === "rotate" ? 0 : dist(s0.p, s0.c),
       errors: errors.map((e) => Math.round(e * 1000) / 1000),
     },
@@ -769,13 +817,43 @@ async function nudgeGesture(ctx, pre) {
   };
 }
 
+const blockedCdnUrls = new Set();
+
+/** Serves the fixtures' CDN requests from the repo; any other CDN URL is blocked and named once. */
+export async function serveFixtureAssetsLocally(page) {
+  const cdp = await page.createCDPSession();
+  cdp.on("Fetch.requestPaused", ({ requestId, request }) => {
+    const file = localAsset(request.url);
+    if (!file) {
+      if (!blockedCdnUrls.has(request.url)) console.warn(`edit bench: blocked ${request.url}`);
+      blockedCdnUrls.add(request.url);
+      cdp
+        .send("Fetch.failRequest", { requestId, errorReason: "BlockedByClient" })
+        .catch(() => undefined);
+      return;
+    }
+    // A request whose frame went away rejects; that must not end the run.
+    cdp
+      .send("Fetch.fulfillRequest", {
+        requestId,
+        responseCode: 200,
+        responseHeaders: [{ name: "Content-Type", value: "text/javascript" }],
+        body: readFileSync(file).toString("base64"),
+      })
+      .catch(() => undefined);
+  });
+  await cdp.send("Fetch.enable", { patterns: [{ urlPattern: `${FIXTURE_CDN}*` }] });
+}
+
 /**
  * Studio open on the case in a fresh browser context, snapping off, at the case's zoom, target selected;
  * `drive` measures the rest. A failure keeps a screenshot, and the context always closes.
  */
+// fallow-ignore-next-line complexity
 export async function inStudio({ browser, spec, dir, files, url, evidence }, drive) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
+  await serveFixtureAssetsLocally(page);
   const ctx = {
     page,
     dir,
@@ -791,7 +869,9 @@ export async function inStudio({ browser, spec, dir, files, url, evidence }, dri
     (evidence.shots[name] = await page.screenshot({ type: "jpeg", quality: 70 }));
   try {
     await page.setViewport(VIEWPORT);
+    await page.evaluateOnNewDocument(installWebMcpHost, "__editBench");
     await page.evaluateOnNewDocument(instrumentPage);
+    if (spec.slowSaves) await page.evaluateOnNewDocument(slowSaves, spec.slowSaves);
     await page.evaluateOnNewDocument(frameSamplerScript);
     await page.goto(url);
     let pre = await openStudio(ctx);
@@ -909,7 +989,10 @@ async function measureCase(
     unsettled: Object.keys(quads).filter((k) => quads[k].unsettled),
     reloaded,
     ...(spec.keys && {
-      keys: keyframeDrift(keysBefore, keysAfter),
+      keys: keyRule(
+        keyframeDrift(keysBefore, keysAfter),
+        openedGroups(original, readFiles(dir, files)),
+      ),
       css: strayCss(original, readFiles(dir, files), spec.keys.css),
       keyRender: { time: spec.keys.render, visible: keysAfter[spec.keys.render].visible },
     }),

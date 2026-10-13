@@ -6,8 +6,13 @@ import {
   rewriteCssAssetUrls,
   rewriteInlineStyleAssetUrls,
 } from "@hyperframes/core";
-import { stripEmbeddedRuntimeScripts } from "@hyperframes/core/compiler";
+import {
+  deferScriptsUntilFonts,
+  RUNTIME_BOOTSTRAP_ATTR,
+  stripEmbeddedRuntimeScripts,
+} from "@hyperframes/core/compiler";
 import { isFullHtmlDocument } from "@hyperframes/core/compiler/html-document";
+import { gsapCdnDist } from "@hyperframes/core/gsap-cdn";
 
 /**
  * Rewrite relative asset paths in a parsed DOM tree. Shared across all
@@ -309,6 +314,11 @@ export function buildSubCompositionHtml(
   // double-loaded AND the baked inline copy can fail to parse inline (the
   // "Unexpected token '<'" SyntaxError seen on comps with a baked runtime).
   rewrittenContent = stripEmbeddedRuntimeScripts(rewrittenContent);
+  const { document: scriptsDoc } = parseHTML(
+    `<!DOCTYPE html><html><head></head><body>${rewrittenContent}</body></html>`,
+  );
+  deferScriptsUntilFonts(scriptsDoc as unknown as Document);
+  rewrittenContent = scriptsDoc.body.innerHTML;
 
   // The comp's root carries data-composition-id but (unlike inlined sub-comps,
   // which inlineSubCompositions tags) no data-composition-file. Without it the
@@ -339,17 +349,11 @@ export function buildSubCompositionHtml(
   // injected tag (added next) is never removed.
   headContent = stripEmbeddedRuntimeScripts(headContent);
 
-  // Ensure runtime is present (might differ from the one in index.html)
-  if (
-    !headContent.includes("hyperframe.runtime") &&
-    !headContent.includes("hyperframes-preview-runtime")
-  ) {
-    headContent += `\n<script data-hyperframes-preview-runtime="1" src="${runtimeUrl}"></script>`;
-  }
+  headContent += `\n<script ${RUNTIME_BOOTSTRAP_ATTR}="1" src="${runtimeUrl}"></script>`;
 
   // Fallback: if no index.html head was found, add minimal deps
   if (!headContent.includes("gsap")) {
-    headContent += `\n<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>`;
+    headContent += `\n<script src="${gsapCdnDist()}gsap.min.js"></script>`;
   }
 
   const htmlOpen = htmlAttrs ? `<html ${htmlAttrs}>` : "<html>";

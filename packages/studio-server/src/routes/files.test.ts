@@ -114,7 +114,6 @@ function postCutBatch(
       elementDuration: number;
       playbackStart?: number;
       playbackRate?: number;
-      isComposition?: boolean;
     }>;
   }>,
 ): Promise<Response> {
@@ -641,6 +640,94 @@ describe("registerFileRoutes", () => {
       '<div id="title">Before</div>',
     );
     expect(readFileSync(join(projectDir, "index.html"), "utf-8")).toContain("After");
+  });
+
+  it("reports the id ensure-id leaves on the element, saved or already there", async () => {
+    const projectDir = createProjectDir();
+    writeFileSync(
+      join(projectDir, "index.html"),
+      '<div data-hf-id="hf-a" id="div"></div><div data-hf-id="hf-b"></div>',
+    );
+    const app = new Hono();
+    registerFileRoutes(app, createAdapter(projectDir));
+    const ensureId = async (hfId: string) => {
+      const response = await app.request(
+        "http://localhost/projects/demo/file-mutations/patch-element/index.html",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            target: { hfId },
+            operations: [{ type: "ensure-id", property: "id", value: "div" }],
+          }),
+        },
+      );
+      const { changed, elementId } = (await response.json()) as Record<string, unknown>;
+      return { changed, elementId };
+    };
+
+    expect(await ensureId("hf-b")).toEqual({ changed: true, elementId: "div-2" });
+    expect(await ensureId("hf-a")).toEqual({ changed: false, elementId: "div" });
+    expect(readFileSync(join(projectDir, "index.html"), "utf-8")).toContain('id="div-2"');
+  });
+
+  it("never lets ensure-id save an id another composition file in the preview holds", async () => {
+    const projectDir = createProjectDir();
+    writeFileSync(join(projectDir, "index.html"), '<div data-hf-id="hf-a"></div>');
+    mkdirSync(join(projectDir, "compositions"));
+    writeFileSync(join(projectDir, "compositions/b.html"), '<div data-hf-id="hf-b"></div>');
+    const app = new Hono();
+    registerFileRoutes(app, createAdapter(projectDir));
+    // Both adds proposed "div": neither preview knew of the other's write.
+    const ensureId = async (file: string, hfId: string) => {
+      const response = await app.request(
+        `http://localhost/projects/demo/file-mutations/patch-element/${file}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            target: { hfId },
+            operations: [{ type: "ensure-id", property: "id", value: "div" }],
+          }),
+        },
+      );
+      return ((await response.json()) as Record<string, unknown>).elementId;
+    };
+
+    expect(await ensureId("compositions/b.html", "hf-b")).toBe("div");
+    expect(await ensureId("index.html", "hf-a")).toBe("div-2");
+    expect(readFileSync(join(projectDir, "index.html"), "utf-8")).toContain('id="div-2"');
+  });
+
+  it("counts another file's ids after a quote-ended string and with no space before id", async () => {
+    const projectDir = createProjectDir();
+    writeFileSync(
+      join(projectDir, "index.html"),
+      '<div data-hf-id="hf-a"></div><p data-hf-id="hf-b"></p>',
+    );
+    writeFileSync(
+      join(projectDir, "b.html"),
+      '<script>var u = "/id=" + x;</script><div id="div"></div><p class="c"id="p"></p>',
+    );
+    const app = new Hono();
+    registerFileRoutes(app, createAdapter(projectDir));
+    const ensureId = async (hfId: string, value: string) => {
+      const response = await app.request(
+        "http://localhost/projects/demo/file-mutations/patch-element/index.html",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            target: { hfId },
+            operations: [{ type: "ensure-id", property: "id", value }],
+          }),
+        },
+      );
+      return ((await response.json()) as Record<string, unknown>).elementId;
+    };
+
+    expect(await ensureId("hf-a", "div")).toBe("div-2");
+    expect(await ensureId("hf-b", "p")).toBe("p-2");
   });
 
   it("writes the font an edit uses in the same write as the edit", async () => {
@@ -1861,11 +1948,40 @@ const tl = gsap.timeline({ paused: true });
     expect(html).not.toContain("<body");
   });
 
-  it("a first animation in a <body> file lands before </body>, outside its template", async () => {
+  // The registry-block shape: the loader mounts the template's content, so a script outside it never runs.
+  it("a first animation in a full-document sub-composition lands inside its template", async () => {
     const html = await addFirstAnimation(
-      '<body><template><div data-composition-id="sub"><div id="card"></div></div></template></body>\n',
+      '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><template id="sub-template"><div data-composition-id="sub"><div id="card"></div></div></template></body></html>\n',
     );
-    expect(html.indexOf("<script")).toBeGreaterThan(html.indexOf("</template>"));
+    const close = html.indexOf("</template>");
+    expect(html.indexOf('window.__timelines["sub"]')).toBeGreaterThan(-1);
+    expect(html.lastIndexOf("</script>")).toBeLessThan(close);
+    expect(html.slice(close)).toBe("</template></body></html>\n");
+  });
+
+  it("a first animation lands inside the template when <html> carries the composition id", async () => {
+    const html = await addFirstAnimation(
+      '<!DOCTYPE html><html data-composition-id="sub"><body><template><div data-composition-id="sub"><div id="card"></div></div></template></body></html>\n',
+    );
+    const close = html.indexOf("</template>");
+    expect(html.lastIndexOf("</script>")).toBeLessThan(close);
+    expect(html.slice(close)).toBe("</template></body></html>\n");
+  });
+
+  it("a first animation lands inside the template when the <template> tag carries the composition id", async () => {
+    const html = await addFirstAnimation(
+      '<!DOCTYPE html><html data-composition-id="sub"><body><template data-composition-id="sub"><div id="card"></div></template></body></html>\n',
+    );
+    const close = html.indexOf("</template>");
+    expect(html.lastIndexOf("</script>")).toBeLessThan(close);
+    expect(html.slice(close)).toBe("</template></body></html>\n");
+  });
+
+  it("a first animation in a file whose composition is in <body> lands before </body>", async () => {
+    const html = await addFirstAnimation(
+      '<body><div data-composition-id="main"><div id="card"></div></div><template id="other-template"><div data-composition-id="other"></div></template></body>\n',
+    );
+    expect(html.indexOf('window.__timelines["main"]')).toBeGreaterThan(html.indexOf("</template>"));
     expect(html.lastIndexOf("</script>")).toBeLessThan(html.indexOf("</body>"));
   });
 
@@ -2552,6 +2668,127 @@ tl.to("#box", { motionPath: { path: [{ x: 0, y: 0 }, { x: 100, y: 100 }] }, dura
     expect(result.after).not.toContain("motionPath");
   });
 
+  const trimmed = ['"100%": { x: 48 }', "duration: 1 }, 1);"];
+  const kept = ['"33.333%": { x: 48 }', "duration: 3 }, 1);"];
+  const host = (length: string, root = 'data-duration="8"') => ({
+    "index.html": `<!DOCTYPE html><html><body><div data-composition-id="main" ${root}><div data-composition-id="sub" data-composition-src="sub.html" ${length}></div></div></body></html>`,
+  });
+  const scopedStyle = '<head><style>[data-composition-id="main"] div { color: red }</style></head>';
+  it.each([
+    [
+      "ends the tween it edits on its last key",
+      "index.html",
+      'data-composition-id="main" data-duration="8"',
+      {},
+      trimmed,
+    ],
+    [
+      "ends it past a scoped style naming the root",
+      "index.html",
+      'data-composition-id="main" data-duration="8"',
+      {},
+      trimmed,
+      scopedStyle,
+    ],
+    ["ends it in a file with no composition root", "index.html", 'data-duration="8"', {}, trimmed],
+    [
+      "keeps the tail of a root whose length is its timeline",
+      "index.html",
+      'data-composition-id="main"',
+      {},
+      kept,
+    ],
+    [
+      "ends it in a sub-composition whose host gives its length",
+      "sub.html",
+      'data-composition-id="sub"',
+      host('data-duration="4"'),
+      trimmed,
+    ],
+    [
+      "ends it in a sub-composition whose host gives its end",
+      "sub.html",
+      'data-composition-id="sub"',
+      host('data-end="4"'),
+      trimmed,
+    ],
+    [
+      "keeps the tail of a sub-composition whose host gives none",
+      "sub.html",
+      'data-composition-id="sub"',
+      host(""),
+      kept,
+    ],
+    [
+      "keeps the tail of a sub-composition in an unsized root",
+      "sub.html",
+      'data-composition-id="sub"',
+      host('data-duration="4"', ""),
+      kept,
+    ],
+    [
+      "keeps the tail of an unsized root no host mounts",
+      "demo.html",
+      'data-composition-id="main"',
+      {},
+      kept,
+    ],
+    [
+      "keeps the tail of a composition its template-wrapped host gives no length",
+      "inner.html",
+      "",
+      {
+        ...host('data-duration="4"'),
+        "sub.html":
+          '<template><div data-composition-id="sub"><div data-composition-src="inner.html"></div></div></template>',
+      },
+      kept,
+    ],
+  ])(
+    "a keyframe write %s, and leaves other tails alone",
+    async (_, file, root, mounts, written, head = "") => {
+      const projectDir = createProjectDir();
+      for (const [name, html] of Object.entries(mounts)) writeHtml(projectDir, name, html);
+      const authored = `tl.to("#other", { keyframes: { "0%": { x: 0 }, "50%": { x: 90 } }, duration: 2 }, 0);`;
+      writeHtml(
+        projectDir,
+        file,
+        `<!DOCTYPE html><html>${head}<body ${root}>
+<div id="box"></div><div id="other"></div>
+<script data-hyperframes-gsap>
+const tl = gsap.timeline();
+tl.to("#box", { keyframes: { "0%": { x: 300 } }, duration: 3 }, 1);
+${authored}
+</script>
+</body></html>`,
+      );
+      const app = new Hono();
+      registerFileRoutes(app, createAdapter(projectDir));
+
+      const anim = await getFirstAnimation(app, file);
+      const res = await app.request(`http://localhost/projects/demo/gsap-mutations/${file}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "replace-with-keyframes",
+          animationId: anim.id,
+          targetSelector: "#box",
+          position: 1,
+          duration: 3,
+          keyframes: [
+            { percentage: 0, properties: { x: 300 } },
+            { percentage: 33.333, properties: { x: 48 } },
+          ],
+        }),
+      });
+      const result = (await res.json()) as { ok: boolean; after: string };
+
+      expect(result.ok).toBe(true);
+      for (const text of written) expect(result.after).toContain(text);
+      expect(result.after).toContain(authored);
+    },
+  );
+
   it("edits a template-wrapped tween in place, preserving gsap.set and the IIFE", async () => {
     const projectDir = createProjectDir();
     writeComp(projectDir, "scene.html", TEMPLATE_COMP);
@@ -2590,6 +2827,30 @@ tl.to("#box", { motionPath: { path: [{ x: 0, y: 0 }, { x: 100, y: 100 }] }, dura
     expect(result.after).toContain("(function () {");
     // The variable target was not flattened to a string-literal selector
     expect(result.after).toContain("tl.to(kicker,");
+  });
+
+  it.each([
+    ["#b", false],
+    ["#p", true],
+  ])("shifting %s pins #p before its first key: %s", async (targetSelector, held) => {
+    const dir = createProjectDir();
+    writeHtml(
+      dir,
+      "index.html",
+      `<!DOCTYPE html><html><body><script data-hyperframes-gsap>
+const tl = gsap.timeline({ paused: true });
+tl.to("#p", { keyframes: { "0%": { x: -150 }, "100%": { x: 0 } }, duration: 2 }, 1.2);
+tl.to("#b", { duration: 1, x: 200 }, 2);
+</script></body></html>`,
+    );
+    const app = new Hono();
+    registerFileRoutes(app, createAdapter(dir));
+    const res = await app.request("http://localhost/projects/demo/gsap-mutations/index.html", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "shift-positions", targetSelector, delta: 1 }),
+    });
+    expect(((await res.json()) as { after: string }).after.includes("hf-hold")).toBe(held);
   });
 
   it("shift-positions-batch equals sequential single shifts (atomic multi-clip)", async () => {
@@ -2640,6 +2901,60 @@ tl.to("#b", { duration: 1, x: 200 }, 2);
     expect(batch.changed).toBe(true);
     // Batching #a then #b in one write == applying them as two sequential single shifts.
     expect(batch.after).toBe(seqAfter);
+  });
+
+  it("a gsap-mutations-batch of clip retimes writes what single requests in turn write", async () => {
+    // #k is keyframed after t=0, so every write re-syncs its position hold.
+    const SCENE = `<!DOCTYPE html><html><body>
+<div id="a" data-start="1" data-duration="2"></div><div id="b" data-start="2" data-duration="2"></div>
+<div id="k" data-start="0" data-duration="6"></div>
+<script data-hyperframes-gsap>
+const tl = gsap.timeline({ paused: true });
+tl.to("#a", { duration: 1, x: 100 }, 1);
+tl.to("#b", { duration: 1.5, x: 200 }, 2);
+tl.to("#k", { keyframes: [{ x: 10 }, { x: 40 }], duration: 2 }, 1.5);
+</script></body></html>`;
+    const mutations = [
+      { type: "shift-positions", targetSelector: "#a", delta: 1 },
+      { type: "shift-positions", targetSelector: "#nobody", delta: 0 },
+      {
+        type: "scale-positions",
+        targetSelector: "#b",
+        oldStart: 2,
+        oldDuration: 2,
+        newStart: 2.5,
+        newDuration: 3,
+      },
+      { type: "shift-positions", targetSelector: "#k", delta: 0.75 },
+    ];
+    const post = (app: Hono, path: string, body: unknown) =>
+      app.request(`http://localhost/projects/demo/${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+    const seqDir = createProjectDir();
+    writeHtml(seqDir, "scene.html", SCENE);
+    const seqApp = new Hono();
+    registerFileRoutes(seqApp, createAdapter(seqDir));
+    let seqAfter = "";
+    for (const mutation of mutations) {
+      const res = await post(seqApp, "gsap-mutations/scene.html", mutation);
+      seqAfter = ((await res.json()) as { after: string }).after;
+    }
+
+    const batchDir = createProjectDir();
+    writeHtml(batchDir, "scene.html", SCENE);
+    const batchApp = new Hono();
+    registerFileRoutes(batchApp, createAdapter(batchDir));
+    const res = await post(batchApp, "gsap-mutations-batch/scene.html", { mutations });
+    const batch = (await res.json()) as { after: string; mutationChanges: boolean[] };
+
+    expect(res.status).toBe(200);
+    expect(batch.after).toBe(seqAfter);
+    expect(batch.after).not.toBe(SCENE);
+    expect(batch.mutationChanges).toEqual([true, false, true, true]);
   });
 
   it("reports no GSAP mutation for shift-positions-batch in a file with no GSAP script", async () => {

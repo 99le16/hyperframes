@@ -1,6 +1,23 @@
 import { buildProjectApiPath } from "../../utils/projectRouting";
+import { studioApiFetch } from "../../utils/studioApiFetch";
+import type { DomEditSelection } from "./domEditingTypes";
 
-type ProbeTarget = { id?: string; hfId?: string; selector?: string; selectorIndex?: number };
+export type ProbeTarget = { id?: string; hfId?: string; selector?: string; selectorIndex?: number };
+
+export function knownSourceAnswer(
+  previous: DomEditSelection | null | undefined,
+  element: HTMLElement,
+  sourceFile: string,
+  target: ProbeTarget,
+): boolean | undefined {
+  if (!previous || previous.element !== element || previous.sourceFile !== sourceFile) return;
+  const same =
+    previous.id === target.id &&
+    previous.hfId === target.hfId &&
+    previous.selector === target.selector &&
+    previous.selectorIndex === target.selectorIndex;
+  return same ? previous.existsInSource : undefined;
+}
 
 interface PendingProbe {
   target: ProbeTarget;
@@ -12,7 +29,7 @@ const pending = new Map<string, PendingProbe[]>();
 async function sendBatch(projectId: string, sourceFile: string, probes: PendingProbe[]) {
   let exists: boolean[] = [];
   try {
-    const response = await fetch(
+    const response = await studioApiFetch(
       buildProjectApiPath(
         projectId,
         `/file-mutations/probe-elements/${encodeURIComponent(sourceFile)}`,

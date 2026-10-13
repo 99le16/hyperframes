@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  applyTimelineMoveAttributes,
   applyTimelineStackingReorder,
   buildTimelineMoveTimingPatch,
   buildTimelineResizeTimingPatch,
@@ -217,6 +218,26 @@ describe("patchIframeDomTiming", () => {
 
     expect([...cards!].map((card) => card.dataset.start)).toEqual(["1", "9"]);
   });
+
+  it("makes a runtime-stamped element authored on any timing edit, a lane move included", () => {
+    const iframe = makeIframeWith(`
+      <div data-composition-id="root">
+        <div id="title" data-start="0" data-duration="10" data-hf-autostamped="1"></div>
+        <div id="badge" data-start="0" data-duration="10" data-hf-autostamped="1"></div>
+      </div>
+    `);
+    const doc = iframe.contentDocument!;
+    const at = (id: string) => el({ id, tag: "div", domId: id, sourceFile: "index.html" });
+
+    patchIframeDomTiming(iframe, at("title"), [
+      ["data-start", "4"],
+      ["data-duration", "2"],
+    ]);
+    patchIframeDomTiming(iframe, at("badge"), [["data-track-index", "3"]]);
+
+    expect(doc.getElementById("title")?.hasAttribute("data-hf-autostamped")).toBe(false);
+    expect(doc.getElementById("badge")?.hasAttribute("data-hf-autostamped")).toBe(false);
+  });
 });
 
 describe("extendRootDurationIfNeeded", () => {
@@ -230,6 +251,28 @@ describe("extendRootDurationIfNeeded", () => {
     expect(extendRootDurationIfNeeded(3)).toBe(false);
     expect(usePlayerStore.getState().duration).toBe(5);
   });
+});
+
+describe("buildTimelineMoveTimingPatch", () => {
+  it.each([
+    { root: ' data-duration="20"', length: 'data-composition-id="c" data-duration="8"' },
+    { root: "", length: 'data-composition-id="c">' },
+  ])(
+    "parses the saved file once to move a clip and sync the length (root$root)",
+    ({ root, length }) => {
+      const source = `<div data-composition-id="c"${root}><div id="a" class="clip" data-start="1" data-duration="3"></div></div>`;
+      const parse = vi.spyOn(DOMParser.prototype, "parseFromString");
+      try {
+        const patched = buildTimelineMoveTimingPatch(source, { id: "a" }, 5, 3);
+
+        expect(patched).toContain('data-start="5"');
+        expect(patched).toContain(length);
+        expect(parse).toHaveBeenCalledTimes(1);
+      } finally {
+        parse.mockRestore();
+      }
+    },
+  );
 });
 
 describe("buildTimelineResizeTimingPatch", () => {
@@ -314,6 +357,26 @@ describe("persistTimelineBatchEdit", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("syncs each file's root duration once, landing where per-member sync would", async () => {
+    const source = `<div id="root" data-composition-id="main" data-duration="4"><video id="a" class="clip" data-start="1" data-duration="1"></video><video id="b" class="clip" data-start="2" data-duration="1"></video><video id="c" class="clip" data-start="3" data-duration="1"></video></div>`;
+    const members = ["a", "b", "c"].map((id, i) => ({
+      element: el({ id, tag: "video", domId: id, start: i + 1, duration: 1 }),
+      buildPatches: (original: string, target: Parameters<typeof applyTimelineMoveAttributes>[1]) =>
+        applyTimelineMoveAttributes(original, target, i + 6, 1),
+    }));
+    stubReadFileContent(source);
+    const writes: Array<[string, string]> = [];
+    await persistTimelineBatchEdit(batchInput(members, writes));
+
+    const perMember = members.reduce(
+      (current, { element }, i) =>
+        buildTimelineMoveTimingPatch(current, { id: element.id }, i + 6, 1),
+      source,
+    );
+    expect(writes).toEqual([["index.html", perMember]]);
+    expect(perMember).toContain('data-duration="9"');
   });
 
   it("skips no-op members instead of aborting the batch (track-insert renumber)", async () => {

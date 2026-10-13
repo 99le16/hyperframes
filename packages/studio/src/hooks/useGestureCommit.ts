@@ -8,6 +8,7 @@ import { simplifyGestureSamples } from "../utils/rdpSimplify";
 import { fitEasesFromVelocity } from "../utils/velocityEaseFitter";
 import { smoothGestureKeyframes } from "../utils/gestureSmoother";
 import { usePlayerStore } from "../player";
+import { resolveTweenDuration } from "../utils/globalTimeCompiler";
 import type { DomEditSelection } from "../components/editor/domEditing";
 import type { GsapAnimation } from "@hyperframes/core/gsap-parser";
 import type { CommitMutationOptions } from "./gsapScriptCommitTypes";
@@ -15,8 +16,15 @@ import { trackPreviewEditResult } from "../utils/previewFeatureUsage";
 import { observeGsapGesture } from "./gsapGestureOutcome";
 import { roundTo3 } from "../utils/rounding";
 import { classifyPropertyGroup } from "@hyperframes/core/gsap-parser";
-import { isInstantHold, idSelector, writeTargetSelector, tweenTargetsElement } from "./gsapShared";
+import {
+  isInstantHold,
+  idSelector,
+  keyframeEases,
+  writeTargetSelector,
+  tweenTargetsElement,
+} from "./gsapShared";
 import { useStableHandlers } from "./useStableHandlers";
+import { progressAtTime, runEaseOf, timeAtProgress, warpsTime } from "../utils/gsapKeyframeEases";
 
 type RecordedKeyframe = {
   percentage: number;
@@ -174,11 +182,11 @@ export function useGestureCommit({
         frozenSamples.length > 0 ? (frozenSamples[frozenSamples.length - 1]?.time ?? 0) : 0;
 
       if (frozenSamples.length <= 2) {
-        showToast("No gesture detected — move the pointer while recording", "error");
+        showToast("No gesture detected. Move the pointer while recording", "error");
         return;
       }
       if (duration <= 0) {
-        showToast("Recording too short — try again", "error");
+        showToast("Recording too short. Try again", "error");
         return;
       }
 
@@ -205,7 +213,7 @@ export function useGestureCommit({
       // would record the gesture onto every sibling sharing it.
       const selector = sel.id ? idSelector(sel.id) : sel.selector;
       if (!selector) {
-        showToast("Cannot save — element has no selector", "error");
+        showToast("Cannot save: element has no selector", "error");
         return;
       }
       // A recorded gesture becomes a NEW tween, so its target must address one
@@ -258,7 +266,7 @@ export function useGestureCommit({
             );
           } else {
             const tweenStart = existingPositionTween.resolvedStart ?? 0;
-            const tweenDur = existingPositionTween.duration ?? duration;
+            const tweenDur = resolveTweenDuration(existingPositionTween);
             const tweenEnd = tweenStart + tweenDur;
             const recEnd = recStart + duration;
 
@@ -268,25 +276,34 @@ export function useGestureCommit({
 
             if (overlaps) {
               const existingKfs = existingPositionTween.keyframes?.keyframes ?? [];
-              const rangeStartPct =
+              const startTimePct =
                 tweenDur > 0 ? Math.max(0, ((recStart - tweenStart) / tweenDur) * 100) : 0;
-              const rangeEndPct =
+              const endTimePct =
                 tweenDur > 0 ? Math.min(100, ((recEnd - tweenStart) / tweenDur) * 100) : 100;
+              const runEase = runEaseOf(existingPositionTween);
+              const roundPct = warpsTime(runEase) ? (pct: number) => pct : roundTo3;
 
               const preserved = existingKfs
-                .filter(
-                  (kf) => kf.percentage < rangeStartPct - 0.5 || kf.percentage > rangeEndPct + 0.5,
-                )
+                .filter((kf) => {
+                  const playsAt = timeAtProgress(runEase, kf.percentage);
+                  return playsAt < startTimePct - 0.5 || playsAt > endTimePct + 0.5;
+                })
                 .map((kf) => ({
                   percentage: kf.percentage,
                   properties: kf.properties,
                   ...(kf.ease ? { ease: kf.ease } : {}),
                 }));
 
-              const mapped = keyframes.map((kf) => ({
-                percentage: rangeStartPct + (kf.percentage / 100) * (rangeEndPct - rangeStartPct),
+              const constantSpeed = { ease: "none" };
+              const mapped = keyframes.map((kf, index) => ({
+                percentage: roundPct(
+                  progressAtTime(
+                    runEase,
+                    startTimePct + (kf.percentage / 100) * (endTimePct - startTimePct),
+                  ),
+                ),
                 properties: kf.properties,
-                ...(kf.ease ? { ease: kf.ease } : {}),
+                ...(kf.ease ? { ease: kf.ease } : index > 0 ? constantSpeed : {}),
               }));
 
               const merged = [...preserved, ...mapped].sort((a, b) => a.percentage - b.percentage);
@@ -302,6 +319,7 @@ export function useGestureCommit({
                       : tweenStart,
                   duration: tweenDur,
                   keyframes: merged,
+                  ...keyframeEases(existingPositionTween),
                 },
                 { label: "Gesture recording (merge)", softReload: true, keyframeAction: "add" },
               );
@@ -394,7 +412,7 @@ export function useGestureCommit({
       }
       const iframe = previewIframeRef.current;
       if (!iframe) {
-        showToast("Preview not ready — try again", "error");
+        showToast("Preview not ready. Try again", "error");
         return;
       }
 
