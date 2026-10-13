@@ -48,7 +48,6 @@ export interface SegmentPlanHashInput {
   outputHeight: number;
   /** Serialised motion-blur options, or "" when off; sample count and shutter change every pixel. */
   motionBlur: string;
-  /** Capture jpeg quality, or undefined for png capture; it changes every captured pixel. */
   captureQuality: number | undefined;
 }
 
