@@ -6,6 +6,15 @@ import {
   resolveSnapshotCompositionRange,
   type SnapshotRange,
 } from "./snapshotSampling.js";
+import { captureArtifactRevision } from "../utils/artifactCapture.js";
+import { randomUUID } from "node:crypto";
+import {
+  artifactDirectory,
+  forgetRecordedArtifacts,
+  recordArtifacts,
+  type ArtifactCapture,
+} from "@hyperframes/studio-server/history";
+import { pngDimensions } from "../utils/pngDimensions.js";
 import { failCommand } from "../utils/commandResult.js";
 // fallow-ignore-file complexity
 import { defineCommand } from "citty";
@@ -461,6 +470,17 @@ async function captureSnapshots(
 ): Promise<string[]> {
   const { bundleWithLocalizedFonts } = await import("../utils/bundleWithLocalizedFonts.js");
 
+  const capture = await captureArtifactRevision(projectDir).catch(warnSnapshotsNotRecorded);
+  const invocation = randomUUID();
+  const artifacts: Array<{
+    id: string;
+    image: string;
+    time: number;
+    metadata: Record<string, unknown>;
+  }> = [];
+  const replaced: string[] = [];
+  const warnings: string[] = [];
+  let completed = false;
   const numFrames = opts.frames ?? 5;
 
   // Localize fonts (embed remote @font-face as data URIs, matching the render
@@ -471,13 +491,18 @@ async function captureSnapshots(
   const savedPaths: string[] = [];
 
   try {
-    const { browser: chromeBrowser, page } = await openSettledCompositionPage(html, server.url, {
+    const {
+      browser: chromeBrowser,
+      page,
+      renderReadyTimedOut,
+    } = await openSettledCompositionPage(html, server.url, {
       renderReadyTimeoutMs: opts.timeout ?? 5000,
       renderReadyWarningSuffix: "snapshots may be inaccurate",
       browserGpuMode: opts.browserGpuMode,
     });
 
     try {
+      if (renderReadyTimedOut) warnings.push("Render readiness timed out");
       // Font verification — split into loaded / errored / unused. Only status
       // "error" is a real failure; a face still "unloaded"/"loading" after
       // document.fonts.ready + the settle wait was simply never requested by any
@@ -511,6 +536,9 @@ async function captureSnapshots(
           console.log(`   ${c.error("Fonts FAILED:")} ${fontReport.errored.join(", ")}`);
         }
       }
+
+      if (fontReport.errored.length)
+        warnings.push(`Fonts failed: ${fontReport.errored.join(", ")}`);
 
       const duration = await page.evaluate(() => {
         const win = window as any;
@@ -572,13 +600,15 @@ async function captureSnapshots(
           ? `(${orbitStageSource()})(${JSON.stringify(opts.angle)})`
           : null;
 
-      const snapshotDir = opts.outputDir ?? join(projectDir, "snapshots");
+      const snapshotDir = opts.outputDir ?? artifactDirectory(projectDir, "snapshots");
       mkdirSync(snapshotDir, { recursive: true });
       try {
         const { readdirSync } = await import("node:fs");
         for (const file of readdirSync(snapshotDir)) {
           if (/\.(png|jpg|jpeg)$/i.test(file)) {
-            rmSync(join(snapshotDir, file), { force: true });
+            const path = resolve(snapshotDir, file);
+            replaced.push(path);
+            rmSync(path, { force: true });
           }
         }
       } catch {
@@ -618,6 +648,7 @@ async function captureSnapshots(
         // <video data-start> will screenshot black (chrome-headless ignores
         // programmatic currentTime writes). Say so instead of silently
         // shipping black frames (two wild Windows reports).
+        warnings.push("Video frame extraction engine unavailable");
         console.warn(
           `   ${c.warn("⚠")} @hyperframes/engine unavailable — <video> elements will appear black in snapshots. Verify media via a draft render's extracted frames instead.`,
         );
@@ -762,6 +793,7 @@ async function captureSnapshots(
 
           if (active.length > 0 && updates.length < active.length) {
             const missed = active.length - updates.length;
+            warnings.push(`${missed} video frames missing at ${time}s`);
             console.warn(
               `   ${c.warn("⚠")} ${missed}/${active.length} active <video> frame(s) could not be extracted at ${time.toFixed(1)}s — those videos will appear black/stale in this snapshot`,
             );
@@ -777,6 +809,7 @@ async function captureSnapshots(
               active.map((a) => a.id),
             );
           } catch {
+            warnings.push(`Video injection failed at ${time}s`);
             console.warn(
               `   ${c.warn("⚠")} video frame injection failed at ${time.toFixed(1)}s — <video> elements will appear black/stale in this snapshot`,
             );
@@ -790,6 +823,7 @@ async function captureSnapshots(
         const filename = `frame-${index}-at-${timeLabel}.png`;
         const framePath = join(snapshotDir, filename);
 
+        let crop: { x: number; y: number; width: number; height: number } | undefined;
         if (opts.zoom) {
           // Clip screenshot at a raised deviceScaleFactor — never CSS zoom or
           // viewport resizing — so the composition's own layout is untouched.
@@ -799,11 +833,13 @@ async function captureSnapshots(
           }));
           const region = await resolveCropRegion(page, opts.zoom, canvas);
           if (!region) {
+            warnings.push(`Crop target unavailable at ${time}s`);
             console.error(
               `   ${c.warn("⚠")} --zoom target has no visible box at ${time.toFixed(1)}s — frame skipped`,
             );
             continue;
           }
+          crop = region;
           const buffer = await captureRegionCrop(
             page,
             region,
@@ -813,6 +849,19 @@ async function captureSnapshots(
         } else {
           await page.screenshot({ path: framePath, type: "png", omitBackground: true });
         }
+        artifacts.push({
+          id: `${invocation}-${i}`,
+          image: resolve(framePath),
+          time,
+          metadata: {
+            ...pngDimensions(framePath),
+            crop,
+            zoom: opts.zoom,
+            zoomScale: opts.zoom ? (opts.zoomScale ?? DEFAULT_ZOOM_SCALE) : 1,
+            angle: opts.angle,
+            browserGpuMode: opts.browserGpuMode,
+          },
+        });
         if (opts.against) {
           // Frame-exact reference frame beside the render, so a rebuild can be
           // checked against its footage without hand-rolled ffmpeg + montage.
@@ -841,14 +890,59 @@ async function captureSnapshots(
         const rel = relative(projectDir, framePath);
         savedPaths.push(rel.startsWith("..") || isAbsolute(rel) ? framePath : rel);
       }
+      completed = true;
     } finally {
       await chromeBrowser.close();
     }
   } finally {
     await server.close();
+    const recorded = capture
+      ? await recordSnapshotArtifacts(
+          projectDir,
+          capture,
+          artifacts,
+          opts.zoom,
+          warnings,
+          completed,
+        )
+      : false;
+    if (!recorded) {
+      const paths = [...replaced, ...artifacts.map((artifact) => artifact.image)];
+      if (paths.length > 0) await forgetRecordedArtifacts(projectDir, paths).catch(() => undefined);
+    }
   }
 
   return savedPaths;
+}
+
+function warnSnapshotsNotRecorded(error: unknown): undefined {
+  console.warn(`   ${c.warn("⚠")} Snapshots were not recorded: ${normalizeErrorMessage(error)}`);
+  return undefined;
+}
+
+async function recordSnapshotArtifacts(
+  projectDir: string,
+  capture: ArtifactCapture,
+  artifacts: Array<{ id: string; image: string; time: number; metadata: Record<string, unknown> }>,
+  zoom: ZoomTarget | undefined,
+  warnings: string[],
+  completed: boolean,
+): Promise<boolean> {
+  const records = await recordArtifacts(
+    projectDir,
+    capture,
+    artifacts.map((artifact) => ({
+      kind: "snapshot",
+      scope: zoom ? "crop" : "full",
+      ...artifact,
+      metadata: { ...artifact.metadata, warnings, partial: !completed || warnings.length > 0 },
+    })),
+  ).catch(warnSnapshotsNotRecorded);
+  const record = records?.[0];
+  if (!record) return false;
+  console.log(`   Revision: ${record.revision ?? "none"} (${record.attribution})`);
+  console.log(`   State: ${join(projectDir, ".hyperframes", "video-state.json")}`);
+  return true;
 }
 
 export default defineCommand({
@@ -865,7 +959,8 @@ export default defineCommand({
     output: {
       type: "string",
       alias: "o",
-      description: "Directory to write snapshots into (default: <project>/snapshots)",
+      description:
+        "Directory to write snapshots into (default: unique directory under <project>/.hyperframes/artifacts/snapshots)",
     },
     frames: {
       type: "string",
@@ -1011,7 +1106,7 @@ export default defineCommand({
     try {
       const snapshotDir = args.output
         ? resolve(String(args.output))
-        : join(project.dir, "snapshots");
+        : artifactDirectory(project.dir, "snapshots");
       await withProjectLock(project.dir, "snapshot", async () => {
         const paths = await captureSnapshots(project.dir, {
           frames,
@@ -1041,9 +1136,7 @@ export default defineCommand({
           failCommand();
         }
 
-        console.log(
-          `\n${c.success("◇")}  ${paths.length} snapshots saved to ${args.output ? snapshotDir : "snapshots/"}`,
-        );
+        console.log(`\n${c.success("◇")}  ${paths.length} snapshots saved to ${snapshotDir}`);
         for (const p of paths) {
           console.log(`   ${p}`);
         }

@@ -294,6 +294,37 @@ function dropSupersededArtifacts(artifacts: ArtifactCollection, artifact: Artifa
   }
 }
 
+function listsOf(artifacts: ArtifactCollection): ArtifactRecord[][] {
+  return [...Object.values(artifacts.revisions), artifacts.unversioned];
+}
+
+export async function forgetRecordedArtifacts(
+  projectDir: string,
+  paths: readonly string[],
+): Promise<void> {
+  const gone = new Set(paths.map((path) => resolve(path)));
+  if (gone.size === 0) return;
+  await updateState(projectDir, (state) => {
+    for (const artifacts of [state.checks, state.snapshots]) {
+      for (const list of listsOf(artifacts)) {
+        for (let i = list.length - 1; i >= 0; i--) {
+          const record = list[i]!;
+          const path = record.image ?? record.report;
+          if (path && gone.has(resolve(path))) list.splice(i, 1);
+        }
+      }
+      if (
+        artifacts.latest &&
+        !listsOf(artifacts).some((list) =>
+          list.some((record) => record.id === artifacts.latest?.id),
+        )
+      ) {
+        artifacts.latest = null;
+      }
+    }
+  });
+}
+
 export function artifactDirectory(projectDir: string, kind: "checks" | "snapshots"): string {
   return join(resolve(projectDir), ".hyperframes", "artifacts", kind, randomUUID());
 }

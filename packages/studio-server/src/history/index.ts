@@ -34,6 +34,7 @@ export {
 
 export {
   beginArtifactCapture,
+  forgetRecordedArtifacts,
   recordArtifact,
   recordArtifacts,
   artifactDirectory,
