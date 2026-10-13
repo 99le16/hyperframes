@@ -1382,6 +1382,60 @@ describe.skipIf(!HAS_FFMPEG)("video frame extraction format", () => {
     };
   }
 
+  it("keeps the rightmost 8 columns of a 1080-wide (16n + 8) jpg extraction", async () => {
+    const source = join(FIXTURE_DIR, "white-1080.mp4");
+    const synth = await runFfmpeg([
+      "-y",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "color=c=white:s=1080x16:d=1:r=1",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "ultrafast",
+      "-crf",
+      "0",
+      "-pix_fmt",
+      "yuv420p",
+      source,
+    ]);
+    expect(synth.success).toBe(true);
+    const outDir = join(FIXTURE_DIR, "out-white-1080");
+    mkdirSync(outDir, { recursive: true });
+    const result = await extractAllVideoFrames(
+      [{ ...fixtureVideo(), id: "white", src: source }],
+      FIXTURE_DIR,
+      { fps: 1, outputDir: outDir },
+    );
+    expect(result.errors).toEqual([]);
+    const frame = result.extracted[0]!.framePaths.get(0)!;
+    expect(frame.endsWith(".jpg")).toBe(true);
+    const lastColumns = (file: string) => [
+      ...spawnSync("ffmpeg", [
+        "-v",
+        "error",
+        "-i",
+        file,
+        "-frames:v",
+        "1",
+        "-vf",
+        "format=gray,crop=8:1:iw-8:8",
+        "-f",
+        "rawvideo",
+        "-",
+      ]).stdout,
+    ];
+    const delivered = lastColumns(frame);
+    const expected = lastColumns(source);
+    expect(delivered).toHaveLength(8);
+    for (const [i, v] of delivered.entries())
+      expect(Math.abs(v - expected[i]!)).toBeLessThanOrEqual(5);
+  }, 60_000);
+
   it("keeps color-sensitive UI reds closer to source when extraction is forced to png", async () => {
     const defaultOut = join(FIXTURE_DIR, "out-default");
     const pngOut = join(FIXTURE_DIR, "out-png");
