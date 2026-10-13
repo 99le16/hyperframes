@@ -14,7 +14,7 @@ Only what the user actually confirmed gets recorded — never an inferred or def
 
 Preference records serialize writes with `preferences.json.lock` beside each tier's file. If a process stops while holding that lock, later records leave it in place and report "Settings are locked…". After confirming no HyperFrames process is recording preferences, delete the named lock file and retry. A locked personal tier does not fail the project record; personal promotion waits for a later record.
 
-Keep `.media/preferences.json` committed, and add `.media/*.lock` to the project's `.gitignore` so transient locks are never shared with the team.
+Keep the project's preference file committed, and add `.media/*.lock` to the project's `.gitignore` so transient locks are never shared with the team.
 
 ## Recipes — frozen video bundles
 
