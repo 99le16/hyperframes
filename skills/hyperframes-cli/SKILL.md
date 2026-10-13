@@ -79,6 +79,9 @@ Static audits cannot catch every mount failure. When the project uses sub-compos
 
 ```bash
 npx hyperframes snapshot --at <t1>,<t2>,<t3>
+# For multiple samples within one scene or interval:
+npx hyperframes snapshot --composition <data-composition-id> --frames 8
+npx hyperframes snapshot --range 3:5 --frames 8
 ```
 
 Treat tiny unstyled content, canvas-sized icons, missing hero elements, or timeline-registration timeouts as render-blocking mount defects. See `hyperframes-core/references/sub-compositions.md` for the corresponding fixes.
@@ -125,6 +128,8 @@ Use `selection.target.hfId` when available, otherwise its selector and source fi
 | HeyGen-hosted zero-infrastructure render | `npx hyperframes cloud render`                                                |
 | Self-managed distributed AWS render      | `npx hyperframes lambda render <project> --width 1920 --height 1080 --wait`   |
 | Self-managed distributed GCP render      | `npx hyperframes cloudrun render <project> --width 1920 --height 1080 --wait` |
+
+A render stops when whatever started it stops, so a Ctrl-C or a closed terminal never leaves Chrome running. If your tool kills its whole process group when a command times out or ends, a long render dies with it. Start such a render in its own process group with `HYPERFRAMES_RENDER_DETACHED=1`, for example `bash -c 'set -m; HYPERFRAMES_RENDER_DETACHED=1 npx hyperframes render --output out.mp4 < /dev/null > render.log 2>&1 &'` (works on macOS and Linux), then check the log and the output file instead of waiting on the command.
 
 Skill attribution is automatic — the examples above need no `--skill`. A project scaffolded by a workflow (`hyperframes init --skill=<workflow>`) records its owning skill in `hyperframes.json`, and every later render inherits it on anonymous telemetry: re-renders, `npm run render`, and `--batch` alike. Pass `--skill=<slug>` explicitly only to stamp a project that was not created through a workflow (its first render then persists it).
 
