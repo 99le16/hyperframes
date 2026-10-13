@@ -461,6 +461,62 @@ describe("resolveBrowserGpuMode", () => {
     expect(warning).not.toContain("--gpus all");
   });
 
+  describe("under WSL (heygen-com/hyperframes#5548)", () => {
+    const wslHost = {
+      platform: "linux" as const,
+      release: "5.15.167.4-microsoft-standard-WSL2",
+      readProcVersion: () => "",
+      exists: (path: string) => path === "/dev/dri/renderD128",
+      canOpen: () => false,
+    };
+    const errorOutput = (spy: { mock: { calls: unknown[][] } }) =>
+      spy.mock.calls.map((call) => String(call[0])).join("\n");
+
+    it("says why auto mode fell back and how to fix it, once", async () => {
+      setMockWebGlProbe({ hasWebGL: false, vendor: "", renderer: "" });
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      expect(await resolveBrowserGpuMode("auto", { platform: "linux", wslHost })).toBe("software");
+      await resolveBrowserGpuMode("auto", { platform: "linux", wslHost });
+      const output = errorOutput(error);
+      expect(output).toContain("browserGpuMode probe → software (WebGL unavailable)");
+      expect(output).toContain('not in the "render" group');
+      expect(output).toContain("sudo usermod -aG render $USER");
+      expect(output.match(/usermod/g)).toHaveLength(1);
+    });
+
+    it("explains a probe that timed out too", async () => {
+      _setPuppeteerForTests({
+        launch: vi.fn().mockRejectedValue(new Error("GPU probe page did not answer")),
+      } as unknown as PuppeteerNode);
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      expect(await resolveBrowserGpuMode("auto", { platform: "linux", wslHost })).toBe("software");
+      expect(errorOutput(error)).toContain("sudo usermod -aG render $USER");
+    });
+
+    it("points explicit 'hardware' at the WSL note instead of Docker passthrough", async () => {
+      setMockWebGlProbe({ hasWebGL: false, vendor: "", renderer: "" });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      expect(await resolveBrowserGpuMode("hardware", { platform: "linux", wslHost })).toBe(
+        "hardware",
+      );
+      const warning = String(warn.mock.calls[0]?.[0]);
+      expect(warning).toContain("WSL note above");
+      expect(warning).not.toContain("--gpus all");
+    });
+
+    it("stays quiet when WSL hands Chrome a hardware GPU", async () => {
+      setMockWebGlProbe({
+        hasWebGL: true,
+        vendor: "Google Inc. (Microsoft Corporation)",
+        renderer: "ANGLE (Microsoft Corporation, D3D12 (Intel(R) Graphics), OpenGL ES 3.0)",
+      });
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      expect(await resolveBrowserGpuMode("auto", { platform: "linux", wslHost })).toBe("hardware");
+      expect(errorOutput(error)).not.toContain("WSL");
+    });
+  });
+
   it("falls back to 'software' within the probe budget when the probe page never answers", async () => {
     vi.useFakeTimers();
     try {

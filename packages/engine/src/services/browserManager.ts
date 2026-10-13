@@ -15,6 +15,7 @@ import { homedir } from "os";
 import { chromeMajorCeiling, exceedsChromeCeiling } from "./chromeHostCeiling.js";
 import { DEFAULT_CONFIG, type EngineConfig } from "../config.js";
 import { getSystemTotalMb, LOW_MEMORY_TOTAL_MB_THRESHOLD } from "./systemMemory.js";
+import { describeWslGpuFallback, type WslHostFacts } from "./wslHost.js";
 import {
   BrowserLeasePool,
   type BrowserLaunchFingerprint,
@@ -83,6 +84,7 @@ interface GpuProbeOptions {
   browserTimeout?: number;
   platform?: NodeJS.Platform;
   probeLifecycle?: GpuProbeLifecycle;
+  wslHost?: WslHostFacts;
 }
 
 const GPU_PROBE_TIMEOUT_MS = 15_000;
@@ -495,6 +497,8 @@ export const _closeBrowserAfterFailedProbeForTests = closeBrowserAfterFailedProb
 interface GpuProbeOutcome {
   mode: "software" | "hardware";
   cause?: "no-gpu" | "probe-error";
+  /** Set when the fallback happened under WSL; already printed by the probe. */
+  wslNote?: string;
 }
 
 /**
@@ -570,11 +574,18 @@ async function probeAutoBrowserGpuMode(options: GpuProbeOptions): Promise<GpuPro
     });
     const resolved = resolveWebGlProbeMode(info);
     logResolvedBrowserGpuMode(resolved, describeWebGlProbe(info));
-    return resolved === "hardware" ? { mode: "hardware" } : { mode: "software", cause: "no-gpu" };
+    if (resolved === "hardware") return { mode: "hardware" };
+    return { mode: "software", cause: "no-gpu", wslNote: logWslGpuFallback(options) };
   } catch (err) {
     logResolvedBrowserGpuMode("software", formatProbeFailure(err));
-    return { mode: "software", cause: "probe-error" };
+    return { mode: "software", cause: "probe-error", wslNote: logWslGpuFallback(options) };
   }
+}
+
+function logWslGpuFallback(options: GpuProbeOptions): string | undefined {
+  const note = describeWslGpuFallback(options.wslHost) ?? undefined;
+  if (note) console.error(note);
+  return note;
 }
 
 /**
@@ -618,9 +629,7 @@ export function resolveBrowserGpuMode(
     // an un-deduplicated warning prints N+1 times and buries itself.
     if (probed.mode === "software" && !_unverifiedHardwareGpuWarned) {
       _unverifiedHardwareGpuWarned = true;
-      console.warn(
-        buildUnverifiedHardwareGpuWarning(options.platform ?? process.platform, probed.cause),
-      );
+      console.warn(buildUnverifiedHardwareGpuWarning(options.platform ?? process.platform, probed));
     }
     return "hardware";
   });
@@ -643,8 +652,15 @@ let _unverifiedHardwareGpuWarned = false;
  */
 function buildUnverifiedHardwareGpuWarning(
   platform: NodeJS.Platform | string,
-  cause: GpuProbeOutcome["cause"],
+  { cause, wslNote }: GpuProbeOutcome,
 ): string {
+  if (wslNote) {
+    return (
+      "[hyperframes] browserGpuMode=hardware was requested, but the GPU probe found no usable " +
+      "GPU under WSL, so the capture will likely run at CPU speed. Honouring the explicit " +
+      "request anyway. The WSL note above says what was checked and how to fix it."
+    );
+  }
   if (cause === "probe-error") {
     return (
       "[hyperframes] browserGpuMode=hardware was requested, but the GPU probe could not run, " +
