@@ -298,7 +298,6 @@ function listsOf(artifacts: ArtifactCollection): ArtifactRecord[][] {
   return [...Object.values(artifacts.revisions), artifacts.unversioned];
 }
 
-/** Drops records whose file a run replaced or deleted, including when the new run was not recorded. */
 export async function forgetRecordedArtifacts(
   projectDir: string,
   paths: readonly string[],
