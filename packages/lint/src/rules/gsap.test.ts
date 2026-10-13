@@ -1132,6 +1132,24 @@ describe("GSAP rules", () => {
     expect(finding).toBeUndefined();
   });
 
+  it("does NOT report overlapping_gsap_tweens for two inline object proxies with the same values", async () => {
+    const html = `
+<html><body>
+  <div data-composition-id="c1" data-width="1920" data-height="1080"></div>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>
+  <script>
+    window.__timelines = window.__timelines || {};
+    const tl = gsap.timeline({ paused: true });
+    tl.to({ _: 0 }, { _: 1, duration: 5, ease: "none" }, 0);
+    tl.to({ _: 0 }, { _: 1, duration: 5, ease: "none" }, 1);
+    window.__timelines["c1"] = tl;
+  </script>
+</body></html>`;
+    const result = await lintHyperframeHtml(html);
+    const finding = result.findings.find((f) => f.code === "overlapping_gsap_tweens");
+    expect(finding).toBeUndefined();
+  });
+
   it("does NOT report overlapping_gsap_tweens for same-named constants in separate IIFEs", async () => {
     const html = `
 <html><body>

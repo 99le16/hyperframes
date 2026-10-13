@@ -129,9 +129,9 @@ describe("motion eval — staggered collection tweens are honest", () => {
     // Surfaced as keyframes so the `motion` text shows real per-element motion.
     const kfs = a.keyframes?.keyframes ?? [];
     expect(kfs.length).toBeGreaterThan(0);
-    // from() plays vars → rest: 120 → 0, a real non-no-op move.
+    // from() plays vars → rest; the rest pose lives in CSS, so it is not guessed.
     expect(kfs[0]!.properties.yPercent).toBe(120);
-    expect(kfs.at(-1)!.properties.yPercent).toBe(0);
+    expect(kfs.at(-1)!.properties.yPercent).toBeUndefined();
     // The per-element stagger is noted on the surfaced keyframes.
     expect(kfs.every((k) => k.properties.stagger === 0.08)).toBe(true);
     // Per-element duration preserved; selector + extras untouched (round-trip safe).
