@@ -141,7 +141,10 @@ export function registerHistoryRoutes(api: Hono, adapter: StudioApiAdapter): voi
       const window = await history.beginWindow(
         whoOf(body),
         text(body.label) ?? "Edited in Studio",
-        idleMs ? { idleMs } : undefined,
+        {
+          ...(idleMs ? { idleMs } : {}),
+          ...(body.exclusive === true && { exclusive: true }),
+        },
       );
       windows.set(window.id, { history, window });
       // The window's id is its last entry's id, unless nothing was left after its last part.

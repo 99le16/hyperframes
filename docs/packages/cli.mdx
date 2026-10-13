@@ -1045,11 +1045,17 @@ npx hyperframes history undo --who claude            # undo your newest turn
 | `restore <ref> [--who]` | Make the files what they were right after an entry, a time, or `start`                                 |
 | `peek <ref> [path]`     | List the files at an entry, a time, or `start` without changing anything; with a path, print that file |
 | `pin <ref> [--off]`     | Keep an entry, and what it needs, when old history is trimmed. `--off` unpins it.                      |
-| `begin --who --label`   | Start a turn: your writes until `end` become one entry under your name                                 |
-| `end`                   | End your turn and print its entry                                                                      |
+| `begin --who --label`   | Start a turn: your writes until `end` become one entry under your name. Another agent's open turn is ended first, or with `--exclusive` the command refuses instead. |
+| `end`                   | End your turn and print its entry. `--who <name>` refuses unless the open turn is that name's; `--if-open` succeeds when no turn is open. |
 
 Every command also takes `--dir` and `--json`. A ref is an entry id or a unique
 prefix of one; a time is a local date or date-time such as `2026-09-24T14:30`.
+
+Without a running preview, `history` keeps its data under `~/.cache/hyperframes/history`, or under
+`HYPERFRAMES_HISTORY_ROOT` when that is set, which keeps an agent run or a test apart from your own
+history. That path is resolved to an absolute one, and every agent on a project has to share it: the
+lock lives there, while the turn marker lives in the project. A running preview server records to
+its own location.
 
 When a file in the entry has changed since, `undo` writes nothing, exits 2 and
 lists the newer entries. Run it again with `--just-this` to put back only that
