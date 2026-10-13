@@ -129,4 +129,29 @@ describe("withProjectLock", () => {
     }
     expect(active).toBe(0);
   });
+
+  it("takes over a breaker left by a killed process", async () => {
+    const dir = project();
+    hold(dir, 2 ** 22 + 12345);
+    const breakPath = `${projectLockPath(dir)}.break`;
+    const source = `
+      import { linkSync, writeFileSync } from "node:fs";
+      const holder = { pid: process.pid, command: "check", startedAt: 1 };
+      const draft = ${JSON.stringify(`${breakPath}.killed`)};
+      writeFileSync(draft, JSON.stringify(holder), { flag: "wx" });
+      linkSync(draft, ${JSON.stringify(breakPath)});
+      process.kill(process.pid, "SIGKILL");
+    `;
+    const child = spawn(process.execPath, ["--input-type=module", "--eval", source], {
+      stdio: "ignore",
+    });
+    const signal = await new Promise<NodeJS.Signals | null>((resolve) => {
+      child.on("close", (_code, closed) => resolve(closed));
+    });
+    expect(signal).toBe("SIGKILL");
+    expect(existsSync(breakPath)).toBe(true);
+    expect(await withProjectLock(dir, "check", async () => "ran", locked(300))).toBe("ran");
+    expect(existsSync(breakPath)).toBe(false);
+    expect(existsSync(projectLockPath(dir))).toBe(false);
+  });
 });

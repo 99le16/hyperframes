@@ -36,18 +36,36 @@ function alive(pid: number): boolean {
 const sameHolder = (a: Holder | null, b: Holder) =>
   a?.pid === b.pid && a.startedAt === b.startedAt && a.command === b.command;
 
+function claimExclusive(draft: string, target: string): boolean | undefined {
+  try {
+    linkSync(draft, target);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    return undefined;
+  }
+}
+
+function takeBreaker(breakPath: string, draft: string): boolean {
+  if (claimExclusive(draft, breakPath)) return true;
+  const existing = readHolder(breakPath);
+  if (!existing || alive(existing.pid) || !sameHolder(readHolder(breakPath), existing))
+    return false;
+  try {
+    unlinkSync(breakPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  return claimExclusive(draft, breakPath) === true;
+}
+
 function breakStaleHolder(path: string, current: Holder, holder: Holder): boolean {
   const breakPath = `${path}.break`;
   const breakDraft = `${breakPath}.${holder.pid}.${holder.startedAt}`;
   let acquired = false;
   writeFileSync(breakDraft, JSON.stringify(holder), { flag: "wx" });
   try {
-    try {
-      linkSync(breakDraft, breakPath);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
-      throw error;
-    }
+    if (!takeBreaker(breakPath, breakDraft)) return false;
     if (sameHolder(readHolder(path), current)) {
       try {
         unlinkSync(path);

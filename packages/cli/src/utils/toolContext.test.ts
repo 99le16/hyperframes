@@ -1,6 +1,6 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readToolContext, reportArtifacts } from "./toolContext.js";
 
@@ -64,19 +64,27 @@ describe("reportArtifacts", () => {
         version: 1,
         type: "artifact.created",
         command: "snapshot",
-        artifact: { role: "contact-sheet", path: "/p/contact-sheet.jpg", mediaType: "image/jpeg" },
+        artifact: {
+          role: "contact-sheet",
+          path: resolve("/p/contact-sheet.jpg"),
+          mediaType: "image/jpeg",
+        },
       },
       {
         version: 1,
         type: "artifact.created",
         command: "check",
-        artifact: { role: "finding", path: "/p/crop.bin", mediaType: "application/octet-stream" },
+        artifact: {
+          role: "finding",
+          path: resolve("/p/crop.bin"),
+          mediaType: "application/octet-stream",
+        },
       },
       {
         version: 1,
         type: "artifact.created",
         command: "check",
-        artifact: { role: "finding", path: "/p/crop.png", mediaType: "image/png" },
+        artifact: { role: "finding", path: resolve("/p/crop.png"), mediaType: "image/png" },
       },
     ]);
   });
