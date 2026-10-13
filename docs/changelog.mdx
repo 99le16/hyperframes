@@ -9,6 +9,85 @@ Recent HyperFrames releases, including user-facing features, fixes, and migratio
 {/* New release entries are prepended by `bun run changelog:draft <version> --write`. */}
 
 <Update
+  label="HyperFrames v0.8.150"
+  description="Released - 2026-10-12"
+  tags={["Release", "Engine", "Audio", "Producer", "Studio"]}
+>
+Video frame injection now releases replaced image resources, keeping render memory from growing with every frame. Composition-wide audio effects and scene export fixes also ship in this release.
+
+## Compatibility notes
+
+- A top-level composition root's `data-fx-chain` now processes the whole audio mix. Remove a previously unused root chain if you want unchanged audio. [#5420](https://github.com/heygen-com/hyperframes/pull/5420)
+- For engine API users, `injectVideoFramesBatch` assigns temporary image URLs that expire after decoding. Use the original frame source when serializing or reloading the DOM. [#5494](https://github.com/heygen-com/hyperframes/pull/5494)
+
+## Features
+
+- Apply one audio effects chain across the whole composition, after clip and group effects. Set `data-fx-chain` on the top-level root. [#5420](https://github.com/heygen-com/hyperframes/pull/5420)
+
+## Fixes
+
+- Exported video and audio now respect split scenes' in-points and inline scenes' start times, matching their placement in preview. [#5454](https://github.com/heygen-com/hyperframes/pull/5454)
+- A scene previewed or rendered alone uses its own master audio chain. [#5474](https://github.com/heygen-com/hyperframes/pull/5474)
+- Pitch-shifted exports keep the end of the clip and its effect tail. Bitcrush preview no longer starts with a silent hold after seeking. [#5478](https://github.com/heygen-com/hyperframes/pull/5478)
+- Studio history diagnostics include the server status and reason when an edit cannot be recorded as an undo step. [#5489](https://github.com/heygen-com/hyperframes/pull/5489)
+
+## Performance
+
+- Replaced video frames no longer accumulate cached image resources during capture. Engine-owned capture pages also retain less response data for DevTools inspection. [#5494](https://github.com/heygen-com/hyperframes/pull/5494)
+- Large audio effects mixes render in windows instead of loading the full mix into the browser. Parameter automation above 2 GiB remains unsupported. [#5474](https://github.com/heygen-com/hyperframes/pull/5474)
+
+## Catalog
+
+- The `product-promo` example no longer fails lint on conflicting CSS and GSAP transforms, allowing its browser audits to run. [#5481](https://github.com/heygen-com/hyperframes/pull/5481)
+
+[View the full commit range](https://github.com/heygen-com/hyperframes/compare/v0.8.149...v0.8.150).
+</Update>
+
+<Update
+  label="HyperFrames v0.8.149"
+  description="Released - 2026-10-11"
+  tags={["Release", "CLI"]}
+>
+Apps can now import `transcribe` and `removeBackground` from `hyperframes/api` and call them as plain functions. They return typed results and throw typed errors, so tools like HyperFrames Desktop no longer need to run the CLI as a child process.
+
+## Features
+
+- **CLI:** New `hyperframes/api` entry that exports `transcribe` and `removeBackground` as importable functions ([943b6512b](https://github.com/heygen-com/hyperframes/commit/943b6512b43b106c79839a977f3bfa4aa115a11d), [#5453](https://github.com/heygen-com/hyperframes/pull/5453)).
+
+[View the full commit range](https://github.com/heygen-com/hyperframes/compare/v0.8.148...v0.8.149).
+</Update>
+
+<Update
+  label="HyperFrames v0.8.148"
+  description="Released - 2026-10-11"
+  tags={["Release", "Core", "Engine", "Studio"]}
+>
+A video in Studio preview no longer goes black while playing when the project script hides a layer above it. Exports keep sound and picture in sync when a file starts its streams apart, and the shortcuts panel stays above the player controls.
+
+## Fixes
+
+- **Core:** An element its script hides stays hidden while studio preview plays ([2fbaef6ab](https://github.com/heygen-com/hyperframes/commit/2fbaef6abb5207b6f9ef3ba0d94320a6b082fc95), [#5458](https://github.com/heygen-com/hyperframes/pull/5458)).
+- **Engine:** MP4, MOV and TS exports keep sound and picture in sync when streams start apart ([b211fc7cb](https://github.com/heygen-com/hyperframes/commit/b211fc7cb845c6838cbdb1860506c2fda2804787), [#5455](https://github.com/heygen-com/hyperframes/pull/5455)).
+- **Studio:** Keep the shortcuts panel above the player controls and inside the window ([ba08acb1f](https://github.com/heygen-com/hyperframes/commit/ba08acb1f506b06757bd77a7e7f491d412647fbd), [#5457](https://github.com/heygen-com/hyperframes/pull/5457)).
+
+[View the full commit range](https://github.com/heygen-com/hyperframes/compare/v0.8.147...v0.8.148).
+</Update>
+
+<Update
+  label="HyperFrames v0.8.147"
+  description="Released - 2026-10-11"
+  tags={["Release", "Engine"]}
+>
+A render that stalls now says which step Chrome hung in. It also says what to do, such as letting another heavy GPU or CPU job finish first.
+
+## Fixes
+
+- **Engine:** A render stall names the step Chrome hung in and says what to do ([bb34e301e](https://github.com/heygen-com/hyperframes/commit/bb34e301ec3c5f7b9edad07932356bd02a9f7934), [#5450](https://github.com/heygen-com/hyperframes/pull/5450)).
+
+[View the full commit range](https://github.com/heygen-com/hyperframes/compare/v0.8.146...v0.8.147).
+</Update>
+
+<Update
   label="HyperFrames v0.8.146"
   description="Released - 2026-10-11"
   tags={["Release", "CLI", "Core", "Parsers"]}

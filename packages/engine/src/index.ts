@@ -61,7 +61,10 @@ export {
   type EngineConfig,
   type ExtractCacheDirResolution,
 } from "./config.js";
-export { SDR_RGB_TO_BT709_FILTER } from "./utils/sdrCaptureColor.js";
+export {
+  SDR_RGB_TO_BT709_FILTER,
+  SDR_RGB_TO_TAGGED_BT709_FILTER,
+} from "./utils/sdrCaptureColor.js";
 export {
   DEFAULT_VP9_CPU_USED,
   MAX_VP9_CPU_USED,
@@ -213,6 +216,7 @@ export {
   extractionFrameCountForDuration,
   resolveProjectRelativeSrc,
   getFrameAtTime,
+  isVideoHiddenBeforeStreamStart,
   createFrameLookupTable,
   FrameLookupTable,
   analyzeClipMediaFit,
@@ -255,6 +259,7 @@ export { createVideoFrameInjector } from "./services/videoFrameInjector.js";
 export {
   MIXED_AUDIO_FILENAME,
   parseAudioElements,
+  parseMasterFxChain,
   processCompositionAudio,
 } from "./services/audioMixer.js";
 export { cloneCaptureWarning, cloneCaptureWarnings } from "./services/captureWarning.js";

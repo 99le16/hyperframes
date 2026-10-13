@@ -9,6 +9,7 @@
  */
 
 import {
+  CDPSession,
   type Browser,
   type Page,
   type Protocol,
@@ -107,6 +108,16 @@ export type { CaptureOptions, CaptureResult, CaptureBufferResult, CapturePerfSum
  * `heldVideoTime` (motion-blur samples only) is the output frame's time: a video on screen at
  * both times shows its frame for `heldVideoTime`, so footage does not smear. */
 export type BeforeCaptureHook = (page: Page, time: number, heldVideoTime?: number) => Promise<void>;
+
+/** The per-frame wait a capture is in, worded for the stall error a user reads. */
+type CaptureStep =
+  | "seeking the timeline"
+  | "decoding CSS background images"
+  | "injecting video frames"
+  | "waiting for page seek handlers"
+  | "loading color-grading LUTs"
+  | "compositing the page"
+  | "capturing the frame";
 
 export interface CaptureSession {
   browser: Browser;
@@ -298,6 +309,7 @@ export interface CaptureSession {
    * retries via screenshot.
    */
   deFrameTimeouts?: number;
+  captureStep?: CaptureStep;
   /**
    * drawElement init passed every gate but stopped before verification +
    * canvas injection: the session has no video-frame injector yet (probe
@@ -1403,6 +1415,15 @@ async function constructCaptureSession(
 
   const page = await browser.newPage();
   onPageCreated(page);
+  // Cap the existing session's inspection buffer; new sessions have separate buffers.
+  const frame = page.mainFrame();
+  // Frame.client is runtime-only, so keep capture working when it is absent.
+  if ("client" in frame && frame.client instanceof CDPSession) {
+    await frame.client.send("Network.enable", {
+      maxTotalBufferSize: 32 * 1024 * 1024,
+      maxResourceBufferSize: 16 * 1024 * 1024,
+    });
+  }
   // Polyfill esbuild's keepNames helper inside the page.
   //
   // The engine is published as raw TypeScript (`packages/engine/package.json`
@@ -2856,8 +2877,10 @@ async function prepareFrameForCapture(
   );
 
   const seekStart = Date.now();
+  session.captureStep = "seeking the timeline";
   const hasPendingComposite = await seekPageTimeline(page, quantizedTime, seekOptions);
 
+  session.captureStep = "decoding CSS background images";
   await decodeDynamicCssBackgroundImages(page);
 
   const seekMs = Date.now() - seekStart;
@@ -2867,9 +2890,12 @@ async function prepareFrameForCapture(
   // replacements for <video> elements.
   const beforeCaptureStart = Date.now();
   if (session.onBeforeCapture) {
+    session.captureStep = "injecting video frames";
     await session.onBeforeCapture(page, quantizedTime, heldVideoTime);
   }
+  session.captureStep = "waiting for page seek handlers";
   await waitForPendingSeekCompletion(page);
+  session.captureStep = "loading color-grading LUTs";
   await page.evaluate(async () => {
     const runtime = (
       window as Window & {
@@ -2889,6 +2915,7 @@ async function prepareFrameForCapture(
     session.captureMode !== "beginframe" &&
     session.captureMode !== "drawelement"
   ) {
+    session.captureStep = "compositing the page";
     await page.evaluate(async () => {
       const w = window as unknown as { __hf_page_composite_prepare?: () => Promise<boolean> };
       if (typeof w.__hf_page_composite_prepare === "function") {
@@ -2909,6 +2936,7 @@ async function prepareFrameForCapture(
     });
   }
 
+  session.captureStep = "capturing the frame";
   return { quantizedTime, seekMs, beforeCaptureMs };
 }
 
@@ -4189,12 +4217,14 @@ async function captureAccumulatedFrame(
   const frameTime = quantizeSeekTime(absFrameIndex / fps, fps);
 
   const eventfulSeekStart = Date.now();
+  session.captureStep = "seeking the timeline";
   await seekPageTimeline(session.page, frameTime, undefined);
   const totals = { seekMs: Date.now() - eventfulSeekStart, beforeCaptureMs: 0, screenshotMs: 0 };
   if (session.onBeforeCapture) {
     // The injector copies a video's own style only when its frame changes: inject at frameTime
     // first so the held frame carries frameTime's style, not the first sample's.
     const injectStart = Date.now();
+    session.captureStep = "injecting video frames";
     await session.onBeforeCapture(session.page, frameTime, frameTime);
     totals.beforeCaptureMs += Date.now() - injectStart;
   }
@@ -4237,6 +4267,7 @@ async function captureAccumulatedFrame(
   }
 
   const restoreSeekStart = Date.now();
+  session.captureStep = "seeking the timeline";
   await seekPageTimeline(session.page, frameTime, { suppressEvents: true });
   totals.seekMs += Date.now() - restoreSeekStart;
 
@@ -4603,6 +4634,7 @@ export async function captureFramesBatchPipelined(
   const fps = fpsToNumber(options.fps);
   const quantized = times.map((t) => quantizeTimeToFrame(t, fps));
 
+  session.captureStep = "capturing the frame";
   const { encodeResults, failedAt, error } = await produceDrawElementFrameBatch(
     page,
     quantized,
