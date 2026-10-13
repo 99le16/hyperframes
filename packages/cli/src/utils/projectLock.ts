@@ -36,6 +36,33 @@ function alive(pid: number): boolean {
 const sameHolder = (a: Holder | null, b: Holder) =>
   a?.pid === b.pid && a.startedAt === b.startedAt && a.command === b.command;
 
+function breakStaleHolder(path: string, current: Holder, holder: Holder): boolean {
+  const breakPath = `${path}.break`;
+  const breakDraft = `${breakPath}.${holder.pid}.${holder.startedAt}`;
+  let acquired = false;
+  writeFileSync(breakDraft, JSON.stringify(holder), { flag: "wx" });
+  try {
+    try {
+      linkSync(breakDraft, breakPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+      throw error;
+    }
+    if (sameHolder(readHolder(path), current)) {
+      try {
+        unlinkSync(path);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
+    acquired = tryAcquire(path, holder);
+  } finally {
+    unlinkSync(breakDraft);
+    if (sameHolder(readHolder(breakPath), holder)) unlinkSync(breakPath);
+  }
+  return acquired;
+}
+
 function tryAcquire(path: string, holder: Holder): boolean {
   const draft = `${path}.${holder.pid}.${holder.startedAt}`;
   writeFileSync(draft, JSON.stringify(holder), { flag: "wx" });
@@ -48,10 +75,7 @@ function tryAcquire(path: string, holder: Holder): boolean {
     unlinkSync(draft);
   }
   const current = readHolder(path);
-  if (current && !alive(current.pid) && sameHolder(readHolder(path), current)) {
-    unlinkSync(path);
-    return tryAcquire(path, holder);
-  }
+  if (current && !alive(current.pid)) return breakStaleHolder(path, current, holder);
   return false;
 }
 

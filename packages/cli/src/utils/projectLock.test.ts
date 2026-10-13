@@ -1,6 +1,8 @@
+import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { ProjectLockTimeout, projectLockPath, withProjectLock } from "./projectLock.js";
 
@@ -79,5 +81,52 @@ describe("withProjectLock", () => {
     const dir = project();
     hold(dir, 2 ** 22 + 12345);
     expect(await withProjectLock(dir, "check", async () => "ran", locked(0))).toBe("ran");
+  });
+
+  it("serializes processes that concurrently take over a dead holder", async () => {
+    const dir = project();
+    const events = join(dir, "events.ndjson");
+    hold(dir, 2 ** 22 + 12345);
+    const moduleUrl = pathToFileURL(join(import.meta.dirname, "projectLock.ts")).href;
+    const source = `
+      import { appendFileSync } from "node:fs";
+      import { withProjectLock } from ${JSON.stringify(moduleUrl)};
+      await withProjectLock(
+        ${JSON.stringify(dir)},
+        "check",
+        async () => {
+          appendFileSync(${JSON.stringify(events)}, JSON.stringify({ type: "start", pid: process.pid }) + "\\n");
+          await new Promise((done) => setTimeout(done, 50));
+          appendFileSync(${JSON.stringify(events)}, JSON.stringify({ type: "end", pid: process.pid }) + "\\n");
+        },
+        { projectLock: { waitMs: 5000 } },
+      );
+    `;
+    const children = Array.from({ length: 6 }, () =>
+      spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", source], {
+        stdio: ["ignore", "ignore", "pipe"],
+      }),
+    );
+    const outcomes = await Promise.all(
+      children.map(
+        (child) =>
+          new Promise<{ code: number | null; error: string }>((resolve) => {
+            let error = "";
+            child.stderr.on("data", (chunk) => (error += String(chunk)));
+            child.on("close", (code) => resolve({ code, error }));
+          }),
+      ),
+    );
+    expect(outcomes).toEqual(outcomes.map(() => ({ code: 0, error: "" })));
+    const records = readFileSync(events, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { type: "start" | "end"; pid: number });
+    let active = 0;
+    for (const record of records) {
+      active += record.type === "start" ? 1 : -1;
+      expect(active).toBeLessThanOrEqual(1);
+    }
+    expect(active).toBe(0);
   });
 });
