@@ -33,7 +33,7 @@ import { execFileSync } from "node:child_process";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseHTMLContent } from "../packages/core/src/compiler/htmlDocument.js";
-import { parseNumeric } from "../packages/parsers/src/compositionContract.js";
+import { readDataDurationSeconds } from "../packages/parsers/src/mediaDuration.js";
 import { createCatalogPreviewTempDir } from "./catalog-preview-temp.js";
 import { runAsCommand } from "./entrypoint.ts";
 // Import from source — bun workspace linking doesn't resolve for scripts outside packages/.
@@ -358,7 +358,7 @@ interface WrapperSpec {
   entrySrc: string;
   width: number;
   height: number;
-  duration: number;
+  duration: number | null;
   bgColor: string;
   uiFragment: boolean | undefined;
 }
@@ -369,6 +369,7 @@ function renderWrapperHtml(spec: WrapperSpec): string {
   const staging = uiFragment
     ? `\n    [data-composition-src] { inset: 0; display: grid; place-items: center stretch; box-sizing: border-box; padding: ${Math.round(height / 11)}px; }`
     : "";
+  const timing = duration === null ? "" : ` data-duration="${duration}"`;
   const theme = uiFragment ? ' data-hf-theme="dark"' : "";
 
   return `<!doctype html>
@@ -380,8 +381,8 @@ function renderWrapperHtml(spec: WrapperSpec): string {
   <style>* { margin: 0; padding: 0; } html, body { width: ${width}px; height: ${height}px; overflow: hidden; background: ${bgColor}; }${staging}</style>
 </head>
 <body>
-  <div data-composition-id="preview-root" data-width="${width}" data-height="${height}" data-start="0" data-duration="${duration}"${theme}>
-    <div data-composition-id="${name}" data-composition-src="${entrySrc}" data-start="0" data-duration="${duration}" data-track-index="0" data-width="${width}" data-height="${height}"></div>
+  <div data-composition-id="preview-root" data-width="${width}" data-height="${height}" data-start="0"${timing}${theme}>
+    <div data-composition-id="${name}" data-composition-src="${entrySrc}" data-start="0"${timing} data-track-index="0" data-width="${width}" data-height="${height}"></div>
   </div>
   <script>
     window.__timelines = window.__timelines || {};
@@ -395,13 +396,12 @@ function authoredEntryDuration(html: string): number | null {
   const document = parseHTMLContent(html);
   const root =
     document.querySelector("[data-composition-id]") ??
-    document.querySelector("template")?.content.querySelector("[data-composition-id]") ??
-    null;
-  if (root === null) return null;
-  const duration =
-    parseNumeric(root.getAttribute("data-duration")) ??
-    parseNumeric(root.getAttribute("data-composition-duration"));
-  return duration !== null && duration > 0 ? duration : null;
+    document.querySelector("template")?.content.querySelector("[data-composition-id]");
+  if (root == null) return null;
+  return (
+    readDataDurationSeconds((name) => root.getAttribute(name)) ??
+    readDataDurationSeconds(() => root.getAttribute("data-composition-duration"))
+  );
 }
 
 function writeWrapperIndex(
@@ -410,14 +410,12 @@ function writeWrapperIndex(
   uiFragment: boolean | undefined,
 ): void {
   const manifest = readWrapperManifest(tmpDir);
+  const entryHtml = readFileSync(join(tmpDir, item.entryFile), "utf-8");
   const wrapper = renderWrapperHtml({
     name: item.name,
     entrySrc: wrapperEntrySrc(tmpDir, manifest, item.entryFile),
     ...manifestSize(manifest),
-    duration:
-      authoredEntryDuration(readFileSync(join(tmpDir, item.entryFile), "utf-8")) ??
-      manifest.duration ??
-      5,
+    duration: authoredEntryDuration(entryHtml) ?? manifest.duration ?? null,
     bgColor: wrapperBackground(manifest.tags ?? [], uiFragment),
     uiFragment,
   });
@@ -449,7 +447,11 @@ export async function prepareProjectDir(
 
     return tmpDir;
   } catch (error) {
-    rmSync(tmpDir, { recursive: true, force: true });
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], "Catalog preparation and cleanup failed");
+    }
     throw error;
   }
 }

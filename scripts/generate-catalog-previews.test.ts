@@ -83,6 +83,14 @@ describe("catalog wrapper duration", () => {
     );
   });
 
+  it("lets Touch Indicator's registered timeline determine its preview length", async () => {
+    const html = await preparedHtml(
+      join(repoRoot, "registry/components/touch-indicator"),
+      "touch-indicator.html",
+    );
+    assert.ok(!html.includes("data-duration="));
+  });
+
   for (const fixture of [
     {
       name: "root duration before a shorter child",
@@ -109,9 +117,9 @@ describe("catalog wrapper duration", () => {
       expected: "7",
     },
     {
-      name: "default duration when none is declared",
+      name: "leaves duration for the runtime when none is declared",
       html: '<div data-composition-id="root"></div>',
-      expected: "5",
+      expected: null,
     },
     {
       name: "invalid authored duration",
@@ -131,7 +139,7 @@ describe("catalog wrapper duration", () => {
         const html = await preparedHtml(sourceDir, "entry.html");
         assert.deepEqual(
           [...html.matchAll(/data-duration="([^"]+)"/g)].map((m) => m[1]),
-          [fixture.expected, fixture.expected],
+          fixture.expected === null ? [] : [fixture.expected, fixture.expected],
         );
       } finally {
         rmSync(sourceDir, { recursive: true, force: true });
