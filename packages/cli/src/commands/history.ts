@@ -123,6 +123,16 @@ function ago(at: number): string {
   return `${Math.round(seconds / 86_400)}d ago`;
 }
 
+function endedTurnText(entry: HistoryEntry | null, parts: readonly string[]): string {
+  const earlier = parts.length - (entry ? 1 : 0);
+  const text = entry
+    ? line(entry)
+    : earlier
+      ? "Nothing changed since this turn's last command."
+      : "Nothing changed in this turn.";
+  return earlier ? `${text}\n(+${earlier} earlier part${earlier > 1 ? "s" : ""})` : text;
+}
+
 function line(entry: HistoryListItem | HistoryEntry): string {
   const paths = entry.files.map((file) => file.path);
   const files = paths.slice(0, 2).join(", ") + (paths.length > 2 ? ` +${paths.length - 2}` : "");
@@ -443,14 +453,26 @@ export default defineCommand({
           }),
       ),
     begin: () =>
-      sub<{ who: string; label: string; dir?: string; json: boolean }>(
+      sub<{ who: string; label: string; exclusive: boolean; dir?: string; json: boolean }>(
         "begin",
         "Start a turn: your writes until `end` become one entry under your name",
-        { who: { type: "string", required: true }, label: { type: "string", required: true } },
+        {
+          who: { type: "string", required: true },
+          label: { type: "string", required: true },
+          exclusive: {
+            type: "boolean",
+            default: false,
+            description: "Refuse while another agent's turn is open, instead of ending it",
+          },
+        },
         (args) =>
           withOwner("begin", args.dir, async (owner, turn, projectDir) => {
-            if (turn) await endTurn(owner, turn, projectDir);
             const who = whoOf(args.who);
+            if (turn && args.exclusive && turn.who.name !== who.name)
+              throw new Refusal(
+                `${turn.who.name}'s turn is open; it has to end before yours begins`,
+              );
+            if (turn) await endTurn(owner, turn, projectDir);
             const { id, startedAt } = await owner.begin(who, args.label);
             writeTurn(projectDir, {
               via: owner.via,
@@ -465,22 +487,31 @@ export default defineCommand({
           }),
       ),
     end: () =>
-      sub<{ dir?: string; json: boolean }>("end", "End your turn and print its entry", {}, (args) =>
-        withOwner("end", args.dir, async (owner, turn, projectDir) => {
-          if (!turn) throw new Refusal("No turn is open; start one with history begin");
-          const { entry, parts } = await endTurn(owner, turn, projectDir);
-          const earlier = parts.length - (entry ? 1 : 0);
-          const text = entry
-            ? line(entry)
-            : earlier
-              ? "Nothing changed since this turn's last command."
-              : "Nothing changed in this turn.";
-          print(
-            args.json,
-            { entry: entry && publicEntry(entry), parts },
-            earlier ? `${text}\n(+${earlier} earlier part${earlier > 1 ? "s" : ""})` : text,
-          );
-        }),
+      sub<{ who?: string; ifOpen: boolean; dir?: string; json: boolean }>(
+        "end",
+        "End your turn and print its entry",
+        {
+          who: { type: "string", description: "Refuse unless the open turn is this agent's" },
+          "if-open": {
+            type: "boolean",
+            default: false,
+            description: "Succeed with no entry when no turn is open",
+          },
+        },
+        (args) =>
+          withOwner("end", args.dir, async (owner, turn, projectDir) => {
+            if (!turn && args.ifOpen)
+              return print(args.json, { entry: null, parts: [] }, "No turn is open.");
+            if (!turn) throw new Refusal("No turn is open; start one with history begin");
+            if (args.who !== undefined && turn.who.name !== args.who)
+              throw new Refusal(`The open turn is ${turn.who.name}'s, not ${args.who}'s`);
+            const { entry, parts } = await endTurn(owner, turn, projectDir);
+            print(
+              args.json,
+              { entry: entry && publicEntry(entry), parts },
+              endedTurnText(entry, parts),
+            );
+          }),
       ),
   },
   run: ({ args }) => guarded(listEntries)(args),

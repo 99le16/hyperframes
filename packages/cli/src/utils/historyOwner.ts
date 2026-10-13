@@ -49,7 +49,7 @@ export type Reader = Pick<Owner, "via" | "list" | "peek" | "blob">;
 
 /** Swapped by tests. */
 export const historyDeps = {
-  historyRoot: DEFAULT_HISTORY_ROOT,
+  historyRoot: process.env.HYPERFRAMES_HISTORY_ROOT || DEFAULT_HISTORY_ROOT,
   findServer: (projectDir: string) => findPreviewServerForProject(projectDir),
   /** A turn with no write for this long has ended, through a preview or not. */
   turnIdleMs: MAX_WINDOW_IDLE_MS,

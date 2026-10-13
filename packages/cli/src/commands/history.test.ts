@@ -504,6 +504,36 @@ describe("hyperframes history, refusals", () => {
     expect(read("added.html")).toBe("new");
   });
 
+  it("begin --exclusive refuses another agent's open turn and keeps it open", async () => {
+    const { write, hf, json } = project();
+    await hf();
+    await hf("begin", "--who", "codex", "--label", "Retitle");
+    write("index.html", "A2");
+
+    const refused = await hf("begin", "--who", "claude", "--label", "Notes", "--exclusive");
+    expect([refused.code, refused.err]).toEqual([
+      2,
+      "codex's turn is open; it has to end before yours begins",
+    ]);
+    expect((await hf("end", "--who", "codex")).code).toBe(0);
+    const entries = (await json()).entries as Array<{ who: { name: string }; files: string[] }>;
+    expect(entries.filter((entry) => entry.who.name === "codex")).toMatchObject([
+      { files: ["index.html"] },
+    ]);
+  });
+
+  it("end --who refuses another agent's turn, and --if-open succeeds with none open", async () => {
+    const { hf, json } = project();
+    await hf();
+    expect(await json("end", "--if-open")).toMatchObject({ entry: null, parts: [] });
+    expect((await hf("end")).code).toBe(2);
+
+    await hf("begin", "--who", "codex", "--label", "Retitle");
+    const refused = await hf("end", "--who", "claude", "--if-open");
+    expect([refused.code, refused.err]).toEqual([2, "The open turn is codex's, not claude's"]);
+    expect((await hf("end", "--who", "codex")).code).toBe(0);
+  });
+
   it("--json refusals go to stdout as {ok: false, error}", async () => {
     const { hf } = project();
     await hf();
