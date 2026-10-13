@@ -196,7 +196,7 @@ const CHECK_COMMAND_ARGS = {
   timeout: {
     type: "string",
     description:
-      "Initial render-ready timeout in ms; also sets the navigation minimum (10s floor, default: 3000)",
+      "Initial render-ready timeout in ms; also sets the navigation minimum (10s floor) and extends the 120s total deadline (base: HYPERFRAMES_CHECK_DEADLINE_MS; default: 3000)",
     default: "3000",
   },
   contrast: {

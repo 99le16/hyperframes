@@ -1,5 +1,5 @@
 import { BrowserCleanupError } from "../browser/launch.js";
-import { CheckDeadline, CheckDeadlineError } from "./checkDeadline.js";
+import { CheckDeadline, CheckDeadlineError, resolveCheckDeadlineMs } from "./checkDeadline.js";
 import { checkSnapshotDirectory } from "./checkSnapshotDirectory.js";
 import { findingElementKey, groupSampledFindings } from "./checkFindings.js";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -1277,7 +1277,7 @@ export async function runCheckPipeline(
         ]
       : [];
 
-  const deadline = new CheckDeadline();
+  const deadline = new CheckDeadline(resolveCheckDeadlineMs(options));
   let outcome: { kind: "report"; report: CheckReport } | { kind: "failed"; error: unknown };
   try {
     let browser: CheckBrowserResult;

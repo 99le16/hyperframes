@@ -1561,7 +1561,7 @@ describe("check pipeline", () => {
       { snapshots: true },
       {
         captureFindingCrops: async () => {
-          throw new CheckDeadlineError();
+          throw new CheckDeadlineError(120_000);
         },
       },
     );
@@ -1570,7 +1570,8 @@ describe("check pipeline", () => {
     expect(report.runtime.findings).toContainEqual(
       expect.objectContaining({
         code: "check_runtime_failure",
-        message: "Check did not finish within its deadline.",
+        message:
+          "Check did not finish within its 120s deadline (raise with HYPERFRAMES_CHECK_DEADLINE_MS=<ms>, or --timeout <ms> for a slow-loading composition).",
       }),
     );
   });
