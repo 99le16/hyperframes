@@ -252,4 +252,30 @@ describe("waitForPageReady", () => {
     expect(evaluate).not.toHaveBeenCalled();
     expect(waitForNetworkIdle).not.toHaveBeenCalled();
   });
+
+  it("settles without waitForNetworkIdle on the page object", async () => {
+    const evaluate = vi.fn(async () => false);
+
+    await expect(waitForPageReady({ evaluate })).resolves.toBeUndefined();
+    expect(evaluate).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops polling when readyState does not evaluate to a boolean", async () => {
+    vi.useFakeTimers();
+    try {
+      const waitForNetworkIdle = vi.fn(async () => undefined);
+      const evaluate = vi.fn(async () => []);
+
+      const start = Date.now();
+      const done = waitForPageReady({ waitForNetworkIdle, evaluate }, { timeoutMs: 15_000 });
+      await vi.runAllTimersAsync();
+      await done;
+
+      expect(evaluate).toHaveBeenCalledTimes(1);
+      expect(Date.now() - start).toBeLessThan(15_000);
+      expect(waitForNetworkIdle).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

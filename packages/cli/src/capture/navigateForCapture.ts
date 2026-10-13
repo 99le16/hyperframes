@@ -63,7 +63,7 @@ export async function navigateForCapture<TResponse>(
 }
 
 export interface PageReadyPage {
-  waitForNetworkIdle(options: {
+  waitForNetworkIdle?(options: {
     idleTime: number;
     timeout: number;
     concurrency?: number;
@@ -83,10 +83,15 @@ export async function waitForPageReady(
   const { timeoutMs = 15_000, networkIdle = "always" } = options;
   const deadline = Date.now() + timeoutMs;
   const remaining = () => Math.max(0, deadline - Date.now());
-  const idle = () =>
-    page
-      .waitForNetworkIdle({ idleTime: 500, timeout: remaining(), concurrency: 2 })
-      .catch(() => {});
+  const idle = async () => {
+    try {
+      await page.waitForNetworkIdle?.({
+        idleTime: 500,
+        timeout: remaining(),
+        concurrency: 2,
+      });
+    } catch {}
+  };
 
   if (networkIdle === "always" && remaining() > 0) await idle();
 
@@ -106,7 +111,7 @@ export async function waitForPageReady(
     ]).finally(() => {
       if (timer !== undefined) clearTimeout(timer);
     });
-    if (!loading) break;
+    if (loading !== true) break;
     waitedOutLoad = true;
     if (remaining() > 0) {
       await new Promise((resolve) => setTimeout(resolve, Math.min(500, remaining())));
