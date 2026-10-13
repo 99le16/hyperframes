@@ -3,39 +3,27 @@ import { normalizeErrorMessage } from "./errorMessage.js";
 import { withRemainingBudget } from "../capture/captureTimeout.js";
 import { BrowserCleanupError, closeManagedBrowser } from "../browser/launch.js";
 
-const CHECK_DEADLINE_MS = 120_000;
-// The --timeout the 120s base already absorbs; matches DEFAULT_CHECK_OPTIONS.timeout.
-const BUDGETED_TIMEOUT_MS = 3_000;
-// Waits that --timeout governs once the clock runs: navigation, render-ready and
-// the audio-metadata audit in the audit session; navigation and render-ready
-// again in the --snapshots crop session.
-const AUDIT_SESSION_TIMEOUT_WAITS = 3;
-const CROP_SESSION_TIMEOUT_WAITS = 2;
-// Node's setTimeout fires at once for delays above 2^31-1 ms.
-const MAX_TIMER_MS = 2_147_483_647;
+const BASE_DEADLINE_MS = 120_000;
+const DEFAULT_TIMEOUT_INSIDE_BASE_MS = 3_000;
+const AUDIT_SESSION_TIMEOUT_WAITS = ["navigation", "render-ready", "audio metadata"] as const;
+const CROP_SESSION_TIMEOUT_WAITS = ["navigation", "render-ready"] as const;
+const MAX_NODE_TIMER_MS = 2 ** 31 - 1;
 const CHECK_DEADLINE_ENV = "HYPERFRAMES_CHECK_DEADLINE_MS";
 const SCRIPT_START = "[hyperframes:script:start] ";
 const SCRIPT_FINISH = "[hyperframes:script:finish] ";
 
-/**
- * Total budget from composition-browser readiness to the last finding crop.
- *
- * The base is 120s, or `HYPERFRAMES_CHECK_DEADLINE_MS` when that is a positive
- * integer (anything else is ignored, like the other timeout env overrides).
- * Every wait that `--timeout` governs adds whatever the user asked for above the
- * default, so a larger `--timeout` never eats the budget left for sampling and
- * crops, while the default run keeps its 120s bound.
- */
 export function resolveCheckDeadlineMs(
   options: { timeout: number; snapshots: boolean },
   env: Record<string, string | undefined> = process.env,
 ): number {
   const raw = env[CHECK_DEADLINE_ENV]?.trim() ?? "";
   const configured = /^\d+$/.test(raw) ? Number(raw) : 0;
-  const base = configured > 0 ? configured : CHECK_DEADLINE_MS;
-  const waits = AUDIT_SESSION_TIMEOUT_WAITS + (options.snapshots ? CROP_SESSION_TIMEOUT_WAITS : 0);
-  const extension = waits * Math.max(0, options.timeout - BUDGETED_TIMEOUT_MS);
-  return Math.min(MAX_TIMER_MS, base + extension);
+  const base = configured > 0 ? configured : BASE_DEADLINE_MS;
+  const timeoutWaits =
+    AUDIT_SESSION_TIMEOUT_WAITS.length +
+    (options.snapshots ? CROP_SESSION_TIMEOUT_WAITS.length : 0);
+  const extraTimeoutMs = Math.max(0, options.timeout - DEFAULT_TIMEOUT_INSIDE_BASE_MS);
+  return Math.min(MAX_NODE_TIMER_MS, base + timeoutWaits * extraTimeoutMs);
 }
 
 function formatDeadline(deadlineMs: number): string {
@@ -70,7 +58,7 @@ export class CheckDeadline {
   private rejectExpiry!: (error: CheckDeadlineError) => void;
   private phase: "waiting" | "started" | "closed" = "waiting";
 
-  constructor(private readonly deadlineMs: number = CHECK_DEADLINE_MS) {
+  constructor(private readonly deadlineMs: number = BASE_DEADLINE_MS) {
     this.expiry = new Promise((_, reject) => {
       this.rejectExpiry = reject;
     });
