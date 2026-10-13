@@ -222,4 +222,33 @@ describe("cleanLeftovers", () => {
     expect(existsSync(snapshots) || existsSync(checks)).toBe(false);
     expect(existsSync(state)).toBe(true);
   });
+
+  it.skipIf(process.platform === "win32")(
+    "does not remove snapshots or checks through a symlinked artifacts folder",
+    async () => {
+      const outside = join(scratch, "outside");
+      const snapshots = plant(outside, "snapshots");
+      const checks = plant(outside, "checks");
+      mkdirSync(join(project, ".hyperframes"));
+      symlinkSync(outside, join(project, ".hyperframes", "artifacts"));
+
+      await run({ snapshots: true });
+      expect(existsSync(join(snapshots, "frame_000001.jpg"))).toBe(true);
+      expect(existsSync(join(checks, "frame_000001.jpg"))).toBe(true);
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "does not remove snapshots or checks through a symlinked .hyperframes folder",
+    async () => {
+      const outside = join(scratch, "outside");
+      const snapshots = plant(join(outside, "artifacts"), "snapshots");
+      const checks = plant(join(outside, "artifacts"), "checks");
+      symlinkSync(outside, join(project, ".hyperframes"));
+
+      await run({ snapshots: true });
+      expect(existsSync(join(snapshots, "frame_000001.jpg"))).toBe(true);
+      expect(existsSync(join(checks, "frame_000001.jpg"))).toBe(true);
+    },
+  );
 });

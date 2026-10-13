@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { defineCommand } from "citty";
 import {
   EXTRACT_CACHE_MIN_AGE_MS,
@@ -134,10 +134,17 @@ const SNAPSHOT_FOLDERS = [
   { what: "Check reports", path: [".hyperframes", "artifacts", "checks"] },
 ];
 
+function staysInProject(project: string, path: string): boolean {
+  const root = realpathSync(project);
+  const target = realpathSync(path);
+  const fromRoot = relative(root, target);
+  return fromRoot === "" || (!fromRoot.startsWith("..") && !isAbsolute(fromRoot));
+}
+
 function sweepSnapshots(sweep: Sweep, project: string, remove: boolean): void {
   for (const folder of SNAPSHOT_FOLDERS) {
     const path = join(project, ...folder.path);
-    if (!existsSync(path)) continue;
+    if (!existsSync(path) || !staysInProject(project, path)) continue;
     if (remove) drop(sweep, folder.what, path);
     else
       sweep.result.alsoReclaimable.push({
