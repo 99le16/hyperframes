@@ -73,6 +73,21 @@ it("marks cursor-dependent timing unknown after a stagger span changes", () => {
   );
   expect(r.tweens[1]?.start).toBeNull();
 });
+it("drops cursor-relative times after an unresolved delay", () => {
+  const script = (follow: string) =>
+    `tl.to("#dot",{x:1,duration:1,delay:getDelay()},0);tl.to("#dot",{x:2,duration:1}${follow});`;
+  const implicit = surface(script(""));
+  const relative = surface(script(',">"'));
+  const absolute = surface(script(",4"));
+  for (const tween of [implicit.tweens[1], relative.tweens[1]]) {
+    expect(tween?.start).toBeNull();
+    expect(tween?.end).toBeNull();
+    expect(tween?.keyframes.map((point) => point.time)).toEqual([null, null]);
+    expect(tween?.unresolved).toContain("start");
+  }
+  expect(absolute.tweens[1]?.start).toBe(4);
+  expect(absolute.tweens[1]?.keyframes.map((point) => point.time)).toEqual([4, 5]);
+});
 it("reports the GSAP default duration and explicit delay", () => {
   expect(surface('tl.to("#dot",{x:50},0);').tweens[0]?.duration).toBe(0.5);
   expect(surface('tl.to("#dot",{x:50,duration:1,delay:.2},1);').tweens[0]?.start).toBe(1.2);

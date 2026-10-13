@@ -351,11 +351,9 @@ function followsTimelineCursor(anim: GsapAnimation): boolean {
 
 function movesCursorUnpredictably(anim: GsapAnimation, tween: SurfacedTween): boolean {
   if (anim.global) return false;
-  return (
-    tween.totalDuration === null ||
-    tween.totalDuration !== tween.duration ||
-    Boolean(anim.inspectionTiming?.delay)
-  );
+  const delay = anim.inspectionTiming?.delay;
+  const delayUnknown = delay === null || (typeof delay === "number" && delay !== 0);
+  return tween.totalDuration === null || tween.totalDuration !== tween.duration || delayUnknown;
 }
 
 function forgetStart(tween: SurfacedTween): void {
