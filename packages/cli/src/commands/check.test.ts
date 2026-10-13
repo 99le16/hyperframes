@@ -2263,6 +2263,7 @@ describe("dense motion-overlap re-sampling", () => {
 describe("scoped check", () => {
   it("bounds all runtime seeks, including dense overlap and transition samples", async () => {
     const times: number[] = [];
+    const overlapTimes: number[] = [];
     const driver = fakeDriver({
       getDuration: async () => 10,
       getTransitionBoundaries: async () => [1, 7.9, 9],
@@ -2271,28 +2272,72 @@ describe("scoped check", () => {
       },
       seekGeometry: async (t) => {
         times.push(t);
+        overlapTimes.push(t);
       },
     });
     const { report } = await runScenario(driver, { range: [7.8, 8.2], atTransitions: true });
     expect(times.length).toBeGreaterThan(3);
     expect(times.every((t) => t >= 7.8 && t <= 8.2)).toBe(true);
+    expect(times).toContain(7.9);
+    expect(overlapTimes.every((time) => (String(time).split(".")[1]?.length ?? 0) <= 3)).toBe(true);
     expect(report.scope?.range).toEqual([7.8, 8.2]);
   });
-  it("filters findings without changing overall failure or hiding runtime errors", async () => {
+  it("keeps the full-check failure when the only error is hidden by filtering", async () => {
     const driver = fakeDriver({
-      collectLayout: async () => [{ ...layoutIssue(), componentMatch: false }],
+      collectLayout: async () => [layoutIssue("error")],
       matchComponents: async (_c, f) => f.map(() => false),
     });
-    const { report } = await runScenario(
-      driver,
-      { components: ["#selected"], collapseStatic: false },
-      { runtime: [runtimeError()] },
-    );
+    const { report } = await runScenario(driver, {
+      components: ["#selected"],
+      collapseStatic: false,
+    });
     expect(report.ok).toBe(false);
     expect(report.layout.findings).toHaveLength(0);
-    expect(report.layout.errorCount).toBeGreaterThan(0);
-    expect(report.runtime.findings).toHaveLength(1);
-    expect(report.scope?.hiddenFindings).toBeGreaterThan(0);
+    expect(report.layout.errorCount).toBe(1);
+    expect(report.runtime.findings).toHaveLength(0);
+    expect(report.scope?.hiddenFindings).toBe(1);
+  });
+  it.each([
+    {
+      flag: "--caption-zone",
+      options: {
+        range: [1, 2] as [number, number],
+        captionZone: { x0: 0, y0: 0.5, x1: 1, y1: 0.7 },
+      },
+    },
+    {
+      flag: "--frame-check",
+      options: { range: [0, 1] as [number, number], frameCheck: {} },
+    },
+  ])(
+    "refuses $flag when none of its gate samples lie within --range",
+    async ({ flag, options }) => {
+      const { report } = await runScenario(fakeDriver({ getDuration: async () => 4 }), options);
+      expect(report.ok).toBe(false);
+      expect(report.browserSkipped).toBe(true);
+      expect(report.runtime.findings).toEqual([
+        expect.objectContaining({ message: expect.stringContaining(`No ${flag} seek samples`) }),
+      ]);
+    },
+  );
+  it("marks a motion spec disabled when a range skips whole-timeline assertions", async () => {
+    const motion: MotionSpecResolution = {
+      kind: "valid",
+      path: "/project/index.motion.json",
+      spec: { assertions: [] },
+    };
+    const { report } = await runScenario(
+      fakeDriver({ getDuration: async () => 4 }),
+      { range: [1, 2] },
+      { motion },
+    );
+    expect(report.motion).toEqual(
+      expect.objectContaining({
+        enabled: false,
+        specPath: "/project/index.motion.json",
+        samples: 0,
+      }),
+    );
   });
   it("rejects a range outside the film rather than passing an empty check", async () => {
     const { report } = await runScenario(fakeDriver({ getDuration: async () => 2 }), {
@@ -2300,6 +2345,7 @@ describe("scoped check", () => {
     });
     expect(report.ok).toBe(false);
     expect(report.browserSkipped).toBe(true);
+    expect(report.runtime.findings[0]?.message).toContain("2 seconds");
   });
 });
 

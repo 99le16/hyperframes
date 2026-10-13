@@ -134,7 +134,21 @@ function gateSampleTimes(
 
 function validateSampleRange([start, end]: [number, number], duration: number): void {
   if (!Number.isFinite(start + end) || start < 0 || end <= start || end > duration)
-    throw new Error("Check range must lie within the composition duration");
+    throw new Error(`Check range must lie within the composition duration (${duration} seconds)`);
+}
+
+function gateSamplesInRange(
+  flag: "--caption-zone" | "--frame-check",
+  samples: number[],
+  inRange: (time: number) => boolean,
+  range: [number, number] | undefined,
+): number[] {
+  if (!range) return samples;
+  const selected = samples.filter(inRange);
+  if (samples.length > 0 && selected.length === 0) {
+    throw new Error(`No ${flag} seek samples lie within --range`);
+  }
+  return selected;
 }
 
 function layoutSamplesInRange(options: CheckOptions, duration: number) {
@@ -169,12 +183,18 @@ async function buildSampleGrid(
         cap: options.maxTransitionSamples,
       })
     : { times: [], dropped: 0 };
-  const captionSamples = options.captionZone
-    ? gateSampleTimes(duration, options.captionZone.seek, 1)
-    : [];
-  const frameSamples = options.frameCheck
-    ? gateSampleTimes(duration, options.frameCheck.seek, 0.5)
-    : [];
+  const captionSamples = gateSamplesInRange(
+    "--caption-zone",
+    options.captionZone ? gateSampleTimes(duration, options.captionZone.seek, 1) : [],
+    inRange,
+    options.range,
+  );
+  const frameSamples = gateSamplesInRange(
+    "--frame-check",
+    options.frameCheck ? gateSampleTimes(duration, options.frameCheck.seek, 0.5) : [],
+    inRange,
+    options.range,
+  );
   transitions.times = transitions.times.filter(inRange);
   const auditSamples = mergeSampleTimes(baseSamples, transitions.times).filter(inRange);
   const layoutSamples = mergeSampleTimes(auditSamples, captionSamples, frameSamples).filter(
@@ -485,9 +505,11 @@ async function collectMotionOverlapSamples(
   range?: [number, number],
 ): Promise<void> {
   const baseTimes = new Set(grid.layoutSamples);
-  for (const time of buildOverlapSampleTimes(range ? range[1] - range[0] : grid.duration).map((t) =>
-    range ? t + range[0] : t,
-  )) {
+  const overlapTimes = buildOverlapSampleTimes(range ? range[1] - range[0] : grid.duration);
+  const shiftedTimes = range
+    ? mergeSampleTimes(overlapTimes.map((time) => time + range[0]))
+    : overlapTimes;
+  for (const time of shiftedTimes) {
     if (baseTimes.has(time)) continue;
     // Settle-free seek: collectOverlap reads getBoundingClientRect geometry, valid synchronously after setTime, so the dense pass skips the per-seek paint settle.
     await driver.seekGeometry(time);
@@ -1491,7 +1513,7 @@ function buildReport(
     layout,
     motion: {
       ...motionSection,
-      enabled: motion.kind !== "none",
+      enabled: motion.kind !== "none" && !options.range,
       specPath: motion.kind === "none" ? undefined : motion.path,
       samples: browser.motionSampleCount,
     },
@@ -1512,7 +1534,7 @@ function buildReport(
   };
   trackCheckReport({
     contrastGate: options.contrast,
-    motionGate: motion.kind !== "none",
+    motionGate: motion.kind !== "none" && !options.range,
     captionZoneGate: options.captionZone !== undefined,
     frameCheckGate: options.frameCheck !== undefined,
     snapshotsGate: options.snapshots,
