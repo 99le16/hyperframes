@@ -1,11 +1,13 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 import {
   testProcessDescendants,
+  stopTestProcesses,
   testProcessIsAlive,
   waitForTestCondition,
 } from "./processTestUtils.js";
@@ -87,17 +89,10 @@ it("check names a non-finishing child script, exits non-zero, and closes its bro
     await waitForTestCondition(() => !testProcessIsAlive(ownedPid), 5_000);
     await waitForTestCondition(() => descendants.every((pid) => !testProcessIsAlive(pid)), 5_000);
   } finally {
-    if (child.exitCode === null && child.signalCode === null) {
-      child.kill("SIGTERM");
-      await waitForTestCondition(
-        () => child.exitCode !== null || child.signalCode !== null,
-        5_000,
-      ).catch(() => undefined);
-    }
-    for (const pid of [...descendants, ...(browserPid === undefined ? [] : [browserPid])]) {
-      if (testProcessIsAlive(pid)) process.kill(pid, "SIGKILL");
-    }
-    child.kill("SIGKILL");
-    rmSync(dir, { recursive: true, force: true });
+    await stopTestProcesses(child, [
+      ...descendants,
+      ...(browserPid === undefined ? [] : [browserPid]),
+    ]);
+    await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 }, 60_000);

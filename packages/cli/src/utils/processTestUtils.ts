@@ -1,3 +1,4 @@
+import type { ChildProcess } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 
 export function testProcessIsAlive(pid: number): boolean {
@@ -40,4 +41,26 @@ export function testProcessDescendants(parentPid: number): number[] {
     for (const [child, parent] of parents) if (parent === pid) owned.add(child);
   }
   return [...owned].filter((pid) => pid !== parentPid);
+}
+
+export async function stopTestProcesses(
+  root: ChildProcess,
+  ownedPids: readonly number[],
+): Promise<void> {
+  const rootExited = () => root.exitCode !== null || root.signalCode !== null;
+  if (!rootExited()) {
+    root.kill("SIGTERM");
+    await waitForTestCondition(rootExited, 5_000).catch(() => undefined);
+  }
+  try {
+    for (const pid of ownedPids) {
+      if (testProcessIsAlive(pid)) process.kill(pid, "SIGKILL");
+    }
+    await waitForTestCondition(() => ownedPids.every((pid) => !testProcessIsAlive(pid)), 5_000);
+  } finally {
+    if (!rootExited()) {
+      root.kill("SIGKILL");
+      await waitForTestCondition(rootExited, 5_000);
+    }
+  }
 }
