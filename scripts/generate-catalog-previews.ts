@@ -32,6 +32,8 @@ import {
 import { execFileSync } from "node:child_process";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseHTMLContent } from "../packages/core/src/compiler/htmlDocument.js";
+import { parseNumeric } from "../packages/parsers/src/compositionContract.js";
 import { createCatalogPreviewTempDir } from "./catalog-preview-temp.js";
 import { runAsCommand } from "./entrypoint.ts";
 // Import from source — bun workspace linking doesn't resolve for scripts outside packages/.
@@ -389,6 +391,19 @@ function renderWrapperHtml(spec: WrapperSpec): string {
 </html>`;
 }
 
+function authoredEntryDuration(html: string): number | null {
+  const document = parseHTMLContent(html);
+  const root =
+    document.querySelector("[data-composition-id]") ??
+    document.querySelector("template")?.content.querySelector("[data-composition-id]") ??
+    null;
+  if (root === null) return null;
+  const duration =
+    parseNumeric(root.getAttribute("data-duration")) ??
+    parseNumeric(root.getAttribute("data-composition-duration"));
+  return duration !== null && duration > 0 ? duration : null;
+}
+
 function writeWrapperIndex(
   tmpDir: string,
   item: CatalogItem,
@@ -399,7 +414,10 @@ function writeWrapperIndex(
     name: item.name,
     entrySrc: wrapperEntrySrc(tmpDir, manifest, item.entryFile),
     ...manifestSize(manifest),
-    duration: manifest.duration ?? 5,
+    duration:
+      authoredEntryDuration(readFileSync(join(tmpDir, item.entryFile), "utf-8")) ??
+      manifest.duration ??
+      5,
     bgColor: wrapperBackground(manifest.tags ?? [], uiFragment),
     uiFragment,
   });
@@ -419,15 +437,21 @@ export async function prepareProjectDir(
   options: PrepareOptions = {},
 ): Promise<string> {
   const tmpDir = createCatalogPreviewTempDir(item.name);
-  cpSync(item.sourceDir, tmpDir, { recursive: true });
-  await materializeHostedAssets(tmpDir, options.hostedAssets);
-  mirrorRegistryTargets(tmpDir);
+  try {
+    cpSync(item.sourceDir, tmpDir, { recursive: true });
+    await materializeHostedAssets(tmpDir, options.hostedAssets);
+    mirrorRegistryTargets(tmpDir);
 
-  promoteStandaloneEntry(tmpDir, item.entryFile);
-  if (!existsSync(join(tmpDir, "index.html"))) writeWrapperIndex(tmpDir, item, options.uiFragment);
-  await compileIndex(tmpDir, options.compile);
+    promoteStandaloneEntry(tmpDir, item.entryFile);
+    if (!existsSync(join(tmpDir, "index.html")))
+      writeWrapperIndex(tmpDir, item, options.uiFragment);
+    await compileIndex(tmpDir, options.compile);
 
-  return tmpDir;
+    return tmpDir;
+  } catch (error) {
+    rmSync(tmpDir, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 /** Pull a `data-<attr>` pixel value out of the wrapper markup, or fall back. */
