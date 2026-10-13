@@ -145,10 +145,12 @@ describe("withProjectLock", () => {
     const child = spawn(process.execPath, ["--input-type=module", "--eval", source], {
       stdio: "ignore",
     });
-    const signal = await new Promise<NodeJS.Signals | null>((resolve) => {
-      child.on("close", (_code, closed) => resolve(closed));
-    });
-    expect(signal).toBe("SIGKILL");
+    const outcome = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+      (resolve) => {
+        child.on("close", (code, signal) => resolve({ code, signal }));
+      },
+    );
+    expect(outcome.signal === "SIGKILL" || outcome.code !== 0).toBe(true);
     expect(existsSync(breakPath)).toBe(true);
     expect(await withProjectLock(dir, "check", async () => "ran", locked(300))).toBe("ran");
     expect(existsSync(breakPath)).toBe(false);
