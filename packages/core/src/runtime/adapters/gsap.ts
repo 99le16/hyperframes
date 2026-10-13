@@ -6,7 +6,8 @@ type GsapAdapterDeps = {
 
 /**
  * Re-renders a timeline already at `t`, silently, from just below (above at 0) so same-time steps apply in authored
- * order. That step skips a keyframed tween at its start and undoes a tween's from-values there, so both are redone.
+ * order. That step skips a keyframed tween at its start, and undoes the from-values of a tween starting at or just
+ * below `t`, so both are redone.
  */
 export function rerenderGsapTimelineAt(
   timeline: {
@@ -32,8 +33,9 @@ export function rerenderGsapTimelineAt(
   );
   for (const [child] of skipped) child._ts = 0;
   try {
-    timeline.totalTime(t >= 0.001 ? t - 0.001 : t + 0.001, true);
-    primeTweensStartingAt(children, t);
+    const below = t >= REDRAW_STEP;
+    timeline.totalTime(below ? t - REDRAW_STEP : t + REDRAW_STEP, true);
+    primeTweensStartingAt(children, t, below ? REDRAW_STEP : 0);
     timeline.totalTime(t, true);
   } finally {
     for (const [child, timeScale] of skipped) child._ts = timeScale;
@@ -105,6 +107,8 @@ type GsapAnimation = {
 
 const BELOW_GSAP_TIME_RESOLUTION = 2e-8;
 
+const REDRAW_STEP = 0.001;
+
 const playsForward = (value: unknown): value is GsapAnimation => {
   const animation = value as GsapAnimation | null;
   return (
@@ -126,14 +130,23 @@ function primedAtItsStart(tween: GsapAnimation): boolean {
   return Boolean(tween.vars?.keyframes || tween._startAt);
 }
 
-function primeTweensStartingAt(children: unknown[], time: number): void {
+// `stepBelow`: how far below `time` the redraw stepped, in these children's time.
+function primeTweensStartingAt(children: unknown[], time: number, stepBelow: number): void {
   for (const child of children.filter(playsForward)) {
     const local = (time - child.startTime()) * child.timeScale();
     if (Math.abs(local) < 1e-9 && primedAtItsStart(child)) continue;
-    const nested = child.getChildren ? child : child.timeline;
-    if (nested?.getChildren && local > 0 && local <= child.totalDuration()) {
-      primeTweensStartingAt(nested.getChildren(false, true, true), local);
-    }
+    if (local > 0) primeStartedTween(child, local, stepBelow * child.timeScale());
+  }
+}
+
+function primeStartedTween(child: GsapAnimation, local: number, stepBelow: number): void {
+  // The step down crossed this start and put the from-values back, and the step up does not reapply them: a fromTo
+  // starting 0.7 ms before a 30 fps frame lost its from-only opacity on that frame and every later one.
+  if (local < stepBelow && child._startAt)
+    child._startAt.render(BELOW_GSAP_TIME_RESOLUTION, true, true);
+  const nested = child.getChildren ? child : child.timeline;
+  if (nested?.getChildren && local <= child.totalDuration()) {
+    primeTweensStartingAt(nested.getChildren(false, true, true), local, stepBelow);
   }
 }
 
