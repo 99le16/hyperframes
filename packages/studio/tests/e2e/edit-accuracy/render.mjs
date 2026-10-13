@@ -1,5 +1,5 @@
 /** Render drift: the target's box in a frame the producer captures, found by its flat colour. */
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 // Source import, as scripts/preview-capture.ts does: bun runs the producer's TypeScript directly.
 import {
@@ -63,6 +63,22 @@ const luminance = (hex) => {
   return 0.299 * r + 0.587 * g + 0.114 * b;
 };
 
+/** A saved project with no GSAP timeline; a keyframe added in Studio writes one, so the files decide, not the spec. */
+const noTimeline = (dir) =>
+  !["index.html", "compositions/sub.html"].some(
+    (f) => existsSync(join(dir, f)) && readFileSync(join(dir, f), "utf8").includes("__timelines"),
+  );
+
+/** Runs in the producer's page: marks every composition host `data-no-timeline`, the engine's opt-out of the wait. */
+function markNoTimeline() {
+  const mark = (e) => e.matches("[data-composition-id]") && e.setAttribute("data-no-timeline", "");
+  new MutationObserver((records) => {
+    for (const r of records)
+      for (const n of r.addedNodes)
+        if (n.nodeType === 1) [n, ...n.querySelectorAll("[data-composition-id]")].forEach(mark);
+  }).observe(document, { childList: true, subtree: true });
+}
+
 /** Renders `dir` at `time` and measures the target's box in the frame. */
 export async function renderBox(dir, decoder, time = PLAYHEAD) {
   const framesDir = join(dir, ".bench-frames");
@@ -87,6 +103,8 @@ export async function renderBox(dir, decoder, time = PLAYHEAD) {
     );
     // The producer's own browser would fetch GSAP from the CDN; a stalled fetch renders the 0 s frame.
     await serveFixtureAssetsLocally(session.page);
+    // Without the opt-out, a project with no timeline waits out playerReadyTimeout on every render.
+    if (noTimeline(dir)) await session.page.evaluateOnNewDocument(markNoTimeline);
     await initializeSession(session);
     const { buffer } = await captureFrameToBuffer(session, 0, time);
     // Diagnostic only: a DOM rect ignores clip-path, so it cannot score a crop.
