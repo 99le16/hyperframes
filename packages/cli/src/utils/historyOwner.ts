@@ -167,7 +167,7 @@ function previewOwner(route: (path: string) => string): Owner {
       json(`/window/${id}/close`, {})
         .then((closed) => closed.entry as HistoryEntry | null)
         .catch(async () => (await list()).find((entry) => entry.id === id) ?? null),
-    checkpoint: async () => void (await json("/checkpoint", undefined, AbortSignal.timeout(5_000))),
+    checkpoint: async () => void (await json("/checkpoint", {}, AbortSignal.timeout(5_000))),
     close: async () => {},
   };
 }

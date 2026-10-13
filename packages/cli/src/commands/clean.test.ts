@@ -239,6 +239,18 @@ describe("cleanLeftovers", () => {
   );
 
   it.skipIf(process.platform === "win32")(
+    "does not remove snapshots through an artifacts folder linked inside the project",
+    async () => {
+      const snapshots = plant(join(project, "src"), "snapshots");
+      mkdirSync(join(project, ".hyperframes"));
+      symlinkSync(join(project, "src"), join(project, ".hyperframes", "artifacts"));
+
+      await run({ snapshots: true });
+      expect(existsSync(join(snapshots, "frame_000001.jpg"))).toBe(true);
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
     "does not remove snapshots or checks through a symlinked .hyperframes folder",
     async () => {
       const outside = join(scratch, "outside");

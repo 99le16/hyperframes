@@ -908,8 +908,7 @@ async function captureSnapshots(
       : false;
     if (!recorded) {
       const paths = [...replaced, ...artifacts.map((artifact) => artifact.image)];
-      if (paths.length > 0)
-        await forgetRecordedArtifacts(projectDir, paths).catch(warnSnapshotsNotRecorded);
+      if (paths.length > 0) await forgetRecordedArtifacts(projectDir, paths).catch(() => undefined);
     }
   }
 

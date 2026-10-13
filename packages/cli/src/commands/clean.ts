@@ -134,17 +134,21 @@ const SNAPSHOT_FOLDERS = [
   { what: "Check reports", path: [".hyperframes", "artifacts", "checks"] },
 ];
 
-function staysInProject(project: string, path: string): boolean {
-  const root = realpathSync(project);
-  const target = realpathSync(path);
-  const fromRoot = relative(root, target);
-  return fromRoot === "" || (!fromRoot.startsWith("..") && !isAbsolute(fromRoot));
+function staysUnderArtifacts(project: string, path: string, folder: readonly string[]): boolean {
+  try {
+    const allowed = join(realpathSync(project), ...folder);
+    const target = realpathSync(path);
+    const fromAllowed = relative(allowed, target);
+    return fromAllowed === "" || (!fromAllowed.startsWith("..") && !isAbsolute(fromAllowed));
+  } catch {
+    return false;
+  }
 }
 
 function sweepSnapshots(sweep: Sweep, project: string, remove: boolean): void {
   for (const folder of SNAPSHOT_FOLDERS) {
     const path = join(project, ...folder.path);
-    if (!existsSync(path) || !staysInProject(project, path)) continue;
+    if (!existsSync(path) || !staysUnderArtifacts(project, path, folder.path)) continue;
     if (remove) drop(sweep, folder.what, path);
     else
       sweep.result.alsoReclaimable.push({

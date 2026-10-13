@@ -1,8 +1,16 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { createAdaptorServer } from "@hono/node-server";
+import {
+  createStudioApi,
+  openProjectHistory,
+  type StudioApiAdapter,
+} from "@hyperframes/studio-server";
 import { afterEach, expect, it } from "vitest";
 import { runCommand } from "citty";
+import { Hono } from "hono";
 import { recordArtifact, type VideoState } from "@hyperframes/studio-server/history";
 import { captureArtifactRevision } from "./artifactCapture.js";
 import { historyDeps, withOwner, writeTurn } from "./historyOwner.js";
@@ -10,8 +18,10 @@ import { consumeCommandResult } from "./commandResult.js";
 import check from "../commands/check.js";
 const roots: string[] = [];
 const originalRoot = historyDeps.historyRoot;
+const originalFindServer = historyDeps.findServer;
 afterEach(() => {
   historyDeps.historyRoot = originalRoot;
+  historyDeps.findServer = originalFindServer;
   consumeCommandResult();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -70,4 +80,51 @@ it("does not assign results when inputs change during capture", async () => {
   await captureArtifactRevision(f.dir);
   expect(f.state().snapshots.unversioned[0]?.attribution).toBe("inputs-changed");
   expect(f.state().snapshots.latest?.revision).toBeNull();
+});
+
+it("posts a preview checkpoint instead of sending GET", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "hf-artifact-preview-"));
+  roots.push(dir);
+  historyDeps.historyRoot = mkdtempSync(join(tmpdir(), "hf-artifact-preview-history-"));
+  roots.push(historyDeps.historyRoot);
+  writeFileSync(join(dir, "index.html"), "<html>preview</html>");
+  const history = await openProjectHistory({
+    projectDir: dir,
+    historyRoot: historyDeps.historyRoot,
+  });
+  let checkpoints = 0;
+  const checkpoint = history.checkpoint.bind(history);
+  history.checkpoint = () => {
+    checkpoints += 1;
+    return checkpoint();
+  };
+  const adapter = {
+    listProjects: () => [],
+    resolveProject: (id: string) => (id === "demo" ? { id, dir } : null),
+    history: () => history,
+  } as unknown as StudioApiAdapter;
+  const server = createAdaptorServer({
+    fetch: new Hono().route("/api", createStudioApi(adapter)).fetch,
+  });
+  await new Promise<void>((ready) => server.listen(0, "127.0.0.1", ready));
+  const { port } = server.address() as AddressInfo;
+  historyDeps.findServer = async () =>
+    ({
+      port,
+      host: "127.0.0.1",
+      projectName: "demo",
+      projectDir: dir,
+      version: "test",
+      pid: null,
+    }) as never;
+  try {
+    await withOwner(dir, async (owner) => {
+      expect(owner.via).toBe("preview");
+      await owner.checkpoint();
+    });
+    expect(checkpoints).toBe(1);
+  } finally {
+    server.close();
+    await history.close();
+  }
 });
