@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Sources, mergeSnippets, fingerprint } from "../src/sources";
+import { PREVIEW_IGNORED_DIRS } from "../../core/src/projectFolders";
 import {
   bundleToSingleHtml,
   type BundleScriptProvenance,
@@ -14,7 +15,7 @@ describe("source records", () => {
     try {
       writeFileSync(join(dir, "index.html"), "<div></div>");
       const before = fingerprint(dir);
-      for (const folder of [".waveform-cache", ".thumbnails", ".transcode-cache", ".cache"]) {
+      for (const folder of PREVIEW_IGNORED_DIRS) {
         mkdirSync(join(dir, folder));
         writeFileSync(join(dir, folder, "peaks.json"), "[1,2,3]");
       }
