@@ -23,6 +23,7 @@ import { normalizeErrorMessage } from "./errorMessage.js";
 import { ambiguousIssue, type MotionFrame } from "./motionAudit.js";
 import type { LayoutIssue, LayoutIssueCode, LayoutRect } from "./layoutAudit.js";
 import { serveStaticProjectHtml } from "./staticProjectServer.js";
+import { collectTweenRecords, findTweenTails, tweenTailMessage } from "./gsapTweenTails.js";
 import { resolveAutoProxy } from "./projectConfig.js";
 import {
   decideMediaProxyEligibility,
@@ -230,6 +231,10 @@ export async function runBrowserCheck(
     const { analyzeClipMediaFit } = await import("@hyperframes/engine");
     for (const entry of await auditClipDurations(page, analyzeClipMediaFit, options.timeout)) {
       drafts.push({ code: "clip_media_fit", severity: entry.level, message: entry.text, time: 0 });
+    }
+    for (const tail of findTweenTails((await page.evaluate(collectTweenRecords)) ?? [])) {
+      const message = tweenTailMessage(tail);
+      drafts.push({ code: "gsap_tween_tail", severity: "warning", message, time: tail.later.end });
     }
     const driver = createPageDriver(page, (time) => {
       currentTime = time;
