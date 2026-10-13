@@ -10,6 +10,7 @@ import { captureArtifactRevision } from "../utils/artifactCapture.js";
 import { randomUUID } from "node:crypto";
 import {
   artifactDirectory,
+  forgetRecordedArtifacts,
   recordArtifacts,
   type ArtifactCapture,
 } from "@hyperframes/studio-server/history";
@@ -477,6 +478,7 @@ async function captureSnapshots(
     time: number;
     metadata: Record<string, unknown>;
   }> = [];
+  const replaced: string[] = [];
   const warnings: string[] = [];
   let completed = false;
   const numFrames = opts.frames ?? 5;
@@ -604,7 +606,9 @@ async function captureSnapshots(
         const { readdirSync } = await import("node:fs");
         for (const file of readdirSync(snapshotDir)) {
           if (/\.(png|jpg|jpeg)$/i.test(file)) {
-            rmSync(join(snapshotDir, file), { force: true });
+            const path = resolve(snapshotDir, file);
+            replaced.push(path);
+            rmSync(path, { force: true });
           }
         }
       } catch {
@@ -892,8 +896,21 @@ async function captureSnapshots(
     }
   } finally {
     await server.close();
-    if (capture)
-      await recordSnapshotArtifacts(projectDir, capture, artifacts, opts.zoom, warnings, completed);
+    const recorded = capture
+      ? await recordSnapshotArtifacts(
+          projectDir,
+          capture,
+          artifacts,
+          opts.zoom,
+          warnings,
+          completed,
+        )
+      : false;
+    if (!recorded) {
+      const paths = [...replaced, ...artifacts.map((artifact) => artifact.image)];
+      if (paths.length > 0)
+        await forgetRecordedArtifacts(projectDir, paths).catch(warnSnapshotsNotRecorded);
+    }
   }
 
   return savedPaths;
@@ -911,7 +928,7 @@ async function recordSnapshotArtifacts(
   zoom: ZoomTarget | undefined,
   warnings: string[],
   completed: boolean,
-): Promise<void> {
+): Promise<boolean> {
   const records = await recordArtifacts(
     projectDir,
     capture,
@@ -923,9 +940,10 @@ async function recordSnapshotArtifacts(
     })),
   ).catch(warnSnapshotsNotRecorded);
   const record = records?.[0];
-  if (!record) return;
+  if (!record) return false;
   console.log(`   Revision: ${record.revision ?? "none"} (${record.attribution})`);
   console.log(`   State: ${join(projectDir, ".hyperframes", "video-state.json")}`);
+  return true;
 }
 
 export default defineCommand({

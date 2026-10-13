@@ -142,6 +142,18 @@ describe("snapshot contact sheet failures", () => {
   });
 
   it("keeps the captured frames when another process holds history", async () => {
+    const args = {
+      rawArgs: [
+        project,
+        ...["--at", "0.5,1", "--no-end", "--describe", "false"],
+        ...["--output", join(project, "snapshots")],
+      ],
+    };
+    await runCommand(snapshotCommand, args);
+    const statePath = join(project, ".hyperframes", "video-state.json");
+    const recorded = JSON.parse(readFileSync(statePath, "utf8"));
+    expect(recorded.snapshots.unversioned.length).toBeGreaterThan(0);
+
     const previousWait = historyDeps.ownerWaitMs;
     historyDeps.ownerWaitMs = 0;
     const held = await openProjectHistory({
@@ -149,18 +161,29 @@ describe("snapshot contact sheet failures", () => {
       historyRoot: historyDeps.historyRoot,
       ownerWaitMs: 0,
     });
+    capture.screenshot.mockImplementation(async ({ path }: { path: string }) => {
+      const bytes = Buffer.from("replaced PNG");
+      writeFileSync(path, bytes);
+      return bytes;
+    });
+    capture.evaluate
+      .mockReset()
+      .mockResolvedValueOnce({ loaded: [], errored: [], unused: [] })
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(undefined);
     try {
-      await runCommand(snapshotCommand, {
-        rawArgs: [
-          project,
-          ...["--at", "0.5,1", "--no-end", "--describe", "false"],
-          ...["--output", join(project, "snapshots")],
-        ],
-      });
+      await runCommand(snapshotCommand, args);
       for (const [index, time] of ["0.5", "1"].entries()) {
         const frame = join(project, "snapshots", `frame-0${index}-at-${time}s.png`);
-        expect(readFileSync(frame)).toEqual(Buffer.from("captured PNG"));
+        expect(readFileSync(frame)).toEqual(Buffer.from("replaced PNG"));
       }
+      const after = JSON.parse(readFileSync(statePath, "utf8"));
+      expect(after.snapshots.unversioned).toEqual([]);
+      expect(after.snapshots.latest).toBeNull();
       expect(console.error).not.toHaveBeenCalled();
       expect(console.warn).toHaveBeenCalledWith(
         expect.stringContaining("Snapshots were not recorded"),

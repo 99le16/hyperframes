@@ -128,18 +128,22 @@ export async function endTurn(
 }
 
 function previewOwner(route: (path: string) => string): Owner {
-  const call = async (path: string, body?: object) => {
-    const init = body && {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+  const call = async (path: string, body?: object, signal?: AbortSignal) => {
+    const init = {
+      ...(body && {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      ...(signal && { signal }),
     };
     const response = await fetch(route(path), init);
     if (response.ok) return response;
     const error = (await response.json().catch(() => null)) as { error?: string } | null;
     throw new Refusal(error?.error ?? `The preview answered ${response.status}.`);
   };
-  const json = async (path: string, body?: object) => (await call(path, body)).json();
+  const json = async (path: string, body?: object, signal?: AbortSignal) =>
+    (await call(path, body, signal)).json();
   const list = async () => (await json("")).entries as HistoryListItem[];
   return {
     via: "preview",
@@ -163,7 +167,7 @@ function previewOwner(route: (path: string) => string): Owner {
       json(`/window/${id}/close`, {})
         .then((closed) => closed.entry as HistoryEntry | null)
         .catch(async () => (await list()).find((entry) => entry.id === id) ?? null),
-    checkpoint: async () => void (await json("/checkpoint", {})),
+    checkpoint: async () => void (await json("/checkpoint", undefined, AbortSignal.timeout(5_000))),
     close: async () => {},
   };
 }

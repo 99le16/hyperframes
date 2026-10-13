@@ -1,5 +1,6 @@
 import {
   mkdtempSync,
+  mkdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -16,6 +17,7 @@ import {
   beginArtifactCapture,
   recordArtifact,
   recordArtifacts,
+  forgetRecordedArtifacts,
   type VideoState,
 } from "./videoState.js";
 
@@ -195,6 +197,23 @@ describe("video state", () => {
     );
     expect(readdirSync(join(f.projectDir, ".hyperframes"))).not.toContain("events.jsonl");
     expect(readdirSync(join(f.projectDir, ".hyperframes"))).not.toContain("blobs");
+  });
+
+  it("drops a record when a later run replaces the file without recording", async () => {
+    const f = await fixture();
+    const revision = await f.edit("first");
+    const capture = await beginArtifactCapture(f.projectDir);
+    const image = join(f.projectDir, "snapshots", "frame.png");
+    mkdirSync(join(f.projectDir, "snapshots"));
+    writeFileSync(image, "first image");
+    await recordArtifacts(f.projectDir, capture, [
+      { kind: "snapshot", id: "s1", time: 1, scope: "full", image },
+    ]);
+    writeFileSync(image, "replaced image");
+    await forgetRecordedArtifacts(f.projectDir, [image]);
+    const state = read(f.projectDir);
+    expect(state.snapshots.revisions[revision] ?? []).toEqual([]);
+    expect(state.snapshots.latest).toBeNull();
   });
 
   it("repairs malformed derived state without losing committed history", async () => {
