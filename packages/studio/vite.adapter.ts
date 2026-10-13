@@ -352,6 +352,9 @@ export function createViteAdapter(
             ...(opts.composition ? { entryFile: opts.composition } : {}),
             ...(opts.variables ? { variables: opts.variables } : {}),
             ...(opts.crf !== undefined ? { crf: opts.crf } : {}),
+            ...(opts.videoBitrate ? { videoBitrate: opts.videoBitrate } : {}),
+            ...(opts.videoFrameFormat ? { videoFrameFormat: opts.videoFrameFormat } : {}),
+            ...(opts.hdrMode ? { hdrMode: opts.hdrMode } : {}),
             ...(opts.useGpu ? { useGpu: true } : {}),
           });
           const onProgress = (j: { progress: number; currentStage?: string }) => {

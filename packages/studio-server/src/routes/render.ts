@@ -13,6 +13,7 @@ import {
 } from "../helpers/safePath.js";
 import { projectDirMissing } from "../helpers/projectDirMissing.js";
 import { isVariablesPayload, VARIABLES_PAYLOAD_ERROR } from "../helpers/variablesPayload.js";
+import { parseEncoderOptions, type EncoderOptionsBody } from "../helpers/encoderOptions.js";
 
 const VALID_RESOLUTIONS = new Set<string>(VALID_CANVAS_RESOLUTIONS);
 const RENDER_MIME: Record<string, string> = {
@@ -20,7 +21,6 @@ const RENDER_MIME: Record<string, string> = {
   ".webm": "video/webm",
   ".mov": "video/quicktime",
 };
-const CRF_MAX_BY_FORMAT: Record<string, number> = { mp4: 51, webm: 63 };
 const RENDER_EXTENSIONS = Object.keys(RENDER_MIME);
 const RENDER_ARTIFACT_EXTENSIONS = [...RENDER_EXTENSIONS, ".meta.json"];
 
@@ -86,7 +86,7 @@ export function registerRenderRoutes(api: Hono, adapter: StudioApiAdapter): void
     const project = await adapter.resolveProject(c.req.param("id"));
     if (!project) return c.json({ error: "not found" }, 404);
 
-    const body = (await c.req.json().catch(() => ({}))) as {
+    const body = (await c.req.json().catch(() => ({}))) as EncoderOptionsBody & {
       // Polymorphic per design note in core.types.Fps:
       //   number → integer fps (e.g. 30)
       //   string → rational fps (e.g. "30000/1001" for NTSC 29.97)
@@ -108,7 +108,6 @@ export function registerRenderRoutes(api: Hono, adapter: StudioApiAdapter): void
       // window.__hfVariables — same channel as `hyperframes render --variables`.
       variables?: Record<string, unknown>;
       gpu?: boolean;
-      crf?: unknown;
     };
     const VALID_FORMATS = new Set(["mp4", "webm", "mov"]);
     const FORMAT_EXT: Record<string, string> = { mp4: ".mp4", webm: ".webm", mov: ".mov" };
@@ -148,14 +147,8 @@ export function registerRenderRoutes(api: Hono, adapter: StudioApiAdapter): void
       variables = body.variables;
     }
 
-    let crf: number | undefined;
-    if (body.crf !== undefined && body.crf !== null && format !== "mov") {
-      const max = CRF_MAX_BY_FORMAT[format] ?? 51;
-      if (!Number.isInteger(body.crf) || (body.crf as number) < 0 || (body.crf as number) > max) {
-        return c.json({ error: `crf must be an integer from 0 to ${max} for ${format}` }, 400);
-      }
-      crf = body.crf as number;
-    }
+    const encoder = parseEncoderOptions(body, format);
+    if (!encoder.ok) return c.json({ error: encoder.error }, 400);
 
     const now = new Date();
     const jobId = `${project.id}_${formatRenderOutputTimestamp(now)}`;
@@ -174,7 +167,7 @@ export function registerRenderRoutes(api: Hono, adapter: StudioApiAdapter): void
       outputResolution,
       composition,
       variables,
-      ...(crf !== undefined ? { crf } : {}),
+      ...encoder.options,
       useGpu: body.gpu === true && format === "mp4",
       distinctId:
         typeof body.telemetryDistinctId === "string" ? body.telemetryDistinctId : undefined,

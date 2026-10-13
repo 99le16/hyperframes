@@ -357,6 +357,23 @@ describe("POST /projects/:id/render — crf", () => {
     expect(opts).not.toHaveProperty("crf");
   });
 
+  it("forwards the other encoder options and refuses crf with a bitrate", async () => {
+    const { opts } = await post({
+      format: "mp4",
+      videoBitrate: "10M",
+      videoFrameFormat: "png",
+      hdrMode: "force-sdr",
+    });
+    expect(opts).toMatchObject({
+      videoBitrate: "10M",
+      videoFrameFormat: "png",
+      hdrMode: "force-sdr",
+    });
+    const both = await post({ format: "mp4", crf: 12, videoBitrate: "10M" });
+    expect(both.res.status).toBe(400);
+    expect(both.opts).toBeUndefined();
+  });
+
   it.each([
     ["mp4", 52],
     ["mp4", -1],
