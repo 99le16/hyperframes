@@ -1,3 +1,11 @@
+import { reportArtifacts } from "../utils/toolContext.js";
+import { withProjectLock } from "../utils/projectLock.js";
+import {
+  parseSnapshotRange,
+  sampleSnapshotRange,
+  resolveSnapshotCompositionRange,
+  type SnapshotRange,
+} from "./snapshotSampling.js";
 import { failCommand } from "../utils/commandResult.js";
 // fallow-ignore-file complexity
 import { defineCommand } from "citty";
@@ -436,6 +444,8 @@ async function captureSnapshots(
   projectDir: string,
   opts: {
     frames?: number;
+    range?: SnapshotRange;
+    composition?: string;
     timeout?: number;
     at?: number[];
     outputDir?: string;
@@ -517,13 +527,38 @@ async function captureSnapshots(
         return [];
       }
 
-      // Calculate seek positions — explicit timestamps or evenly spaced, always
-      // including a readable end-of-timeline frame (FINDING [7]).
-      const { times: positions, appendedTail } = computeSnapshotTimes(duration, {
-        frames: numFrames,
-        at: opts.at,
-        includeEnd: opts.includeEnd,
-      });
+      let range = opts.range;
+      if (opts.composition) {
+        const timing = await page.evaluate(() => ({
+          html: document.documentElement.outerHTML,
+          durations: Object.fromEntries(
+            Object.entries((window as any).__timelines ?? {}).map(([id, timeline]) => [
+              id,
+              Number((timeline as any).duration?.()),
+            ]),
+          ),
+        }));
+        range = resolveSnapshotCompositionRange(
+          timing.html,
+          timing.durations,
+          opts.composition,
+          duration,
+        );
+      }
+      const { times: positions, appendedTail } = range
+        ? {
+            times: sampleSnapshotRange(range, numFrames, duration, !!opts.composition),
+            appendedTail: false,
+          }
+        : computeSnapshotTimes(duration, {
+            frames: numFrames,
+            at: opts.at,
+            includeEnd: opts.includeEnd,
+          });
+      if (range)
+        console.log(
+          `   Sampling ${positions.length} frames within ${range[0]}–${range[1]}s${opts.composition ? ` (composition ${opts.composition})` : ""}`,
+        );
       if (appendedTail) {
         console.log(
           `   ${c.dim(`Note: added an end-of-timeline frame at ${positions[positions.length - 1]!.toFixed(2)}s. Short beats between your --at times may still be skipped — pass them explicitly.`)}`,
@@ -842,6 +877,16 @@ export default defineCommand({
       description:
         "Comma-separated timestamps in seconds (e.g., --at 3.0,10.5,18.0). Each is captured at that exact instant, not snapped to a frame.",
     },
+    range: {
+      type: "string",
+      description:
+        "Root-timeline range START,END in seconds; sample --frames evenly within it, without adding the full-video tail",
+    },
+    composition: {
+      type: "string",
+      description:
+        "data-composition-id to sample; take --frames within its effective root-timeline interval, without adding the full-video tail",
+    },
     timeout: {
       type: "string",
       description: "Ms to wait for runtime to initialize (default: 5000)",
@@ -892,6 +937,13 @@ export default defineCommand({
     },
   },
   async run({ args }) {
+    if ([args.at, args.range, args.composition].filter((value) => value !== undefined).length > 1)
+      throw new Error("Use only one of --at, --range, or --composition");
+    const frames = parseInt(args.frames as string, 10) || 5;
+    const range = args.range === undefined ? undefined : parseSnapshotRange(String(args.range));
+    const composition =
+      args.composition === undefined ? undefined : String(args.composition).trim();
+    if (composition === "") throw new Error("--composition requires a composition ID");
     const project = resolveProject(args.dir);
     const lintResult = await lintProject(project.dir);
     if (hasDefinitiveEntryMismatch(lintResult)) {
@@ -920,7 +972,6 @@ export default defineCommand({
       console.log("");
       failCommand();
     }
-    const frames = parseInt(args.frames as string, 10) || 5;
     const timeout = parseInt(args.timeout as string, 10) || 5000;
     const atTimestamps = args.at
       ? String(args.at)
@@ -961,151 +1012,167 @@ export default defineCommand({
       const snapshotDir = args.output
         ? resolve(String(args.output))
         : join(project.dir, "snapshots");
-      const paths = await captureSnapshots(project.dir, {
-        frames,
-        timeout,
-        at: atTimestamps,
-        outputDir: snapshotDir,
-        angle: camera,
-        includeEnd: args.end !== false,
-        zoom: zoomTarget,
-        zoomScale,
-        autoProxy: args.proxy as boolean | undefined,
-        browserGpuMode: resolveLocalBrowserGpuMode(args["browser-gpu"] as boolean | undefined),
-        against,
-      });
-
-      if (paths.length === 0) {
-        console.log(
-          `\n${c.error("✗")} Could not determine composition duration — no frames captured`,
+      await withProjectLock(project.dir, "snapshot", async () => {
+        const paths = await captureSnapshots(project.dir, {
+          frames,
+          range,
+          composition,
+          timeout,
+          at: atTimestamps,
+          outputDir: snapshotDir,
+          angle: camera,
+          includeEnd: args.end !== false,
+          zoom: zoomTarget,
+          zoomScale,
+          autoProxy: args.proxy as boolean | undefined,
+          browserGpuMode: resolveLocalBrowserGpuMode(args["browser-gpu"] as boolean | undefined),
+          against,
+        });
+        reportArtifacts(
+          "snapshot",
+          "frame",
+          paths.map((path) => resolve(project.dir, path)),
         );
-        failCommand();
-      }
 
-      console.log(
-        `\n${c.success("◇")}  ${paths.length} snapshots saved to ${args.output ? snapshotDir : "snapshots/"}`,
-      );
-      for (const p of paths) {
-        console.log(`   ${p}`);
-      }
-      if (against) {
-        console.log(
-          `   ${c.dim("ref-*.png + pair-*.jpg")} beside each frame (reference frame, render | reference sheet)`,
-        );
-      }
-
-      // Generate contact sheet for quick AI review
-      try {
-        const { createSnapshotContactSheet } = await import("../capture/contactSheet.js");
-        const sheets = await createSnapshotContactSheet(
-          snapshotDir,
-          join(snapshotDir, "contact-sheet.jpg"),
-        );
-        if (sheets.length > 0) {
-          const label =
-            sheets.length === 1 ? "contact-sheet.jpg" : `contact-sheet-1..${sheets.length}.jpg`;
-          console.log(`   ${c.dim(label)} (grid view for AI review)`);
+        if (paths.length === 0) {
+          console.log(
+            `\n${c.error("✗")} Could not determine composition duration — no frames captured`,
+          );
+          failCommand();
         }
-      } catch (err) {
-        console.warn(
-          `   ${c.warn("⚠")} Contact sheet skipped: ${normalizeErrorMessage(err)}. Individual snapshot PNGs are still available.`,
-        );
-      }
 
-      // Gemini vision descriptions. Runs by default — see describeArg
-      // resolution above. `null` means the user explicitly opted out with
-      // `--describe false`; missing GEMINI_API_KEY logs a skip and continues.
-      if (describeArg !== null) {
+        console.log(
+          `\n${c.success("◇")}  ${paths.length} snapshots saved to ${args.output ? snapshotDir : "snapshots/"}`,
+        );
+        for (const p of paths) {
+          console.log(`   ${p}`);
+        }
+        if (against) {
+          console.log(
+            `   ${c.dim("ref-*.png + pair-*.jpg")} beside each frame (reference frame, render | reference sheet)`,
+          );
+        }
+
+        // Generate contact sheet for quick AI review
         try {
-          const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-          if (!geminiKey) {
-            console.log(`   ${c.dim("--describe: GEMINI_API_KEY not set, skipping")}`);
-          } else if (paths.length > 0) {
-            console.log(`   ${c.dim("Describing frames with Gemini vision...")}`);
-            const { GoogleGenAI } = await loadOptionalPackage("@google/genai", "--describe");
-            const ai = new GoogleGenAI({ apiKey: geminiKey });
-            const model = process.env.HYPERFRAMES_GEMINI_MODEL || "gemini-3.1-flash-lite-preview";
-            const customQuestion =
-              describeArg === "true"
-                ? "Describe this video composition frame in 1-2 sentences. Be specific and factual: what elements are visible, what text appears, is the frame blank/black/loading, what is the composition. Flag any obvious problems."
-                : describeArg;
-
-            const descriptions: string[] = [
-              `# Snapshot Frame Descriptions`,
-              ``,
-              `**Question asked:** ${customQuestion}`,
-              ``,
-              `Compare each description against your storyboard spec. A "black frame" or "loading screen" for a content beat is a bug.`,
-              ``,
-            ];
-
-            // Scale down PNGs before sending to stay under Gemini's 4 MB inline
-            // limit. Full 1920×1080 PNGs are typically 3-6 MB. Use sharp if
-            // available; otherwise skip files over the limit.
-            type SharpFn = (buf: Buffer) => {
-              resize: (w: number) => { jpeg: () => { toBuffer: () => Promise<Buffer> } };
-            };
-            let sharpFn: SharpFn | null = null;
-            try {
-              const s = await import("sharp");
-              sharpFn = (s.default ?? s) as unknown as SharpFn;
-            } catch {
-              /* sharp not installed — fall back to size check */
-            }
-
-            const results = await Promise.allSettled(
-              paths.map(async (p) => {
-                const filename = basename(p);
-                const filePath = join(snapshotDir, filename);
-                if (!existsSync(filePath)) return { filename, desc: "file not found" };
-                const raw = readFileSync(filePath);
-                let imageData: Buffer;
-                let mimeType = "image/png";
-                if (sharpFn) {
-                  imageData = await sharpFn(raw).resize(960).jpeg().toBuffer();
-                  mimeType = "image/jpeg";
-                } else {
-                  if (raw.length > 3_800_000)
-                    return {
-                      filename,
-                      desc: "file too large for Gemini — install sharp to enable auto-resize",
-                    };
-                  imageData = raw;
-                }
-                const base64 = imageData.toString("base64");
-                const response = await ai.models.generateContent({
-                  model,
-                  contents: [
-                    {
-                      role: "user",
-                      parts: [{ inlineData: { mimeType, data: base64 } }, { text: customQuestion }],
-                    },
-                  ],
-                  config: { maxOutputTokens: 250 },
-                });
-                return { filename, desc: response.text?.trim() || "no description" };
-              }),
-            );
-
-            for (const result of results) {
-              if (result.status === "fulfilled") {
-                descriptions.push(`## ${result.value.filename}`, `${result.value.desc}`, ``);
-              } else {
-                // Log first failure so Gemini issues are visible rather than silent
-                const errMsg = normalizeErrorMessage(result.reason);
-                descriptions.push(`## (error)`, `Gemini call failed: ${errMsg.slice(0, 120)}`, ``);
-              }
-            }
-
-            const descPath = join(snapshotDir, "descriptions.md");
-            writeFileSync(descPath, descriptions.join("\n"));
-            console.log(`   ${c.dim("descriptions.md")} (Gemini frame analysis)`);
+          const { createSnapshotContactSheet } = await import("../capture/contactSheet.js");
+          const sheets = await createSnapshotContactSheet(
+            snapshotDir,
+            join(snapshotDir, "contact-sheet.jpg"),
+          );
+          reportArtifacts("snapshot", "contact-sheet", sheets);
+          for (const sheet of sheets) {
+            console.log(`   ${resolve(sheet)} (grid view for AI review)`);
           }
-        } catch (descErr) {
-          const msg = normalizeErrorMessage(descErr);
-          console.log(`   ${c.dim(`--describe failed: ${msg}`)}`);
+        } catch (err) {
+          console.warn(
+            `   ${c.warn("⚠")} Contact sheet skipped: ${normalizeErrorMessage(err)}. Individual snapshot PNGs are still available.`,
+          );
         }
-      }
+
+        // Gemini vision descriptions. Runs by default — see describeArg
+        // resolution above. `null` means the user explicitly opted out with
+        // `--describe false`; missing GEMINI_API_KEY logs a skip and continues.
+        if (describeArg !== null) {
+          try {
+            const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+            if (!geminiKey) {
+              if (args.describe !== undefined)
+                console.log(`   ${c.dim("--describe: GEMINI_API_KEY not set, skipping")}`);
+            } else if (paths.length > 0) {
+              console.log(`   ${c.dim("Describing frames with Gemini vision...")}`);
+              const { GoogleGenAI } = await loadOptionalPackage("@google/genai", "--describe");
+              const ai = new GoogleGenAI({ apiKey: geminiKey });
+              const model = process.env.HYPERFRAMES_GEMINI_MODEL || "gemini-3.1-flash-lite-preview";
+              const customQuestion =
+                describeArg === "true"
+                  ? "Describe this video composition frame in 1-2 sentences. Be specific and factual: what elements are visible, what text appears, is the frame blank/black/loading, what is the composition. Flag any obvious problems."
+                  : describeArg;
+
+              const descriptions: string[] = [
+                `# Snapshot Frame Descriptions`,
+                ``,
+                `**Question asked:** ${customQuestion}`,
+                ``,
+                `Compare each description against your storyboard spec. A "black frame" or "loading screen" for a content beat is a bug.`,
+                ``,
+              ];
+
+              // Scale down PNGs before sending to stay under Gemini's 4 MB inline
+              // limit. Full 1920×1080 PNGs are typically 3-6 MB. Use sharp if
+              // available; otherwise skip files over the limit.
+              type SharpFn = (buf: Buffer) => {
+                resize: (w: number) => { jpeg: () => { toBuffer: () => Promise<Buffer> } };
+              };
+              let sharpFn: SharpFn | null = null;
+              try {
+                const s = await import("sharp");
+                sharpFn = (s.default ?? s) as unknown as SharpFn;
+              } catch {
+                /* sharp not installed — fall back to size check */
+              }
+
+              const results = await Promise.allSettled(
+                paths.map(async (p) => {
+                  const filename = basename(p);
+                  const filePath = join(snapshotDir, filename);
+                  if (!existsSync(filePath)) return { filename, desc: "file not found" };
+                  const raw = readFileSync(filePath);
+                  let imageData: Buffer;
+                  let mimeType = "image/png";
+                  if (sharpFn) {
+                    imageData = await sharpFn(raw).resize(960).jpeg().toBuffer();
+                    mimeType = "image/jpeg";
+                  } else {
+                    if (raw.length > 3_800_000)
+                      return {
+                        filename,
+                        desc: "file too large for Gemini — install sharp to enable auto-resize",
+                      };
+                    imageData = raw;
+                  }
+                  const base64 = imageData.toString("base64");
+                  const response = await ai.models.generateContent({
+                    model,
+                    contents: [
+                      {
+                        role: "user",
+                        parts: [
+                          { inlineData: { mimeType, data: base64 } },
+                          { text: customQuestion },
+                        ],
+                      },
+                    ],
+                    config: { maxOutputTokens: 250 },
+                  });
+                  return { filename, desc: response.text?.trim() || "no description" };
+                }),
+              );
+
+              for (const result of results) {
+                if (result.status === "fulfilled") {
+                  descriptions.push(`## ${result.value.filename}`, `${result.value.desc}`, ``);
+                } else {
+                  // Log first failure so Gemini issues are visible rather than silent
+                  const errMsg = normalizeErrorMessage(result.reason);
+                  descriptions.push(
+                    `## (error)`,
+                    `Gemini call failed: ${errMsg.slice(0, 120)}`,
+                    ``,
+                  );
+                }
+              }
+
+              const descPath = join(snapshotDir, "descriptions.md");
+              writeFileSync(descPath, descriptions.join("\n"));
+              console.log(`   ${c.dim("descriptions.md")} (Gemini frame analysis)`);
+            }
+          } catch (descErr) {
+            const msg = normalizeErrorMessage(descErr);
+            console.log(`   ${c.dim(`--describe failed: ${msg}`)}`);
+          }
+        }
+      });
     } catch (err) {
       const msg = normalizeErrorMessage(err);
       console.error(`\n${c.error("✗")} Snapshot failed: ${msg}`);
