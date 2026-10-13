@@ -108,13 +108,9 @@ npx hyperframes snapshot --range 3:5 --frames 8 # 8 frames within root-timeline 
 npx hyperframes snapshot --composition intro --frames 8 # 8 frames within this data-composition-id
 ```
 
-Captures still PNGs from the composition for visual diffing, thumbnails, or attaching to a PR. Faster than rendering a video when you only need a few hero frames. Output lands in a new `.hyperframes/artifacts/snapshots/<id>/` directory in the project unless `--output` is given. Not deprecated: it remains the standalone capture utility, while `check --snapshots` covers the gate's needs (overview frames annotated with labeled finding boxes, plus `finding-NN-<code>.png` crops for every error finding with a bbox).
+Still PNGs. Each run writes `.hyperframes/artifacts/snapshots/<id>/` unless `--output` is set. `snapshot` is the standalone capture; `check --snapshots` is the gate.
 
-`--range START:END` uses a colon to separate start and end times in seconds; decimals are supported. For example, `--range 1.8:2.5 --frames 8` samples 8 evenly spaced frames between 1.8 and 2.5 seconds on the root timeline. `--composition ID` resolves the element with that `data-composition-id`, including nested timing and ancestor visibility windows; it is not a CSS selector or filename. Use only one of `--at`, `--range`, or `--composition`.
-
-For range/composition sampling, `--frames N` produces exactly N evenly spaced frames (default 5); a value that is not a positive integer falls back to 5. One frame samples the midpoint. Composition endpoints, and the full-video endpoint, are sampled just before the end to avoid capturing after the content disappears. These modes do not append a full-video ending frame.
-
-By contrast, `--at` still adds a near-end frame by default; use `--no-end` to capture only the requested timestamps. Multiple frames produce contact sheets. Use the returned contact-sheet paths to review all samples, and individual frame paths for details.
+One of `--at`, `--range START:END` (seconds), or `--composition <data-composition-id>` (not a CSS selector). `--frames` defaults to 5. Range and composition sample just before the end and add no extra end frame; `--at` adds one unless `--no-end`.
 
 ### Zooming into a reported finding
 
