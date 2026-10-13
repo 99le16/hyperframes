@@ -30,6 +30,8 @@ export default defineConfig({
     "@phosphor-icons/react",
     "bpm-detective",
     "mediabunny",
+    "i18next",
+    "react-i18next",
     "react",
     "react-dom",
     "react/jsx-runtime",
