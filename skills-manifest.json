@@ -2,8 +2,8 @@
   "source": "heygen-com/hyperframes",
   "skills": {
     "embedded-captions": {
-      "hash": "643579aed5919847",
-      "files": 144
+      "hash": "1dc7ec2fd4a6e3fc",
+      "files": 145
     },
     "faceless-explainer": {
       "hash": "fe5ac45ac43dee42",
@@ -26,7 +26,7 @@
       "files": 122
     },
     "hyperframes-audio": {
-      "hash": "5dce20c2722a7af2",
+      "hash": "780c9d4d8d23ab40",
       "files": 8
     },
     "hyperframes-cli": {
@@ -54,8 +54,8 @@
       "files": 1
     },
     "media-use": {
-      "hash": "3dd27561d954a591",
-      "files": 110
+      "hash": "dd6a1116d3d01906",
+      "files": 112
     },
     "motion-graphics": {
       "hash": "6db77031ad839f6a",

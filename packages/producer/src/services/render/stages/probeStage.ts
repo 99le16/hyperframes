@@ -44,9 +44,9 @@ import {
   isTransientBrowserError,
   probeBeginFrameLiveness,
 } from "@hyperframes/engine";
-import { fpsToNumber } from "@hyperframes/core";
+import { MEDIA_RENDER_ID_ATTR, fpsToNumber, readMediaStart } from "@hyperframes/core";
 import { extractMediaSrcMutations } from "@hyperframes/parsers";
-import type { CompiledComposition } from "../../htmlCompiler.js";
+import type { BrowserMediaElement, CompiledComposition } from "../../htmlCompiler.js";
 import {
   discoverMediaFromBrowser,
   discoverAudioVolumeAutomationFromTimeline,
@@ -179,6 +179,40 @@ export function hasVariableBoundMedia(
     const variableId = element.getAttribute("data-var-src")?.trim();
     return Boolean(variableId && Object.hasOwn(variables, variableId));
   });
+}
+
+/** Each clip's own start point as the compiled markup gives it, keyed like the browser probe. */
+function authoredMediaStarts(html: string): Map<string, number> {
+  const { document } = parseHTML(html);
+  const starts = new Map<string, number>();
+  for (const media of document.querySelectorAll("video, audio")) {
+    const id = media.getAttribute(MEDIA_RENDER_ID_ATTR) || media.getAttribute("id");
+    if (id && !starts.has(id)) starts.set(id, readMediaStart(media));
+  }
+  return starts;
+}
+
+/**
+ * Take a start point the page changed by moving the collected one by the same amount, so the
+ * in-point its scene added survives, and a video's sound track moves with its picture.
+ */
+function adoptRuntimeMediaStart(
+  composition: Pick<CompositionMetadata, "videos" | "audios">,
+  el: BrowserMediaElement,
+  authored: number,
+): void {
+  const shift = el.mediaStart - authored;
+  if (el.mediaStart <= 0 || Math.abs(shift) <= BROWSER_MEDIA_EPSILON) return;
+  const entries =
+    el.tagName === "video"
+      ? [
+          ...composition.videos.filter((video) => video.id === el.id),
+          ...composition.audios.filter(
+            (audio) => audio.type === "video" && audio.id === `${el.id}-audio`,
+          ),
+        ]
+      : composition.audios.filter((audio) => audio.type !== "video" && audio.id === el.id);
+  for (const entry of entries) entry.mediaStart += shift;
 }
 
 function reconcileBrowserMediaEnd(
@@ -524,6 +558,7 @@ export async function runProbeStage(input: ProbeStageInput): Promise<ProbeStageR
         const existingVideoIds = new Set(composition.videos.map((v) => v.id));
         const existingAudioIds = new Set(composition.audios.map((a) => a.id));
         const existingImageIds = new Set(composition.images.map((image) => image.id));
+        const authoredStarts = authoredMediaStarts(compiled.html);
 
         pruneMutedBrowserMedia(composition, browserMedia, existingAudioIds);
 
@@ -558,13 +593,11 @@ export async function runProbeStage(input: ProbeStageInput): Promise<ProbeStageR
                   sourceChanged,
                   el.durationInferred,
                 );
-                if (
-                  el.mediaStart > 0 &&
-                  (existing.mediaStart <= 0 ||
-                    Math.abs(existing.mediaStart - el.mediaStart) > BROWSER_MEDIA_EPSILON)
-                ) {
-                  existing.mediaStart = el.mediaStart;
-                }
+                adoptRuntimeMediaStart(
+                  composition,
+                  el,
+                  authoredStarts.get(el.id) ?? existing.mediaStart,
+                );
                 if (el.hasAudio && !el.muted && !existing.hasAudio) {
                   existing.hasAudio = true;
                 }
@@ -572,7 +605,7 @@ export async function runProbeStage(input: ProbeStageInput): Promise<ProbeStageR
                   existing.loop = true;
                 }
               }
-            } else {
+            } else if (!compiled.droppedMediaIds.has(el.id)) {
               // New video discovered from browser
               composition.videos.push({
                 id: el.id,
@@ -605,13 +638,11 @@ export async function runProbeStage(input: ProbeStageInput): Promise<ProbeStageR
                   sourceChanged,
                   el.durationInferred,
                 );
-                if (
-                  el.mediaStart > 0 &&
-                  (existing.mediaStart <= 0 ||
-                    Math.abs(existing.mediaStart - el.mediaStart) > BROWSER_MEDIA_EPSILON)
-                ) {
-                  existing.mediaStart = el.mediaStart;
-                }
+                adoptRuntimeMediaStart(
+                  composition,
+                  el,
+                  authoredStarts.get(el.id) ?? existing.mediaStart,
+                );
                 if (
                   el.volume > 0 &&
                   Math.abs((existing.volume ?? 1) - el.volume) > BROWSER_MEDIA_EPSILON
@@ -619,7 +650,7 @@ export async function runProbeStage(input: ProbeStageInput): Promise<ProbeStageR
                   existing.volume = el.volume;
                 }
               }
-            } else {
+            } else if (!compiled.droppedMediaIds.has(el.id)) {
               composition.audios.push({
                 id: el.id,
                 src,
@@ -650,7 +681,7 @@ export async function runProbeStage(input: ProbeStageInput): Promise<ProbeStageR
                   existing.end = projectedEnd;
                 }
               }
-            } else {
+            } else if (!compiled.droppedMediaIds.has(el.id)) {
               composition.images.push({
                 id: el.id,
                 src,
