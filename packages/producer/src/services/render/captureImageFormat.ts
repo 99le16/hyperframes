@@ -21,9 +21,8 @@ export function resolveCaptureImageFormat(input: {
 }
 
 /**
- * The JPEG quality a render captures its frames at. Below 100, Chrome's encoder turns graded
- * colour and grain into 8x8 chroma blotches that survive the final encode; draft keeps the
- * smaller, faster frames.
+ * Below 100, Chrome's JPEG turns graded colour and grain into 8x8 chroma blotches that survive
+ * the final encode. Draft keeps the smaller, faster frames.
  */
 export function resolveCaptureJpegQuality(quality: EngineConfig["quality"]): number {
   return quality === "draft" ? 80 : 100;
