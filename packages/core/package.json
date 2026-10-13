@@ -876,7 +876,7 @@
     "types": "./dist/index.d.ts"
   },
   "scripts": {
-    "build": "bun run build:fonts && bun run build:svg-selector-aliases && bun run build:hyperframes-runtime && bun run build:position-edits-render && bun run build:audio-fx-runtime && tsc && tsx scripts/rewrite-esm-extensions.ts",
+    "build": "bun run build:fonts && bun run build:svg-selector-aliases && bun run build:hyperframes-runtime && bun run build:position-edits-render && bun run build:audio-fx-runtime && tsc && node ../../scripts/rewrite-relative-import-extensions.mjs dist",
     "build:fonts": "node scripts/build-fonts.mjs",
     "test": "bun run check:position-edits-render && bun run check:svg-selector-aliases && bun run build:audio-fx-runtime && vitest run",
     "test:watch": "vitest",
