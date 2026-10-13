@@ -1,17 +1,42 @@
 {
   "name": "@hyperframes/inspector",
-  "version": "0.8.140",
-  "private": true,
+  "version": "0.8.150",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heygen-com/hyperframes",
+    "directory": "packages/inspector"
+  },
+  "files": [
+    "dist/service.js",
+    "dist/live.js",
+    "dist/inspection.js",
+    "dist/types",
+    "README.md"
+  ],
   "type": "module",
   "exports": {
     ".": {
       "bun": "./src/service.ts",
-      "types": "./dist/types/inspector/src/service.d.ts",
+      "import": "./src/service.ts",
+      "types": "./src/service.ts",
       "default": "./dist/service.js"
     },
     "./live": {
       "types": "./dist/types/inspector/src/live.d.ts",
       "default": "./dist/live.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/types/inspector/src/service.d.ts",
+        "default": "./dist/service.js"
+      },
+      "./live": {
+        "types": "./dist/types/inspector/src/live.d.ts",
+        "default": "./dist/live.js"
+      }
     }
   },
   "scripts": {
