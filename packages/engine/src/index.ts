@@ -95,6 +95,7 @@ export {
   WebGpuUnavailableError,
   ENABLE_BROWSER_POOL,
   BrowserLeasePool,
+  type GpuProbeLifecycle,
   type BuildChromeArgsOptions,
   type BrowserLaunchFingerprint,
   type BrowserLease,

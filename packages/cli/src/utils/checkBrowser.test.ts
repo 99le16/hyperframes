@@ -110,6 +110,7 @@ afterEach(() => {
 function installSessionMock(page: ReturnType<typeof fakePage>): void {
   const browser = Object.assign(Object.create(null), {
     close: vi.fn(async () => undefined),
+    process: () => ({ exitCode: 0, signalCode: null }),
   });
   vi.mocked(openSettledCompositionPage).mockImplementation(
     async (_html: string, _url: string, options: OpenSettledCompositionPageOptions) => {

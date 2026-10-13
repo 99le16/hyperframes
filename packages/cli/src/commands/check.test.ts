@@ -1888,6 +1888,7 @@ describe("sampled finding reporting", () => {
           bbox: { x: 500, y: 20, width: 300, height: 80 },
         },
       ],
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
 
