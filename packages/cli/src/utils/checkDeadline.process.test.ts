@@ -4,17 +4,48 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, it } from "vitest";
-import {
-  testProcessDescendants,
-  stopTestProcesses,
-  testProcessIsAlive,
-  waitForTestCondition,
-} from "./processTestUtils.js";
+import { expect, it, onTestFinished } from "vitest";
+import Ajv from "ajv/dist/jtd.js";
+import type { JTDDataType } from "ajv/dist/jtd.js";
+import { terminateProcessTree } from "./processTree.js";
+import { stopTestProcesses, testProcessIsAlive } from "./processTestUtils.js";
 
-it("check names a non-finishing child script, exits non-zero, and closes its browser", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "hf-check-deadline-"));
-  const pidFile = join(dir, "browser.pid");
+const reportSchema = {
+  properties: {
+    ok: { type: "boolean" },
+    runtime: {
+      properties: { findings: { elements: {} } },
+      additionalProperties: true,
+    },
+  },
+  additionalProperties: true,
+} as const;
+const treeSchema = {
+  properties: {
+    pid: { type: "uint32" },
+    alive: { type: "boolean" },
+    descendants: { elements: { type: "uint32" } },
+  },
+} as const;
+const parser = new Ajv();
+const parseReport = parser.compileParser<JTDDataType<typeof reportSchema>>(reportSchema);
+const parseTree = parser.compileParser<JTDDataType<typeof treeSchema>>(treeSchema);
+
+function readPid(path: string): number {
+  const pid = Number(readFileSync(path, "utf8"));
+  if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error("Invalid browser PID");
+  return pid;
+}
+
+function readTree(path: string): JTDDataType<typeof treeSchema> {
+  const tree = parseTree(readFileSync(path, "utf8"));
+  if (!tree || tree.pid === 0 || tree.descendants.includes(0)) {
+    throw new Error("Invalid process-tree snapshot");
+  }
+  return tree;
+}
+
+function writeHangProject(dir: string): void {
   mkdirSync(join(dir, "compositions"));
   writeFileSync(
     join(dir, "index.html"),
@@ -30,6 +61,24 @@ it("check names a non-finishing child script, exits non-zero, and closes its bro
 <script>console.debug("HF_TEST_SCRIPT_START");const el=document.getElementById("box");while(el.offsetWidth<2){el.style.height="1px";}</script>
 </div></template>`,
   );
+}
+
+it(
+  "check returns file-specific JSON, exit 1, and a stopped browser",
+  () => runWitness(false),
+  60_000,
+);
+// This extra witness reads Linux /proc and its zombie states, unavailable on Windows and macOS.
+it.skipIf(process.platform !== "linux")(
+  "Linux /proc records live descendants that check stops",
+  () => runWitness(true),
+  60_000,
+);
+
+async function runWitness(inspectLinuxTree: boolean): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), "hf-check-deadline-"));
+  const pidFile = join(dir, "browser.pid");
+  writeHangProject(dir);
   const fixture = join(dirname(fileURLToPath(import.meta.url)), "checkDeadline.fixture.ts");
   const child = spawn(
     process.execPath,
@@ -58,41 +107,50 @@ it("check names a non-finishing child script, exits non-zero, and closes its bro
   child.stderr.on("data", (data: Buffer) => {
     output += data.toString();
   });
-  const done = new Promise<number | null>((resolve) => child.once("exit", resolve));
-  let browserPid: number | undefined;
-  let descendants: number[] = [];
-  try {
-    await waitForTestCondition(() => existsSync(pidFile) || child.exitCode !== null, 30_000);
-    if (!existsSync(pidFile)) throw new Error(output);
-    browserPid = Number(readFileSync(pidFile, "utf8"));
-    expect(testProcessIsAlive(browserPid)).toBe(true);
-    await waitForTestCondition(() => existsSync(`${pidFile}.script`), 5_000);
-    descendants = process.platform === "linux" ? testProcessDescendants(browserPid) : [];
-    if (process.platform === "linux") expect(descendants.length).toBeGreaterThan(0);
-    await waitForTestCondition(
-      () => existsSync(`${pidFile}.report-browser-alive`) || child.exitCode !== null,
-      12_000,
-    );
-    expect(readFileSync(`${pidFile}.report-browser-alive`, "utf8")).toBe("false");
-    await waitForTestCondition(() => child.exitCode !== null, 5_000);
-    expect(await done).toBe(1);
-    const report = JSON.parse(stdout.slice(stdout.indexOf('{\n  "ok"')));
-    expect(report.ok).toBe(false);
-    expect(report.runtime.findings).toContainEqual(
-      expect.objectContaining({
-        severity: "error",
-        sourceFile: "compositions/hang.html",
-        message: expect.stringContaining("script did not finish"),
-      }),
-    );
-    const ownedPid = browserPid;
-    await waitForTestCondition(() => !testProcessIsAlive(ownedPid), 5_000);
-    await waitForTestCondition(() => descendants.every((pid) => !testProcessIsAlive(pid)), 5_000);
-  } finally {
-    await stopTestProcesses(child, [
-      ...descendants,
-      ...(browserPid === undefined ? [] : [browserPid]),
-    ]);
+  const done = new Promise<number | null>((resolve) => child.once("close", resolve));
+  onTestFinished(async () => {
+    const exited = () => child.exitCode !== null || child.signalCode !== null;
+    let terminationFailure: unknown;
+    try {
+      if (child.pid && !exited()) {
+        await terminateProcessTree(child.pid, {
+          child,
+          spawnProcess: (command, args, options) =>
+            spawn(command, args, { ...options, timeout: 5_000 }),
+        });
+      }
+    } catch (error) {
+      if (!exited()) terminationFailure = error;
+    } finally {
+      const pid = existsSync(pidFile) ? readPid(pidFile) : undefined;
+      const descendants = existsSync(`${pidFile}.tree`)
+        ? readTree(`${pidFile}.tree`).descendants
+        : [];
+      await stopTestProcesses(child, [...descendants, ...(pid === undefined ? [] : [pid])]);
+    }
+    if (terminationFailure !== undefined) throw terminationFailure;
     await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  });
+  expect(await done, output).toBe(1);
+  const report = parseReport(stdout.slice(stdout.indexOf('{\n  "ok"')));
+  if (!report) throw new Error(`Invalid check JSON: ${output}`);
+  expect(report.ok).toBe(false);
+  expect(report.runtime.findings).toContainEqual(
+    expect.objectContaining({
+      severity: "error",
+      sourceFile: "compositions/hang.html",
+      message: expect.stringContaining("script did not finish"),
+    }),
+  );
+  const browserPid = readPid(pidFile);
+  expect(testProcessIsAlive(browserPid)).toBe(false);
+  expect(readFileSync(`${pidFile}.report-browser-alive`, "utf8")).toBe("false");
+  expect(readFileSync(`${pidFile}.script`, "utf8")).toBe("started");
+  if (inspectLinuxTree) {
+    const snapshot = readTree(`${pidFile}.tree`);
+    expect(snapshot.pid).toBe(browserPid);
+    expect(snapshot.alive).toBe(true);
+    expect(snapshot.descendants.length).toBeGreaterThan(0);
+    expect(snapshot.descendants.every((pid) => !testProcessIsAlive(pid))).toBe(true);
   }
-}, 60_000);
+}

@@ -2,7 +2,7 @@
 import { dirname, join } from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import puppeteer from "puppeteer-core";
-import { testProcessIsAlive } from "./processTestUtils.js";
+import { testProcessIsAlive, testProcessDescendants } from "./processTestUtils.js";
 
 // Accelerate the hang after the independent authored marker confirms browser startup.
 // Production still budgets startup; the unit test verifies that shared deadline.
@@ -37,8 +37,6 @@ console.log = (...args: unknown[]) => {
 };
 const launch = puppeteer.launch.bind(puppeteer);
 puppeteer.launch = async (options) => {
-  // Make cold startup exceed the accelerated hang budget on every platform.
-  await new Promise((resolve) => realSetTimeout(resolve, 5_000));
   const browser = await launch({ ...options, userDataDir: join(dirname(pidFile), "profile") });
   const pid = browser.process()?.pid;
   if (!pid) throw new Error("Browser did not expose its process");
@@ -49,6 +47,16 @@ puppeteer.launch = async (options) => {
     page.on("console", (message) => {
       if (message.text() === "HF_TEST_SCRIPT_START") {
         writeFileSync(`${pidFile}.script`, "started");
+        if (process.platform === "linux") {
+          writeFileSync(
+            `${pidFile}.tree`,
+            JSON.stringify({
+              pid,
+              alive: testProcessIsAlive(pid),
+              descendants: testProcessDescendants(pid),
+            }),
+          );
+        }
         armDeadline?.();
       }
     });
