@@ -213,7 +213,11 @@ export function inspectTimelineRuntime(
         const properties = Object.keys(piece.vars ?? {}).filter(
           (k) => !reserved.has(k) && !k.startsWith("on"),
         );
-        const values = animationValues(piece.vars ?? {}, properties);
+        const values = animationValues(
+          piece.vars ?? {},
+          properties,
+          internal && a.vars?.keyframes ? a.vars.ease : undefined,
+        );
         const localIntervals = internal
           ? globalIntervals(
               a,

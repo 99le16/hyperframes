@@ -13,7 +13,7 @@ writeFileSync(
   `<html><head><script src="gsap.js"></script></head><body>
 <div data-composition-id="main" data-duration="30" data-width="1920" data-height="1080">
   <div data-composition-id="card" data-start="2.39" data-duration="4">
-    <div id="icon"></div><div id="word"></div><div id="paused"></div>
+    <div id="icon"></div><div id="word"></div><div id="paused"></div><i class="cand"></i><i class="cand"></i>
   </div>
   <div data-composition-id="fast" data-start="10" data-duration="5" data-media-start="1" data-playback-rate="2">
     <div id="fast"></div><div id="trimmed"></div><div id="partial"></div>
@@ -21,6 +21,8 @@ writeFileSync(
   <div data-composition-id="ramp" data-start="20" data-duration="5" data-automation='{"version":1,"lanes":[{"target":"rate","points":[{"t":0,"v":1},{"t":2,"v":3}]}]}'>
     <div id="ramp"></div>
   </div>
+  <div id="grain"></div>
+  <div data-composition-id="over" data-start="0" data-duration="2"><div id="over"></div></div>
   <div data-composition-id="loop" data-start="26" data-duration="3">
     <div id="loopa"></div><div id="loopb"></div>
   </div>
@@ -43,7 +45,11 @@ main.add(fast,99);
 const ramp = gsap.timeline({paused:true});
 ramp.to('#ramp',{x:100,duration:3.641},0);
 main.add(window.__timelines.loop,99);
-window.__timelines = {...window.__timelines, main:main, card:card, fast:fast, ramp:ramp};
+const over = gsap.timeline({paused:true});
+over.to('#over',{x:1,duration:1},0);
+main.add(over,99);
+main.to('#grain',{x:5,duration:.1,repeat:40},0);
+window.__timelines = {...window.__timelines, main:main, over:over, card:card, fast:fast, ramp:ramp};
 </script></body></html>`,
 );
 const inspector = new Inspector(project);
@@ -98,8 +104,25 @@ try {
     (await inspector.timeline({ at: 2.71, component: { selector: "#icon" } })).events.length,
     0,
   );
+  const whole = await inspector.timeline({});
+  const headings = whole.text.split("\n").filter((line) => /^\S.* \[hfi:/.test(line));
+  assert.equal(new Set(headings).size, headings.length, headings.join("\n"));
+  const grainRelations = (await inspector.timeline({ range: [0, 2] })).text
+    .split("\n")
+    .filter((line) => line.startsWith("Relation:") && line.includes(" x;"));
+  assert.equal(grainRelations.length, 1);
+  assert.match(
+    (await inspector.timeline({ range: [40, 50] })).text,
+    /past the end: the film is 30s long/,
+  );
+  const candidates = await inspector.timeline({ component: { selector: ".cand" } });
+  assert.notEqual(candidates.status, "found");
+  assert.equal(
+    candidates.text.split("\n").filter((line) => / \.cand i in card$/.test(line)).length,
+    2,
+  );
   console.log(
-    "PASS managed paused compositions, host offsets, playback offsets/rates/ramps, paused children, boundary/at, authored host windows, one location per source line",
+    "PASS managed paused compositions, host offsets, playback offsets/rates/ramps, paused children, boundary/at, authored host windows, one location per source line, one heading per component, one relation per repeating action, past-the-end ranges, named candidates",
   );
 } finally {
   await inspector.dispose();
