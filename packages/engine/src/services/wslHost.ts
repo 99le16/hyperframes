@@ -66,9 +66,8 @@ export function detectWsl(host: WslHostFacts = realHost): boolean {
 }
 
 /**
- * The environment every Chrome launches with: under WSL, without WSLg's WAYLAND_DISPLAY,
- * so ANGLE (Chrome 150+) uses X11 EGL, whose offscreen surfaces Mesa's D3D12 driver supports
- * (https://issues.chromium.org/issues/567222741). Undefined means the inherited environment.
+ * Under WSL, Chrome's env minus WSLg's WAYLAND_DISPLAY: Chrome 150+ otherwise picks Wayland EGL,
+ * which has no offscreen configs there (https://issues.chromium.org/issues/567222741).
  */
 export function browserLaunchEnv(
   host: WslHostFacts = realHost,
