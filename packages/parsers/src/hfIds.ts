@@ -76,10 +76,23 @@ function startTags(html: string): StartTag[] | null {
     if (end < 0) return null;
     const tag = name[1]!.toLowerCase();
     tags.push({ name: tag, nameEnd: i + name[0].length });
-    const after = RAW_TEXT.has(tag) ? lower.indexOf(`</${tag}`, end) : end;
+    const after = RAW_TEXT.has(tag) ? rawTextEnd(lower, tag, end) : end;
     i = after < 0 ? -1 : html.indexOf("<", after + 1);
   }
   return tags;
+}
+
+function rawTextEnd(lower: string, tag: string, from: number): number {
+  const marker = `</${tag}`;
+  for (
+    let at = lower.indexOf(marker, from);
+    at >= 0;
+    at = lower.indexOf(marker, at + marker.length)
+  ) {
+    const next = lower[at + marker.length];
+    if (next !== undefined && /[\s/>]/.test(next)) return at;
+  }
+  return -1;
 }
 
 function nextTagAfter(html: string, lt: number): number {

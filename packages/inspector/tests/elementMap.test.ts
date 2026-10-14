@@ -192,6 +192,47 @@ test("an id the runtime removed stays visible without becoming the selector", ()
   }
 });
 
+test("an empty source element keeps its text empty while a script fills it", () => {
+  const dir = mkdtempSync(join(tmpdir(), "inspect-map-"));
+  try {
+    writeFileSync(join(dir, "index.html"), '<span id="n" data-hf-id="hf-n"></span>');
+    const sources = authoredHtml(dir);
+    const at = (value: string) =>
+      formatElementMap(
+        withAuthoredState(collect(`<span id="n" data-hf-id="hf-n">${value}</span>`), sources),
+      ).text;
+    assert.equal(at("0.0"), at("5.2"));
+    assert.doesNotMatch(at("5.2"), /0\.0|5\.2/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("mixed source text and entities stay on the authored words", () => {
+  const dir = mkdtempSync(join(tmpdir(), "inspect-map-"));
+  try {
+    writeFileSync(
+      join(dir, "index.html"),
+      '<span id="n" data-hf-id="hf-n"><b data-hf-id="hf-b">Go</b> 0.0</span><span id="amp" data-hf-id="hf-a">A &amp; B</span>',
+    );
+    const sources = authoredHtml(dir);
+    const playing = formatElementMap(
+      withAuthoredState(
+        collect(
+          '<span id="n" data-hf-id="hf-n"><b data-hf-id="hf-b">Go</b> 5.2</span><span id="amp" data-hf-id="hf-a">A &amp; C</span>',
+        ),
+        sources,
+      ),
+    ).text;
+    assert.match(playing, /#n[^\n]*"0\.0"/);
+    assert.match(playing, /"Go"/);
+    assert.match(playing, /#amp[^\n]*"A & B"/);
+    assert.doesNotMatch(playing, /5\.2|A & C/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("an element whose live classes drop an authored one keeps its live state", () => {
   const dir = mkdtempSync(join(tmpdir(), "inspect-map-"));
   try {

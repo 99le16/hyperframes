@@ -117,7 +117,8 @@ export function mapInspection(
       response.omitted = selected
         .slice(i, i + 8)
         .map((item) => ({ id: item.id, bytes: Buffer.byteLength(item.code) }));
-      response.nextOffset = response.snippets.length ? i : null;
+      const nothingFit = response.snippets.length === 0;
+      response.nextOffset = nothingFit ? (i + 1 < selected.length ? i + 1 : null) : i;
       break;
     }
   }

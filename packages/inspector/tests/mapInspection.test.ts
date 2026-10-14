@@ -90,4 +90,32 @@ describe("components report budget", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("continues past a snippet that does not fit so later snippets stay reachable", () => {
+    const big = `.big{${"color:red;".repeat(300)}}`;
+    const small = Array.from({ length: 20 }, (_, n) => `.s${n}{color:red}`);
+    const dir = project([big, ...small].join("\n\n"));
+    try {
+      const first = inspect(dir, 1, { targets: [{ selector: ".w-dot" }], maxBytes: 2048 });
+      expect(first.snippets).toHaveLength(0);
+      expect(first.nextOffset).toBe(1);
+      expect(first.omitted[0]?.bytes).toBeGreaterThan(2048);
+      const seen = new Set<string>();
+      let offset: number | null = first.nextOffset;
+      for (let guard = 0; offset !== null && guard < 25; guard++) {
+        const page = inspect(dir, 1, {
+          targets: [{ selector: ".w-dot" }],
+          maxBytes: 2048,
+          offset,
+        });
+        for (const snippet of page.snippets) seen.add(snippet.code.trim());
+        expect(page.nextOffset === null || page.nextOffset > offset).toBe(true);
+        offset = page.nextOffset;
+      }
+      expect(offset).toBeNull();
+      expect([...seen].sort()).toEqual([...small].sort());
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

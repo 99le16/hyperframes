@@ -123,8 +123,9 @@ function byComponent(groups: TimelineEvent[][]): TimelineEvent[][] {
 
 function pastTheEnd(request: TimelineRequest, duration: number | undefined): string[] {
   const from = request.range?.[0] ?? request.at ?? request.boundary;
-  if (duration === undefined || from === undefined || from < duration) return [];
-  return [`Requested time is past the end: the film is ${Number(duration.toFixed(4))}s long.`];
+  const filmLength = duration !== undefined && duration > 0 ? duration : undefined;
+  if (filmLength === undefined || from === undefined || from < filmLength) return [];
+  return [`Requested time is past the end: the film is ${Number(filmLength.toFixed(4))}s long.`];
 }
 
 function labeler(): Labeler {

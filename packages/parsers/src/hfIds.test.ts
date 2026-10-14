@@ -60,6 +60,21 @@ describe("stampHfIdsInPlace keeps the source's own formatting", () => {
     expect(ids(out)).toEqual(ids(ensureHfIds(html)));
     expect(idOf(out, "path")).toMatch(/^hf-/);
   });
+
+  it("does not treat a longer tag name as the end of a script or style", () => {
+    const script = `<div><script>s="</scripts>"</script><span>x</span></div>`;
+    const styled = `<div><style>/* </styles */</style><span>x</span></div>`;
+    for (const html of [script, styled]) {
+      const out = stampHfIdsInPlace(html);
+      expect(out.replace(/ data-hf-id="hf-[a-z0-9]{4}"/g, "")).toBe(html);
+      expect(ids(out)).toEqual(ids(ensureHfIds(html)));
+    }
+    const stray = `<div><script>s="</scripts><p>"</script></p><span>x</span></div>`;
+    const stamped = stampHfIdsInPlace(stray);
+    expect(stamped).toContain(`s="</scripts><p>"</script>`);
+    expect(stamped).not.toMatch(/scripts><p>" data-hf-id/);
+    expect(ids(stamped)).toEqual(ids(ensureHfIds(stray)));
+  });
 });
 
 describe("ensureHfIds", () => {
