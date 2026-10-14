@@ -7,11 +7,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { getFfmpegBinary, resolveConfig } from "@hyperframes/engine";
+import { resolveConfig } from "@hyperframes/engine";
 import { createRenderJob, executeRenderJob } from "../renderOrchestrator.js";
-
-const FFMPEG = getFfmpegBinary();
-const HAS_FFMPEG = spawnSync(FFMPEG, ["-version"], { encoding: "utf-8" }).status === 0;
+import { FFMPEG, HAS_FFMPEG, frameLevels } from "./frameLevelsTestFixtures.js";
 
 const WIDTH = 160;
 const HEIGHT = 90;
@@ -55,26 +53,6 @@ const COMPOSITION = `<!DOCTYPE html>
 
 let root: string;
 
-/** Mean RGB level of every frame of an encoded video, 0-255. */
-function frameLevels(videoPath: string): number[] {
-  const raw = spawnSync(
-    FFMPEG,
-    ["-v", "error", "-i", videoPath, "-f", "rawvideo", "-pix_fmt", "gray", "-"],
-    {
-      maxBuffer: 64 * 1024 * 1024,
-    },
-  );
-  if (raw.status !== 0) throw new Error(`decode failed: ${raw.stderr}`);
-  const frameBytes = WIDTH * HEIGHT;
-  const levels: number[] = [];
-  for (let offset = 0; offset + frameBytes <= raw.stdout.length; offset += frameBytes) {
-    let sum = 0;
-    for (let i = offset; i < offset + frameBytes; i++) sum += raw.stdout[i]!;
-    levels.push(sum / frameBytes);
-  }
-  return levels;
-}
-
 interface Render {
   levels: number[];
   phases: string[];
@@ -112,7 +90,7 @@ async function render(name: string, segmented: boolean, workers: number): Promis
   try {
     const output = join(root, `${name}.mp4`);
     await executeRenderJob(job, root, output);
-    return { levels: frameLevels(output), phases, workerCount };
+    return { levels: frameLevels(output, WIDTH, HEIGHT), phases, workerCount };
   } finally {
     if (saved.capture === undefined) delete process.env.HF_SEGMENTED_CAPTURE;
     else process.env.HF_SEGMENTED_CAPTURE = saved.capture;

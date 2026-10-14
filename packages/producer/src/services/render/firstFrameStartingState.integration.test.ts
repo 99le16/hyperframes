@@ -1,16 +1,13 @@
 // Frame 0 of a real render shows the starting state that a sub-composition's timeline sets at
 // t=0, not the page's pre-timeline styles. Needs Chrome + ffmpeg: integration lane.
 
-import { spawnSync } from "node:child_process";
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { getFfmpegBinary, resolveConfig } from "@hyperframes/engine";
+import { resolveConfig } from "@hyperframes/engine";
 import { createRenderJob, executeRenderJob } from "../renderOrchestrator.js";
-
-const FFMPEG = getFfmpegBinary();
-const HAS_FFMPEG = spawnSync(FFMPEG, ["-version"], { encoding: "utf-8" }).status === 0;
+import { HAS_FFMPEG, frameLevels } from "./frameLevelsTestFixtures.js";
 
 const WIDTH = 160;
 const HEIGHT = 90;
@@ -66,24 +63,6 @@ const WORDS = `<!DOCTYPE html>
 
 let root: string;
 
-/** Mean grey level of every frame of an encoded video, 0-255. */
-function frameLevels(videoPath: string): number[] {
-  const raw = spawnSync(
-    FFMPEG,
-    ["-v", "error", "-i", videoPath, "-f", "rawvideo", "-pix_fmt", "gray", "-"],
-    { maxBuffer: 64 * 1024 * 1024 },
-  );
-  if (raw.status !== 0) throw new Error(`decode failed: ${raw.stderr}`);
-  const frameBytes = WIDTH * HEIGHT;
-  const levels: number[] = [];
-  for (let offset = 0; offset + frameBytes <= raw.stdout.length; offset += frameBytes) {
-    let sum = 0;
-    for (let i = offset; i < offset + frameBytes; i++) sum += raw.stdout[i]!;
-    levels.push(sum / frameBytes);
-  }
-  return levels;
-}
-
 describe.skipIf(!HAS_FFMPEG)(
   "first frame of a real render — sub-composition starting state",
   () => {
@@ -116,7 +95,7 @@ describe.skipIf(!HAS_FFMPEG)(
       });
       const output = join(root, "out.mp4");
       await executeRenderJob(job, root, output);
-      levels = frameLevels(output);
+      levels = frameLevels(output, WIDTH, HEIGHT);
     }, 120_000);
 
     afterAll(() => {
