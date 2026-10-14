@@ -45,7 +45,6 @@ export async function resolveManagedGpuMode(
   context: {
     signal?: AbortSignal;
     onBrowser?: (browser: Browser) => void;
-    /** Nothing may listen: the probe's Chrome talks over a pipe in one process too. */
     noListen?: boolean;
   } = {},
 ): Promise<ResolvedBrowserGpuMode> {
