@@ -1,6 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { Inspector } from "./service";
 import type { InspectRequest } from "./types";
@@ -145,5 +144,13 @@ function runCli() {
   });
 }
 
-const entry = process.argv[1];
-if (entry && import.meta.url === pathToFileURL(resolve(entry)).href) runCli();
+function launchedAsCli(entry: string | undefined) {
+  if (!entry) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    return false;
+  }
+}
+
+if (launchedAsCli(process.argv[1])) runCli();

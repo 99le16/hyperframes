@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { Agent, request as httpRequest } from "node:http";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -119,22 +119,50 @@ it("importing the server does not listen", () => {
   expect(typeof createInspectorServer).toBe("function");
 });
 
+it("starts when the entry path is a symlink", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "hf-bin-"));
+  const link = join(dir, "hyperframes-inspector");
+  symlinkSync(new URL("../src/server.ts", import.meta.url).pathname, link);
+  const child = spawn("bun", [link, project, "0"], {
+    cwd: new URL("..", import.meta.url).pathname,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const lines = createInterface({ input: child.stdout! });
+  try {
+    const url = await new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("symlink entry did not listen")), 10000);
+      lines.once("line", (line) => {
+        clearTimeout(timer);
+        resolve(JSON.parse(line).url as string);
+      });
+      child.once("exit", (code) => reject(new Error(`symlink entry exited ${code}`)));
+    });
+    expect((await fetch(url + "/info")).status).toBe(200);
+  } finally {
+    child.kill("SIGTERM");
+    await new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    lines.close();
+  }
+});
+
 it("a project with no browser answers 503 browser_unavailable", async () => {
   const home = mkdtempSync(join(tmpdir(), "hf-home-"));
-  const server = start({ ...process.env, HOME: home, HF_INSPECT_CHROME: "" });
-  try {
-    const url = await server.url;
-    writeFileSync(join(project, "index.html"), "<!doctype html><html><body></body></html>");
-    const map = await fetch(url + "/element-map", {
-      method: "POST",
-      body: "{}",
-    });
-    expect(map.status).toBe(503);
-    expect(await map.json()).toEqual({
-      error: "browser_unavailable",
-      code: "browser_unavailable",
-    });
-  } finally {
-    await server.stop();
+  writeFileSync(join(project, "index.html"), "<!doctype html><html><body></body></html>");
+  for (const env of [
+    { ...process.env, HOME: home, HF_INSPECT_CHROME: "" },
+    { ...process.env, HF_INSPECT_CHROME: join(home, "missing-chrome") },
+  ]) {
+    const server = start(env);
+    try {
+      const url = await server.url;
+      const map = await fetch(url + "/element-map", { method: "POST", body: "{}" });
+      expect(map.status).toBe(503);
+      expect(await map.json()).toEqual({
+        error: "browser_unavailable",
+        code: "browser_unavailable",
+      });
+    } finally {
+      await server.stop();
+    }
   }
 });
