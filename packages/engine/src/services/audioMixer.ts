@@ -15,6 +15,7 @@ import {
 } from "../utils/urlDownloader.js";
 import { DEFAULT_CONFIG, type EngineConfig } from "../config.js";
 import { formatFfmpegError, runFfmpeg, type RunFfmpegResult } from "../utils/runFfmpeg.js";
+import { audioSubprocessEvidence } from "./audioFailureDiagnostic.js";
 import { unwrapTemplate } from "../utils/htmlTemplate.js";
 import { resolveMediaElementSrc, resolveProjectRelativeSrc } from "./videoFrameExtractor.js";
 import { resolveReferencedStart, type RefResolverEl } from "./referenceResolver.js";
@@ -466,6 +467,7 @@ function ffmpegFailure(
     owner,
     retryable,
     elementId,
+    subprocess: audioSubprocessEvidence(result),
     detail: boundedDetail(
       result.error?.message
         ? `${formatFfmpegError(result.exitCode, stderr)}: ${result.error.message}`
@@ -953,7 +955,10 @@ async function mixGroupMembers(
   totalDuration: number,
   signal?: AbortSignal,
   config?: Partial<Pick<EngineConfig, "ffmpegProcessTimeout">>,
-): Promise<{ success: boolean; error?: string; degradedAutomation?: boolean }> {
+): Promise<
+  | { success: true; degradedAutomation?: boolean }
+  | { success: false; error: string; failure: AudioProcessingFailure }
+> {
   const ffmpegProcessTimeout = config?.ffmpegProcessTimeout ?? DEFAULT_CONFIG.ffmpegProcessTimeout;
   const outputDir = dirname(outputPath);
   if (!existsSync(outputDir)) mkdirSync(outputDir, { recursive: true });
@@ -1046,9 +1051,10 @@ async function mixGroupMembers(
     }
   }
 
-  if (signal?.aborted) return { success: false, error: "Group sub-mix cancelled" };
-  if (!result.success)
-    return { success: false, error: formatFfmpegError(result.exitCode, result.stderr) };
+  if (signal?.aborted || !result.success) {
+    const failure = ffmpegFailure("mix", result);
+    return { success: false, error: failure.detail, failure };
+  }
   return { success: true, degradedAutomation };
 }
 
@@ -1508,10 +1514,7 @@ export async function processCompositionAudio(
       );
       if (!subMix.success) {
         failures.push({
-          stage: "mix",
-          reason: "ffmpeg_failed",
-          owner: "system",
-          retryable: false,
+          ...subMix.failure,
           elementId: groupId,
           detail: boundedDetail(
             `Group sub-mix failed for group ${groupId}: ${subMix.error ?? "unknown"}`,
