@@ -10,7 +10,6 @@ const version = (
 ).version;
 const MAX_BODY = 64_000;
 
-/** The leading token of a known refusal (`no-composition`, `stale_generation: …`); prose stays `invalid_request`. */
 function codeOf(message: string) {
   return /^[a-z][a-z0-9_-]*(?=:|$)/.exec(message)?.[0] ?? "invalid_request";
 }
@@ -19,7 +18,6 @@ function send(res: ServerResponse, status: number, message: string) {
   res.writeHead(status).end(JSON.stringify({ error: message, code: codeOf(message) }));
 }
 
-/** A DNS-rebinding client sends someone else's Host. Only loopback may read the project path. */
 function loopback(host: string | undefined) {
   if (!host) return true;
   const name = host
@@ -29,7 +27,6 @@ function loopback(host: string | undefined) {
   return name === "127.0.0.1" || name === "localhost" || name === "::1";
 }
 
-/** Read the body on `data` events. Bun turns a throw or a return inside `for await` into an empty 200. */
 function readBody(req: IncomingMessage): Promise<Buffer | "too_large"> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
