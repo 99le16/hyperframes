@@ -85,7 +85,7 @@ export async function startServer(cli, dir, port, log, home) {
   child.once("exit", () => liveServers.delete(child));
   child.stdout.on("data", (d) => log.push(String(d)));
   child.stderr.on("data", (d) => log.push(String(d)));
-  for (const deadline = Date.now() + 60_000; Date.now() < deadline; await sleep(200)) {
+  for (const deadline = Date.now() + 60_000; Date.now() < deadline; await sleep(50)) {
     if (child.exitCode !== null)
       throw new Error(`studio exited ${child.exitCode}: ${log.join("").slice(-500)}`);
     const announced = Number(announcedPort(log));
