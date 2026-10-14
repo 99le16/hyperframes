@@ -192,6 +192,27 @@ test("an id the runtime removed stays visible without becoming the selector", ()
   }
 });
 
+test("an unquoted authored class stays on the map", () => {
+  const dir = mkdtempSync(join(tmpdir(), "inspect-map-"));
+  try {
+    writeFileSync(
+      join(dir, "index.html"),
+      '<div id="counter" data-hf-id="hf-c" class=card>0.0</div>',
+    );
+    const text = formatElementMap(
+      withAuthoredState(
+        collect('<div id="counter" data-hf-id="hf-c" class="card">5.2</div>'),
+        authoredHtml(dir),
+      ),
+    ).text;
+    assert.match(text, /card/);
+    assert.match(text, /"0\.0"/);
+    assert.doesNotMatch(text, /5\.2/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("an empty source element keeps its text empty while a script fills it", () => {
   const dir = mkdtempSync(join(tmpdir(), "inspect-map-"));
   try {

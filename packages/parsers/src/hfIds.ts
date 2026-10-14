@@ -43,11 +43,12 @@ export function stampHfIdsInPlace(html: string): string {
   const elements = wrapped
     ? getChildElements(document.body).flatMap(inDocumentOrder)
     : inDocumentOrder(document.documentElement);
-  const pinned = elements.map((el) => el.hasAttribute("data-hf-id"));
+  const existing = elements.map((el) => el.getAttribute("data-hf-id"));
+  const pinned = existing.map((id) => id !== null && id.length > 0);
   assignHfIds(document.body);
   const minted = elements.map((el, n) => (pinned[n] ? null : el.getAttribute("data-hf-id")));
   const tags = startTags(html);
-  const inserts = tags && alignInserts(tags, elements, minted);
+  const inserts = tags && alignInserts(html, tags, elements, minted, existing);
   return inserts ? spliceIds(html, inserts) : ensureHfIds(html);
 }
 
@@ -58,7 +59,7 @@ function inDocumentOrder(el: Element): Element[] {
 const RAW_TEXT = new Set(["script", "style", "textarea", "title", "xmp", "noembed", "noframes"]);
 const IMPLIED = new Set(["html", "head", "body", "tbody"]);
 
-type StartTag = { name: string; nameEnd: number };
+type StartTag = { name: string; nameEnd: number; bracket: number };
 
 function startTags(html: string): StartTag[] | null {
   const lower = html.toLowerCase();
@@ -75,7 +76,7 @@ function startTags(html: string): StartTag[] | null {
     const end = closingBracket(html, i + name[0].length);
     if (end < 0) return null;
     const tag = name[1]!.toLowerCase();
-    tags.push({ name: tag, nameEnd: i + name[0].length });
+    tags.push({ name: tag, nameEnd: i + name[0].length, bracket: end });
     const after = RAW_TEXT.has(tag) ? rawTextEnd(lower, tag, end) : end;
     i = after < 0 ? -1 : html.indexOf("<", after + 1);
   }
@@ -112,25 +113,87 @@ function closingBracket(html: string, from: number): number {
   return -1;
 }
 
-function alignInserts(tags: StartTag[], elements: Element[], minted: (string | null)[]) {
-  const inserts: { at: number; id: string }[] = [];
-  let next = 0;
-  for (const [n, el] of elements.entries()) {
-    const name = el.tagName.toLowerCase();
-    const id = minted[n];
-    if (tags[next]?.name === name) {
-      if (id) inserts.push({ at: tags[next]!.nameEnd, id });
-      next++;
-    } else if (!IMPLIED.has(name) || id) return null;
-  }
-  return next === tags.length ? inserts : null;
+type Insert = { at: number; text: string };
+
+function alignInserts(
+  html: string,
+  tags: StartTag[],
+  elements: Element[],
+  minted: (string | null)[],
+  existing: (string | null)[],
+) {
+  const walked = walkAlign(html, tags, elements, minted, existing);
+  if (!walked) return null;
+  return walked.next === tags.length ? walked.inserts : null;
 }
 
-function spliceIds(html: string, inserts: { at: number; id: string }[]): string {
+function walkAlign(
+  html: string,
+  tags: StartTag[],
+  elements: Element[],
+  minted: (string | null)[],
+  existing: (string | null)[],
+) {
+  const state = { inserts: [] as Insert[], next: 0 };
+  for (const [n, el] of elements.entries()) {
+    if (!take(state, html, tags, el, minted[n] ?? null, existing[n] === "")) return null;
+  }
+  return state;
+}
+
+function take(
+  state: { inserts: Insert[]; next: number },
+  html: string,
+  tags: StartTag[],
+  el: Element,
+  id: string | null,
+  fillEmpty: boolean,
+) {
+  const step = alignOne(html, tags[state.next], el, id, fillEmpty);
+  if (!step) return false;
+  if (step.insert) state.inserts.push(step.insert);
+  if (step.next) state.next += 1;
+  return true;
+}
+
+function alignOne(
+  html: string,
+  tag: StartTag | undefined,
+  el: Element,
+  id: string | null,
+  fillEmpty: boolean,
+) {
+  if (tag?.name === el.tagName.toLowerCase()) return matched(html, tag, id, fillEmpty);
+  if (IMPLIED.has(el.tagName.toLowerCase()) && !id) return { insert: null, next: false };
+  return null;
+}
+
+function matched(html: string, tag: StartTag, id: string | null, fillEmpty: boolean) {
+  if (!id) return { insert: null, next: true };
+  const placed = placeId(html, tag, id, fillEmpty);
+  if (!placed) return null;
+  return { insert: placed, next: true };
+}
+
+function placeId(html: string, tag: StartTag, id: string, fillEmpty: boolean) {
+  if (!fillEmpty) return { at: tag.nameEnd, text: ` data-hf-id="${id}"` };
+  const emptyAt = emptyHfIdValue(html, tag);
+  if (emptyAt === null) return null;
+  return { at: emptyAt, text: id };
+}
+
+function emptyHfIdValue(html: string, tag: StartTag): number | null {
+  const open = html.slice(tag.nameEnd, tag.bracket);
+  const match = /\sdata-hf-id\s*=\s*(["'])\1/i.exec(open);
+  if (!match) return null;
+  return tag.nameEnd + match.index + match[0].length - 1;
+}
+
+function spliceIds(html: string, inserts: Insert[]): string {
   let out = "";
   let from = 0;
-  for (const { at, id } of inserts) {
-    out += `${html.slice(from, at)} data-hf-id="${id}"`;
+  for (const { at, text } of inserts) {
+    out += html.slice(from, at) + text;
     from = at;
   }
   return out + html.slice(from);

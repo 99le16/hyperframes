@@ -152,8 +152,11 @@ export interface HtmlTag {
 }
 function htmlTagsOf(file: string, text: string): HtmlTag[] {
   return [...text.matchAll(/<([a-z][\w-]*)\b[^>]*>/gi)].map((m) => {
-    const attr = (name: string) =>
-      new RegExp(`\\s${name}\\s*=\\s*["']([^"']*)["']`, "i").exec(m[0])?.[1];
+    const attr = (name: string) => {
+      const quoted = new RegExp(`\\s${name}\\s*=\\s*["']([^"']*)["']`, "i").exec(m[0]);
+      if (quoted) return quoted[1];
+      return new RegExp(`\\s${name}\\s*=\\s*([^\\s"'=<>]+)`, "i").exec(m[0])?.[1];
+    };
     return {
       file,
       start: m.index,
