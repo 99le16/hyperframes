@@ -251,6 +251,47 @@ describe("hyperframes init flag rename", () => {
     }
   });
 
+  it("converts a Theora --video to H.264 MP4", () => {
+    const dir = mkdtempSync(join(tmpdir(), "hf-init-theora-"));
+    const target = join(dir, "proj");
+    const clip = join(dir, "clip.ogv");
+    copyFileSync(resolve(fileURLToPath(import.meta.url), "../__fixtures__/theora.ogv"), clip);
+    try {
+      const res = runInit([target, "--non-interactive", "--skip-transcribe", "--video", clip]);
+      expect(res.status).toBe(0);
+      const video = readFileSync(join(target, "index.html"), "utf-8").match(/<video\b[^>]*>/)?.[0];
+      expect(video).toContain('src="clip.mp4"');
+      expect(existsSync(join(target, "clip.ogv"))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("--keep-original copies a non-web --video as is instead of converting it", () => {
+    const dir = mkdtempSync(join(tmpdir(), "hf-init-keep-"));
+    const target = join(dir, "proj");
+    const clip = join(dir, "clip.mov");
+    const fixture = resolve(fileURLToPath(import.meta.url), "../__fixtures__/mpeg4.mp4");
+    copyFileSync(fixture, clip);
+    try {
+      const res = runInit([
+        target,
+        "--non-interactive",
+        "--skip-transcribe",
+        "--keep-original",
+        "--video",
+        clip,
+      ]);
+      expect(res.status).toBe(0);
+      const video = readFileSync(join(target, "index.html"), "utf-8").match(/<video\b[^>]*>/)?.[0];
+      expect(video).toContain('src="clip.mov"');
+      expect(readFileSync(join(target, "clip.mov"))).toEqual(readFileSync(fixture));
+      expect(existsSync(join(target, "clip.mp4"))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("wires --audio into the composition without creating a video clip", () => {
     const dir = mkdtempSync(join(tmpdir(), "hf-init-audio-test-"));
     const target = join(dir, "proj");
