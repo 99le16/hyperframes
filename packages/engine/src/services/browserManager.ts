@@ -277,8 +277,12 @@ export function resolveHeadlessShellPath(
 /** Full Chrome for Testing in Puppeteer's cache (`@puppeteer/browsers install chrome@...`), newest first. */
 export function resolveFullChromePath(): string | undefined {
   const baseDir = join(homedir(), ".cache", "puppeteer", "chrome");
-  if (!existsSync(baseDir)) return undefined;
-  const versions = readdirSync(baseDir).sort(compareBrowserVersionsDescending);
+  let versions: string[];
+  try {
+    versions = readdirSync(baseDir).sort(compareBrowserVersionsDescending);
+  } catch {
+    return undefined;
+  }
   for (const version of versions) {
     const candidates = [
       join(
@@ -624,11 +628,12 @@ async function probeWslFullChrome(
   const fullChrome = (options.findFullChrome ?? resolveFullChromePath)();
   let route: FullChromeRoute = { state: "missing" };
   if (fullChrome) {
-    if (fullChrome !== shellPath) {
-      const viaFullChrome = await probeWebGlMode(ppt, fullChrome, options, "full Chrome: ");
-      if (viaFullChrome.mode === "hardware") return { mode: "hardware", browserPath: fullChrome };
-    }
-    route = { state: "no-gpu", path: fullChrome };
+    const viaFullChrome =
+      fullChrome === shellPath
+        ? shellOutcome
+        : await probeWebGlMode(ppt, fullChrome, options, "full Chrome: ");
+    if (viaFullChrome.mode === "hardware") return { mode: "hardware", browserPath: fullChrome };
+    route = { state: viaFullChrome.cause ?? "no-gpu", path: fullChrome };
   }
   return { ...shellOutcome, wslAccess: describeWslGpuAccess(options.wslHost, route) ?? undefined };
 }

@@ -67,7 +67,9 @@ export function detectWsl(host: WslHostFacts = realHost): boolean {
 
 const RENDER_NODE = "/dev/dri/renderD128";
 
-export type FullChromeRoute = { state: "missing" } | { state: "no-gpu"; path: string };
+export type FullChromeRoute =
+  | { state: "missing" }
+  | { state: "no-gpu" | "probe-error"; path: string };
 
 const NATIVE_WINDOWS =
   "render from native Windows (project copied to a Windows drive, run from PowerShell), " +
@@ -82,7 +84,9 @@ function routeToGpu(fullChrome: FullChromeRoute): string[] {
             "~/.cache/puppeteer` and HyperFrames will try it when the headless shell finds no GPU " +
             "(or point HYPERFRAMES_BROWSER_PATH at a full Chrome).",
         ]
-      : [`  Full Chrome (${fullChrome.path}) found no hardware GPU either.`];
+      : fullChrome.state === "no-gpu"
+        ? [`  Full Chrome (${fullChrome.path}) found no hardware GPU either.`]
+        : [`  Full Chrome (${fullChrome.path}) could not finish its GPU check either.`];
   return [...viaFullChrome, `  Or ${NATIVE_WINDOWS}`];
 }
 

@@ -28,6 +28,7 @@ import {
   resolveHeadlessShellPath,
   resolveBrowserGpuMode,
   resolveCaptureBrowserPath,
+  resolveFullChromePath,
 } from "./browserManager.js";
 
 describe("BeginFrame capability probe", () => {
@@ -697,6 +698,20 @@ describe("resolveBrowserGpuMode", () => {
       ).toBe("hardware");
       expect(output(error)).not.toContain("WSL");
     });
+  });
+
+  it("finds no full Chrome, without throwing, when its cache cannot be read", () => {
+    const home = mkdtempSync(join(tmpdir(), "hf-full-chrome-cache-"));
+    const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+    try {
+      mkdirSync(join(home, ".cache", "puppeteer"), { recursive: true });
+      writeFileSync(join(home, ".cache", "puppeteer", "chrome"), "not a folder");
+      Object.assign(process.env, { HOME: home, USERPROFILE: home });
+      expect(resolveFullChromePath()).toBeUndefined();
+    } finally {
+      Object.assign(process.env, saved);
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   it("never swaps the browser outside WSL", async () => {

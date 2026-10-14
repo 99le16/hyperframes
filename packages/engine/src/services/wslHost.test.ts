@@ -102,6 +102,8 @@ describe("describeWslGpuAccess", () => {
     expect(tried).toContain("Full Chrome (/c/chrome) found no hardware GPU either.");
     expect(tried).not.toContain("@puppeteer/browsers install");
     expect(tried).toContain("native Windows");
+    const timedOut = describeWslGpuAccess(host, { state: "probe-error", path: "/c/chrome" });
+    expect(timedOut?.join("\n")).toContain("could not finish its GPU check either");
   });
 
   it("returns null outside WSL", () => {
