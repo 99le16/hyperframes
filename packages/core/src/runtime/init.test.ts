@@ -3177,6 +3177,26 @@ describe("initSandboxRuntimeModular", () => {
     expect(seekCalls).toEqual([{ time: 2, suppressEvents: false }]);
   });
 
+  it("keeps a later root tween's value over a nested scene the root already drew", () => {
+    document.body.innerHTML = `<div data-composition-id="main" data-root="true" data-start="0" data-duration="2" data-width="1920" data-height="1080"><div data-composition-id="child" data-start="0" data-duration="2"><div id="box"></div></div></div>`;
+    const box = document.getElementById("box")!;
+    const options = { duration: 2, ease: "none", immediateRender: false, lazy: false };
+    const child = gsap.timeline({ smoothChildTiming: false });
+    child.fromTo(box, { opacity: 0 }, { ...options, opacity: 1, overwrite: false }, 0);
+    const main = gsap.timeline({ paused: true, smoothChildTiming: false });
+    main.add(child, 0);
+    main.fromTo(box, { opacity: 0.8 }, { ...options, opacity: 1, overwrite: false }, 0);
+    window.__timelines = { main, child };
+    initSandboxRuntimeModular();
+
+    window.__player?.renderSeek(1);
+    expect(Number(box.style.opacity)).toBeCloseTo(0.9, 5);
+
+    child.set({}, {}, 1.5);
+    window.__player?.renderSeek(1);
+    expect(Number(box.style.opacity)).toBeCloseTo(0.9, 5);
+  });
+
   it("fires a call added after the first seek exactly once", () => {
     const root = document.createElement("div");
     root.setAttribute("data-composition-id", "main");
