@@ -50,3 +50,12 @@ Compositions consume a flat array of word objects. The `id` (`w0`, `w1`, …) is
 ```
 
 For mandatory caption-quality checks, retry rules, and the OpenAI/Groq Whisper API import path, see `captions/transcript-handling.md`.
+
+## Per-clip word timings
+
+The audio engine (`../../references/audio.md`) already transcribes each voice line into audio_meta.json. When you transcribe narration clips one at a time with the CLI yourself:
+
+- The input path resolves against the current directory, not `--dir`. Pass an absolute path when you run from elsewhere, or the command fails with `File not found`.
+- Output always goes to transcript.json in `--dir` (default: the input's folder) and is overwritten on every run. Copy it per clip, e.g. to `assets/vo/<NN>.words.json`.
+- The same run rewrites any `const TRANSCRIPT = [...]` or `const script = [...]` caption array in `.html` files under `--dir`. Point `--dir` at the audio folder or a scratch folder, not the project root, unless you want that clip's words patched into your captions.
+- The last word's `end` can run slightly past the real clip length. Take slot lengths from the real durations, and use word times only to place cues.

@@ -193,6 +193,26 @@ Whisper expect). If you'd rather skip the transcode, pass `-o file.mp3`.
 Without `ffmpeg` on PATH, wav output from cloud providers fails; the local
 Kokoro CLI writes wav directly.
 
+## Kokoro Python setup
+
+Kokoro runs in a Python 3 that has `kokoro-onnx` and `soundfile`. When `pip` is
+missing or the system Python refuses installs (PEP 668, e.g. Homebrew Python on
+macOS), install into a dedicated venv and point `HYPERFRAMES_PYTHON` at it. The
+CLI and the audio engine both honor it:
+
+```bash
+uv venv --python 3.13 ~/.venvs/hyperframes-tts
+VIRTUAL_ENV=~/.venvs/hyperframes-tts uv pip install kokoro-onnx soundfile
+export HYPERFRAMES_PYTHON=~/.venvs/hyperframes-tts/bin/python
+npx hyperframes tts "Scene one line." -v af_heart -o assets/vo/01.wav --json   # prints durationSeconds
+```
+
+For narration with one clip per scene line, run the audio engine with
+`"provider": "kokoro"`: it writes each line's wav, `duration_s`, and transcribed
+words to audio_meta.json with no API key (see `../../references/audio.md`). When
+you script the CLI yourself instead, record each line's `durationSeconds` and
+generate the clips in the background while frames are built.
+
 ## Voice selection (Kokoro)
 
 Default `af_heart`. Curated picks:
@@ -206,6 +226,10 @@ Default `af_heart`. Curated picks:
 | Casual / social   | `af_heart`, `af_sky`   |
 
 Run `npx hyperframes tts --list` for the bundled set.
+
+At speed 1.0, `af_heart` reads at about 164 words per minute (measured over a
+~4-minute narration), slightly faster than the 150 wpm planning pace. Estimate
+scene lengths from that, then let real clip durations win.
 
 ## Multilingual (Kokoro voice prefix → language)
 

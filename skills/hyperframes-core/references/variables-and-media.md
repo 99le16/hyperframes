@@ -104,6 +104,6 @@ A video with sound keeps it on the `<video>` (`data-has-audio="true"`, no `muted
 - A video's own sound stays on the `<video>` (`data-has-audio="true"`, no `muted`). Add a separate `<audio>` only for other sound (music, voiceover, replacement audio, J/L cuts) and mute the video it replaces.
 - For volume fades and ducking, use the `data-automation` volume lane; the exact form is in `creator-editing-recipes.md`. `data-volume` is the static baseline. A timeline `volume` tween is ignored when a lane is present.
 
-For media duration: `<video>` and `<audio>` can omit `data-duration` if the media's intrinsic length is known and you want the full clip. Otherwise provide `data-duration` explicitly.
+For media duration: `<video>` and `<audio>` can omit `data-duration` if the media's intrinsic length is known and you want the full clip. Otherwise provide `data-duration` explicitly. `lint` cannot read media length, so it treats an omitted `data-duration` as running to the end: voiceover clips placed one after another on a shared track each need `data-duration`, or every pair warns `duplicate_audio_track`.
 
 Input codecs: render decodes video via FFmpeg (frames are pre-extracted and injected), so HEVC/H.265 assets (8/10-bit) render correctly everywhere; live preview auto-proxies any browser-hostile asset (transcodes and caches an H.264 copy on first use, opt out with `--no-proxy` or `media.autoProxy: false`), and `lint` emits an info-level `hevc_preview_codec` note naming affected assets.

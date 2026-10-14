@@ -18,6 +18,15 @@ The shipped narrative workflows implement these stages with their own scripts; a
 
 The Frames stage follows the plan's citations: a scene planned on a blueprint or on named rules is built by reading that recipe's body (`hyperframes-animation/blueprints/<id>.md`, `rules/<id>.md`) before its motion is written — names come from the indexes, never invented, and a scene the plan left uncited gets its citation at build time, not improvised motion.
 
+## Duration sync and seams by hand
+
+A freeform narrated build with one voice clip per scene applies this rule itself. It held across a ~4-minute narrated technical explainer with 14 scenes:
+
+- **Slot length** = lead (about 0.6 s) + the clip's real duration + tail (about 0.8 s), plus any deliberate held beat. The voice starts at slot start + lead. Real durations come from the audio files, never from word end times.
+- **Neighboring slots overlap by the transition** (about 0.6 s, matched to the lead): the incoming slot starts at the seam and the outgoing slot ends that much later. Lines are then separated by exactly the tail, and every transition plays in the silence between them.
+- **Cues are scene-local.** Write each reveal into the frame's time-coded Scene lines at word start + lead, in scene seconds, so the frame worker lands it on the spoken word.
+- **Seams are root-timeline tweens.** Animate each scene's host, or a plain non-timed wrapper around it (stacked so the incoming scene sits above the outgoing one), with a `transitions/catalog.md` recipe: opacity, transforms, filter. Never tween visibility, `display`, or `autoAlpha` on a `.clip` (`gsap_animates_clip_element`).
+
 ## Scheduling economics (facts you can't see from inside the session)
 
 - **External generations are independent work.** Image plates, TTS, BGM, video gen: fire every generation whose prompt is already known **concurrently or in the background**, and overlap the wait with reading or building. Three image plates generated one-after-another cost ~3× the wall time of firing them together.

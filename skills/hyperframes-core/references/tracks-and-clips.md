@@ -24,7 +24,7 @@ Add `class="clip"` to authored visual clips. The runtime does not read it, but t
 
 A clip on track `5` is not "above" a clip on track `1`. Use CSS for layering, `data-start`/`data-duration` for sequencing.
 
-The one place the value carries meaning: two `<audio>` elements that share a track index **and** overlap in time raise a `lint` warning (`duplicate_audio_track`), which is a useful nudge that you are about to double up a bed.
+The one place the value carries meaning: two `<audio>` elements that share a track index **and** overlap in time raise a `lint` warning (`duplicate_audio_track`), which is a useful nudge that you are about to double up a bed. An `<audio>` without `data-duration` counts as open-ended here, so sequential clips on one track need it.
 
 ## Picking a Track Index
 

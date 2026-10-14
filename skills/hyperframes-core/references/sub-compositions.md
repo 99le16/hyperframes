@@ -73,6 +73,10 @@ So `<template>` is not just a wrapper — it is the **transport container**. If 
 
 Contrast with **standalone** compositions, which put the root directly in `<body>` with no `<template>` wrapper.
 
+### Asset paths
+
+Relative URLs inside the template (`@font-face` `src`, CSS `url()`, `<img>` / `<video>` `src`) may be written relative to the sub-composition file, the way a browser opening it directly would read them: from `compositions/frames/<NN>.html`, `../../assets/fonts/<file>`. Preview and render rebase them to the project root when the template is inlined. A plain `assets/...` path is also kept as a project-root path unless a file of that name sits next to the sub-composition.
+
 ## Common pitfalls that pass static checks but break at render
 
 Static file checks cannot prove the **cross-file mount contract**. These failures appear only when the runtime mounts the sub-composition.
