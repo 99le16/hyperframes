@@ -74,6 +74,7 @@ export function collectElementDom() {
           : siblingCount(element, simple) === 1
             ? simple
             : `${CSS.escape(tag)}:nth-child(${siblings.indexOf(element) + 1})`,
+      position: siblings.indexOf(element) + 1,
       groupSelector: simple,
       siblingMatchCount: siblingCount(element, simple),
       children: [],

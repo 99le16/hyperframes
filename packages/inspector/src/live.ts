@@ -14,7 +14,7 @@ import {
 } from "./engine";
 import { liveGenerationPage, type PageRunner } from "./pageQueries";
 import { assertGeneration, validateInspectRequest, validateTimelineRequest } from "./requests";
-import { Sources, fingerprint } from "./sources";
+import { Sources, authoredHtml, fingerprint, type AuthoredHtml } from "./sources";
 import type { InspectRequest, Snippet } from "./types";
 
 export interface LiveInspection {
@@ -42,6 +42,7 @@ export function prepareLiveInspection(
   const prepared = html.replace(/<head\b[^>]*>/i, (head) => `${head}<script>${script}</script>`);
   let document = prepared;
   let context: SourceContext | undefined;
+  let authored: AuthoredHtml | undefined;
   const catalog = new Map<string, Snippet>();
   const view: InspectionView = {
     generation,
@@ -53,6 +54,9 @@ export function prepareLiveInspection(
         context = { sources, map: sources.mapper(document, [...provenance]) };
       }
       return context;
+    },
+    authoredHtml() {
+      return (authored ??= authoredHtml(project));
     },
     async assertCurrent() {
       if (fingerprint(project) !== sourceVersion)

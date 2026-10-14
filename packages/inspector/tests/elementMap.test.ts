@@ -2,6 +2,11 @@ import { test } from "vitest";
 import assert from "node:assert/strict";
 import { collectElementDom, formatElementMap } from "../src/elementMap.js";
 import { Window } from "happy-dom";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { withAuthoredState } from "../src/authoredState";
+import { authoredHtml } from "../src/sources";
 
 function collect(html: string) {
   const window = new Window();
@@ -97,4 +102,37 @@ test("blob URLs identify runtime media without claiming a persistent asset ident
     map('<img src="blob:https://example.com/two">').text,
   );
   assert.match(map('<img src="blob:https://example.com/one">').text, /blob:runtime/);
+});
+
+test("classes and text the timeline sets at the current frame do not change the map", () => {
+  const authored =
+    '<div id="s"><i data-hf-id="hf-a" class="ch">0.0</i><i data-hf-id="hf-b" class="ch">0.0</i><i data-hf-id="hf-c" class="ch">0.0</i></div>';
+  const playing = authored
+    .replace('class="ch">0.0</i><i data-hf-id="hf-b"', 'class="ch on">5.2</i><i data-hf-id="hf-b"')
+    .replace('"hf-c" class="ch">0.0', '"hf-c" class="ch on cur">5.2');
+  const dir = mkdtempSync(join(tmpdir(), "inspect-map-"));
+  try {
+    writeFileSync(join(dir, "index.html"), authored);
+    const sources = authoredHtml(dir);
+    const atRest = formatElementMap(withAuthoredState(collect(authored), sources)).text;
+    assert.match(atRest, /i\.ch ×3 "0\.0"/);
+    assert.equal(formatElementMap(withAuthoredState(collect(playing), sources)).text, atRest);
+    assert.notEqual(map(playing).text, atRest);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an element whose live classes drop an authored one keeps its live state", () => {
+  const dir = mkdtempSync(join(tmpdir(), "inspect-map-"));
+  try {
+    writeFileSync(join(dir, "index.html"), '<p data-hf-id="hf-a" class="hidden">x</p>');
+    const live = withAuthoredState(
+      collect('<p data-hf-id="hf-a" class="shown">x</p>'),
+      authoredHtml(dir),
+    );
+    assert.equal(live.nodes.at(-1)?.classes.join(" "), "shown");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
