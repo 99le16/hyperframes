@@ -58,7 +58,6 @@ export const BROWSER_HOSTILE_CODECS: Record<string, BrowserHostileCodec> = {
   // Windows/Linux and Firefox everywhere need the substitute.
   hevc: { representativeMime: 'video/mp4; codecs="hvc1.1.6.L120.B0"', prewarm: true },
   prores: { representativeMime: null, prewarm: true },
-  // Chromium no longer decodes Theora: the <video> loads but shows no picture.
   theora: { representativeMime: 'video/ogg; codecs="theora"', prewarm: true },
   // Every mainstream engine decodes AV1 and VP9, so canPlayType keeps the
   // original and only the rare browser that cannot pays for a transcode.
