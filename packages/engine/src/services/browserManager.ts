@@ -15,7 +15,12 @@ import { homedir } from "os";
 import { chromeMajorCeiling, exceedsChromeCeiling } from "./chromeHostCeiling.js";
 import { DEFAULT_CONFIG, type EngineConfig } from "../config.js";
 import { getSystemTotalMb, LOW_MEMORY_TOTAL_MB_THRESHOLD } from "./systemMemory.js";
-import { describeWslGpuAccess, type WslHostFacts } from "./wslHost.js";
+import {
+  describeWslGpuAccess,
+  detectWsl,
+  type FullChromeRoute,
+  type WslHostFacts,
+} from "./wslHost.js";
 import {
   BrowserLeasePool,
   type BrowserLaunchFingerprint,
@@ -85,6 +90,8 @@ interface GpuProbeOptions {
   platform?: NodeJS.Platform;
   probeLifecycle?: GpuProbeLifecycle;
   wslHost?: WslHostFacts;
+  /** Finds full Chrome for the WSL fallback; tests pass a fake. */
+  findFullChrome?: () => string | undefined;
 }
 
 const GPU_PROBE_TIMEOUT_MS = 15_000;
@@ -265,6 +272,41 @@ export function resolveHeadlessShellPath(
       join(home, ".cache", "hyperframes", "chrome", "chrome-headless-shell"),
     ) ?? findCachedHeadlessShell(join(home, ".cache", "puppeteer", "chrome-headless-shell"))
   );
+}
+
+/** Full Chrome for Testing in Puppeteer's cache (`@puppeteer/browsers install chrome@...`), newest first. */
+export function resolveFullChromePath(): string | undefined {
+  const baseDir = join(homedir(), ".cache", "puppeteer", "chrome");
+  if (!existsSync(baseDir)) return undefined;
+  const versions = readdirSync(baseDir).sort(compareBrowserVersionsDescending);
+  for (const version of versions) {
+    const candidates = [
+      join(
+        baseDir,
+        version,
+        "chrome-mac-arm64",
+        "Google Chrome for Testing.app",
+        "Contents",
+        "MacOS",
+        "Google Chrome for Testing",
+      ),
+      join(
+        baseDir,
+        version,
+        "chrome-mac-x64",
+        "Google Chrome for Testing.app",
+        "Contents",
+        "MacOS",
+        "Google Chrome for Testing",
+      ),
+      join(baseDir, version, "chrome-linux64", "chrome"),
+      join(baseDir, version, "chrome-win64", "chrome.exe"),
+    ];
+    for (const binary of candidates) {
+      if (existsSync(binary)) return binary;
+    }
+  }
+  return undefined;
 }
 
 // Preserve the producer-era export so re-export shims keep the same public API.
@@ -499,6 +541,8 @@ interface GpuProbeOutcome {
   cause?: "no-gpu" | "probe-error";
   /** Under WSL, what we checked on its GPU path (see describeWslGpuAccess). */
   wslAccess?: string[];
+  /** Under WSL, the full Chrome that reached the GPU after the headless shell did not. */
+  browserPath?: string;
 }
 
 /**
@@ -556,8 +600,6 @@ function formatProbeFailure(err: unknown): string {
 }
 
 async function probeAutoBrowserGpuMode(options: GpuProbeOptions): Promise<GpuProbeOutcome> {
-  const platform = options.platform ?? process.platform;
-  const browserTimeout = options.browserTimeout ?? DEFAULT_CONFIG.browserTimeout;
   const executablePath = options.chromePath ?? resolveHeadlessShellPath({});
   const ppt = await getPuppeteerOrNull();
 
@@ -566,26 +608,63 @@ async function probeAutoBrowserGpuMode(options: GpuProbeOptions): Promise<GpuPro
     return { mode: "software", cause: "probe-error" };
   }
 
+  const probed = await probeWebGlMode(ppt, executablePath, options);
+  if (probed.mode === "hardware" || !detectWsl(options.wslHost)) return probed;
+  return probeWslFullChrome(ppt, executablePath, options, probed);
+}
+
+// heygen-com/hyperframes#5548: under WSL, chrome-headless-shell can fail EGL
+// setup on Mesa's D3D12 driver while full Chrome (--headless=new) gets the GPU.
+async function probeWslFullChrome(
+  ppt: PuppeteerNode,
+  shellPath: string | undefined,
+  options: GpuProbeOptions,
+  shellOutcome: GpuProbeOutcome,
+): Promise<GpuProbeOutcome> {
+  const fullChrome = (options.findFullChrome ?? resolveFullChromePath)();
+  let route: FullChromeRoute = { state: "missing" };
+  if (fullChrome) {
+    if (fullChrome !== shellPath) {
+      const viaFullChrome = await probeWebGlMode(ppt, fullChrome, options, "full Chrome: ");
+      if (viaFullChrome.mode === "hardware") return { mode: "hardware", browserPath: fullChrome };
+    }
+    route = { state: "no-gpu", path: fullChrome };
+  }
+  return { ...shellOutcome, wslAccess: describeWslGpuAccess(options.wslHost, route) ?? undefined };
+}
+
+async function probeWebGlMode(
+  ppt: PuppeteerNode,
+  executablePath: string | undefined,
+  options: GpuProbeOptions,
+  label = "",
+): Promise<GpuProbeOutcome> {
   try {
     const info = await probeHardwareWebGlInfo(ppt, {
-      args: getHardwareGpuProbeArgs(platform),
-      browserTimeout,
+      args: getHardwareGpuProbeArgs(options.platform ?? process.platform),
+      browserTimeout: options.browserTimeout ?? DEFAULT_CONFIG.browserTimeout,
       executablePath,
       probeLifecycle: options.probeLifecycle,
     });
     const resolved = resolveWebGlProbeMode(info);
-    logResolvedBrowserGpuMode(resolved, describeWebGlProbe(info));
-    if (resolved === "hardware") return { mode: "hardware" };
-    return { mode: "software", cause: "no-gpu", ...wslAccess(options) };
+    logResolvedBrowserGpuMode(resolved, label + describeWebGlProbe(info));
+    return resolved === "hardware" ? { mode: "hardware" } : { mode: "software", cause: "no-gpu" };
   } catch (err) {
-    logResolvedBrowserGpuMode("software", formatProbeFailure(err));
-    return { mode: "software", cause: "probe-error", ...wslAccess(options) };
+    logResolvedBrowserGpuMode("software", label + formatProbeFailure(err));
+    return { mode: "software", cause: "probe-error" };
   }
 }
 
-function wslAccess(options: GpuProbeOptions): Pick<GpuProbeOutcome, "wslAccess"> {
-  const lines = describeWslGpuAccess(options.wslHost);
-  return lines ? { wslAccess: lines } : {};
+/**
+ * The browser a render launches for `resolvedMode`: under WSL, the full Chrome
+ * the GPU probe fell back to; otherwise the headless shell.
+ */
+export async function resolveCaptureBrowserPath(
+  resolvedMode: "software" | "hardware",
+  config?: Partial<Pick<EngineConfig, "chromePath">>,
+): Promise<string | undefined> {
+  const probed = resolvedMode === "hardware" ? await _autoBrowserGpuModeCache : undefined;
+  return probed?.browserPath ?? resolveHeadlessShellPath(config);
 }
 
 /**

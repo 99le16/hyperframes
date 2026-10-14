@@ -84,6 +84,26 @@ describe("describeWslGpuAccess", () => {
     expect(missing).not.toContain("usermod");
   });
 
+  it("does not promise the group change alone gets the GPU", () => {
+    const text = note(fakeHost());
+    expect(text).toContain("On its own that may not be enough");
+    expect(text).toContain(
+      "npx @puppeteer/browsers install chrome@stable --path ~/.cache/puppeteer",
+    );
+    expect(text).toContain("HYPERFRAMES_BROWSER_PATH");
+  });
+
+  it("names full Chrome and native Windows as routes once permissions are fine", () => {
+    const host = fakeHost({ renderNodeAccess: () => ({ state: "read-write" }) });
+    const missing = describeWslGpuAccess(host, { state: "missing" })?.join("\n");
+    expect(missing).toContain("full Chrome can");
+    expect(missing).toContain("native Windows");
+    const tried = describeWslGpuAccess(host, { state: "no-gpu", path: "/c/chrome" })?.join("\n");
+    expect(tried).toContain("Full Chrome (/c/chrome) found no hardware GPU either.");
+    expect(tried).not.toContain("@puppeteer/browsers install");
+    expect(tried).toContain("native Windows");
+  });
+
   it("returns null outside WSL", () => {
     expect(describeWslGpuAccess(fakeHost({ platform: "darwin" }))).toBeNull();
   });
