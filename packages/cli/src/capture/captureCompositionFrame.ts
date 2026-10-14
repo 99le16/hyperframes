@@ -1,4 +1,8 @@
-import { launchManagedBrowser, resolveManagedGpuMode } from "../browser/launch.js";
+import {
+  rethrowAfterBrowserCleanup,
+  launchManagedBrowser,
+  resolveManagedGpuMode,
+} from "../browser/launch.js";
 import { spawn } from "node:child_process";
 import type { Browser, Page } from "puppeteer-core";
 import { c } from "../ui/colors.js";
@@ -79,6 +83,10 @@ export interface OpenSettledCompositionPageOptions {
   renderReadyTimeoutMs: number;
   renderReadyWarningSuffix: string;
   browserGpuMode?: BrowserGpuMode;
+  signal?: AbortSignal;
+  onBrowser?: (browser: Browser) => void;
+  // Connected composition browser, before page creation or authored scripts.
+  onBrowserReady?: () => void;
   // Runs after the page exists but before page.goto, so console/pageerror/
   // request listeners can attach without missing load-time events.
   beforeNavigate?: (page: Page) => void | Promise<void>;
@@ -97,7 +105,10 @@ export function resolveCliChromeGpuMode(
 }
 
 function compositionRuntimeReadyInBrowser(): boolean {
-  return Boolean(Reflect.get(window, "__renderReady"));
+  return (
+    Boolean(Reflect.get(window, "__renderReady")) ||
+    typeof Reflect.get(window, "__hfStartupError") === "string"
+  );
 }
 
 function shaderTransitionsReadyInBrowser(): boolean {
@@ -126,14 +137,19 @@ function shaderTransitionsReadyInBrowser(): boolean {
   return shaderTransitionRegistryReady() ?? shaderLoadingOverlayReady();
 }
 
-export function waitForRuntimeReady(
-  page: Required<Pick<CompositionSeekPage, "waitForFunction">>,
+export async function waitForRuntimeReady(
+  page: Required<Pick<CompositionSeekPage, "waitForFunction" | "evaluate">>,
   timeoutMs: number,
 ): Promise<boolean> {
-  return page
+  const settled = await page
     .waitForFunction(compositionRuntimeReadyInBrowser, { timeout: timeoutMs })
     .then(() => true)
     .catch(() => false);
+  const startupError = await page
+    .evaluate(() => Reflect.get(window, "__hfStartupError"))
+    .catch(() => undefined);
+  if (typeof startupError === "string") throw new Error(startupError);
+  return settled;
 }
 
 async function waitForCompositionSettle(
@@ -181,18 +197,24 @@ export async function openSettledCompositionPage(
 ): Promise<SettledCompositionPage> {
   const viewport = resolveCompositionViewportFromHtml(html);
   const { ensureBrowser, findSystemBrowser } = await import("../browser/manager.js");
-  const browser = await ensureBrowser();
+  const browser = await ensureBrowser({ signal: options.signal });
   const puppeteer = await import("puppeteer-core");
   const { buildChromeArgs } = await import("@hyperframes/engine");
   const requestedGpuMode = options.browserGpuMode ?? resolveCliChromeGpuMode();
   const requiresWebGpu = compositionRequiresWebGpu(html);
   let softwareWebGpu = false;
   const launch = async (executablePath: string): Promise<Browser> => {
-    const resolvedGpuMode = await resolveManagedGpuMode(requestedGpuMode, executablePath);
+    options.signal?.throwIfAborted();
+    const resolvedGpuMode = await resolveManagedGpuMode(requestedGpuMode, executablePath, {
+      signal: options.signal,
+      onBrowser: options.onBrowser,
+    });
+    options.signal?.throwIfAborted();
     const webGpu = resolveLocalWebGpu(resolvedGpuMode, requiresWebGpu);
     softwareWebGpu = webGpu.softwareWebGpu;
     return launchManagedBrowser(puppeteer.default, {
       headless: true,
+      signal: options.signal,
       executablePath,
       args: buildChromeArgs(
         { ...viewport, captureMode: "screenshot", requiresWebGpu },
@@ -231,6 +253,8 @@ export async function openSettledCompositionPage(
       }
     }
 
+    options.onBrowser?.(chromeBrowser);
+    options.onBrowserReady?.();
     const page = await chromeBrowser.newPage();
     await installPageFunctionGuard(page);
     await page.setViewport(viewport);
@@ -243,8 +267,7 @@ export async function openSettledCompositionPage(
     const renderReadyTimedOut = !(await waitForCompositionSettle(page, options));
     return { browser: chromeBrowser, page, renderReadyTimedOut };
   } catch (err) {
-    await chromeBrowser?.close().catch(() => {});
-    throw err;
+    return rethrowAfterBrowserCleanup(chromeBrowser, err);
   }
 }
 

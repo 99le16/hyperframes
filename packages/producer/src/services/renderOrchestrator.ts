@@ -211,7 +211,10 @@ import { runCaptureHdrStage } from "./render/stages/captureHdrStage.js";
 import { runEncodeStage } from "./render/stages/encodeStage.js";
 import { runAssembleStage } from "./render/stages/assembleStage.js";
 import { shouldUseLayeredComposite } from "./hdrCompositor.js";
-import { resolveCaptureImageFormat } from "./render/captureImageFormat.js";
+import {
+  resolveCaptureImageFormat,
+  resolveCaptureJpegQuality,
+} from "./render/captureImageFormat.js";
 import { assertMotionBlurSupported } from "./render/motionBlurRoute.js";
 
 export function sampleDirectoryBytes(dir: string): number {
@@ -1274,7 +1277,7 @@ export async function executeDiskCaptureWithAdaptiveRetry(options: {
       const madeProgress = captureAttemptMadeProgress(frameCount, remainingCount);
       if (!madeProgress) {
         options.log.warn(
-          "[Render] Capture attempt made no forward progress; composition is likely structurally broken — not retrying.",
+          "[Render] Capture attempt made no forward progress; composition is likely structurally broken, not retrying.",
           { attempt, frameCount, remainingCount, workers: currentWorkers },
         );
       }
@@ -1382,7 +1385,7 @@ export async function executeDiskCaptureWithAdaptiveRetry(options: {
 
       if (!madeProgress) {
         options.log.warn(
-          "[Render] Capture attempt made no forward progress; composition is likely structurally broken — not retrying.",
+          "[Render] Capture attempt made no forward progress; composition is likely structurally broken, not retrying.",
           { attempt, frameCount, remainingCount, workers: currentWorkers },
         );
       }
@@ -2795,7 +2798,7 @@ export async function executeRenderJob(
   execution.defer("remove workDir", () => {
     if (job.config.debug) return;
     if (job.status === "complete" && process.env.KEEP_TEMP === "1") {
-      log.info("KEEP_TEMP=1 — leaving workDir on disk for inspection", { workDir });
+      log.info("KEEP_TEMP=1, leaving workDir on disk for inspection", { workDir });
       return;
     }
     rmSync(workDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
@@ -3138,7 +3141,7 @@ async function executeRenderPipeline(input: {
       captureForceScreenshot = true;
       updateCaptureObservability({ forceScreenshot: captureForceScreenshot });
       log.info(
-        "[Render] Low-memory render profile active — " +
+        "[Render] Low-memory render profile active: " +
           "screenshot capture, auto-worker calibration skipped" +
           (job.config.workers === undefined ? ", pinned to 1 worker" : "") +
           ". Override with --no-low-memory-mode or PRODUCER_LOW_MEMORY_MODE=false.",
@@ -3356,6 +3359,7 @@ async function executeRenderPipeline(input: {
           ffmpegProcessTimeout: cfg.ffmpegProcessTimeout,
           audioGain: cfg.audioGain,
           audios: composition.audios,
+          masterFxChain: composition.masterFxChain,
           abortSignal: executionSignal,
           assertNotAborted,
           log,
@@ -3470,7 +3474,8 @@ async function executeRenderPipeline(input: {
       height,
       fps: job.config.fps,
       format: captureImageFormat,
-      quality: captureImageFormat === "png" ? undefined : job.config.quality === "draft" ? 80 : 95,
+      quality:
+        captureImageFormat === "png" ? undefined : resolveCaptureJpegQuality(job.config.quality),
       variables: job.config.variables,
       deviceScaleFactor,
       motionBlur: job.config.motionBlur,
@@ -3516,36 +3521,11 @@ async function executeRenderPipeline(input: {
         });
       },
     });
-    // The URL-served frame path (PR #596) hands each injected `<img>` a
-    // fileServer URL instead of a base64 data URI, on the theory that
-    // shipping a short URL through `page.evaluate` beats shipping a
-    // multi-MB base64 string per frame. That holds when the fileServer
-    // is otherwise idle — but on video-heavy compositions, the same
-    // fileServer also serves every `<video>.src`. The runtime's
-    // drift-recovery branch (`runtime/media.ts:294-302`) issues
-    // `el.load()` on the underlying `<video>` during seeks, kicking off
-    // full-file downloads that occupy the fileServer's single Node
-    // event loop (it uses `readFileSync` and offers no `Accept-Ranges`).
-    // The injector's `<img>.decode()` then queues behind those video
-    // fetches and is never serviced before puppeteer's protocol timeout
-    // fires (`Runtime.callFunctionOn timed out`).
-    //
-    // Repro: synth 30 × 32 MB videos / 90 s comp on an 8-core / 30 GB
-    // host = 537 s wall (broken corpus) / 428 s (corpus-fixed), every
-    // render fails. Disabling the resolver (force base64-inline) gives
-    // 1:59 (119 s) wall and a clean MP4 on the same comp, with no
-    // regression on the 30 × 1.6 MB control corpus (137 s vs 135 s
-    // baseline).
-    //
-    // Until this is properly gated (e.g. only enable URL-served when the
-    // page has zero fileServer-bound `<video>.src` traffic), the inline
-    // path is the safe default. The cache memory ceiling
-    // (`frameDataUriCacheBytesLimitMb`, default 1500 MB above 8 GB
-    // hosts) already bounds the cost. `createCompiledFrameSrcResolver`
-    // and the `frameSrcResolver` option remain in their respective
-    // modules (`packages/producer/src/services/render/shared.ts`,
-    // `packages/engine/src/services/videoFrameInjector.ts`); the gating
-    // PR will re-import the builder here.
+    // The engine delivers cached frame bytes as no-store CDP responses.
+    // Frame requests bypass the file server's source-video downloads, which
+    // can occupy all HTTP connections during native-video drift recovery.
+    // The byte ceiling bounds the Node LRU; Chrome receives short URLs so
+    // its resource cache does not retain the corresponding inline strings.
     const createRenderVideoFrameInjector = (): BeforeCaptureHook | null =>
       createVideoFrameInjector(frameLookup, {
         frameDataUriCacheLimit: cfg.frameDataUriCacheLimit,
@@ -4034,7 +4014,7 @@ async function executeRenderPipeline(input: {
       cfg.useDrawElement = false;
       deClampReason = workerCount > 1 ? "parallel" : "disk_path";
       log.info(
-        "[Render] Fast capture: default-on drawElement disabled for this render — " +
+        "[Render] Fast capture: default-on drawElement disabled for this render: " +
           (workerCount > 1 ? "parallel capture" : "the disk capture path") +
           " has no runtime self-verification. Set PRODUCER_EXPERIMENTAL_FAST_CAPTURE=true to override.",
       );
@@ -4185,7 +4165,7 @@ async function executeRenderPipeline(input: {
       });
       updateCaptureObservability({ forceScreenshot: captureForceScreenshot });
       log.info(
-        "[Render] Page-side compositing enabled — bypassing Node-side layered " +
+        "[Render] Page-side compositing enabled, bypassing Node-side layered " +
           `shader-blend path. Engine will capture one ${needsAlpha ? "RGBA PNG" : "opaque RGB"} ` +
           "screenshot per output frame.",
       );
@@ -4462,6 +4442,7 @@ async function executeRenderPipeline(input: {
           outputWidth: captureCompositionWidth ?? width,
           outputHeight: captureCompositionHeight ?? height,
           motionBlur: job.config.motionBlur ? JSON.stringify(job.config.motionBlur) : "",
+          captureQuality: captureOptions.quality,
         });
         const segmentDir = segmentDirFor(join(projectDir, "renders"), segmentPlanHash);
         let completedSegments: ReadonlySet<number> = new Set<number>();
@@ -4828,7 +4809,7 @@ async function executeRenderPipeline(input: {
             cfg.useDrawElement = false;
             deClampReason = deClampReason ?? "disk_path";
             log.info(
-              "[Render] Fast capture: drawElement disabled for the disk fallback — " +
+              "[Render] Fast capture: drawElement disabled for the disk fallback: " +
                 "streaming encoder spawn failed and the disk path has no runtime " +
                 "self-verification.",
             );

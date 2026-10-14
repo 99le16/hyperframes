@@ -65,6 +65,10 @@ jobs:
     name: Detect changes
     runs-on: ubuntu-latest
     timeout-minutes: 2
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
     outputs:
       code: ${{ (github.event_name == 'workflow_dispatch' && inputs.catalog_publish) && 'true' || steps.filter.outputs.code }}
       docs_catalog: ${{ steps.filter.outputs.docs_catalog }}
@@ -83,6 +87,9 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+      - name: Check whether this commit already passed before a title or body edit
+        id: edit
+        uses: ./.github/actions/edit-already-passed
       - name: Reject accidental file deletions
         if: github.event_name == 'pull_request'
         run: node scripts/check-no-main-deletions.mjs --base origin/main
@@ -102,6 +109,7 @@ jobs:
         run: sh scripts/check-large-files.sh --range "$BASE_SHA" HEAD
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
         id: filter
+        if: steps.edit.outputs.passed != 'true'
         with:
           token: ""
           base: ${{ steps.base.outputs.sha }}
@@ -380,6 +388,11 @@ jobs:
           node-version: 22
       - uses: ./.github/actions/prepare-ffmpeg-bin
       - run: bash scripts/ci/install-workspace-dependencies.sh
+      - name: Build generated inspector inputs
+        run: |
+          bun run --filter '@hyperframes/{parsers,lint}' build
+          bun run build:hyperframes-runtime
+          bun run --filter @hyperframes/inspector build
       - name: Run fallow audit
         id: audit
         # `bun install` above made `bunx fallow` resolve from node_modules, so
@@ -469,7 +482,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -541,7 +554,7 @@ jobs:
       - run: bun run test:scripts
         env:
           HYPERFRAMES_BROWSER_PATH: ${{ steps.catalog-chrome.outputs.chrome-path }}
-      - run: bun run --filter '@hyperframes/{lint,parsers,studio-server,sdk,player,aws-lambda,gcp-cloud-run,sdk-playground,shader-transitions}' test
+      - run: bun run --filter '@hyperframes/{lint,parsers,studio-server,sdk,player,aws-lambda,gcp-cloud-run,sdk-playground,shader-transitions,inspector}' test
 
   test:
     name: Test
@@ -882,6 +895,8 @@ jobs:
             packages/studio/data/projects/inline-text-caret
           cp -R packages/studio/tests/e2e/fixtures/undo-socket-pool \
             packages/studio/data/projects/undo-socket-pool
+          cp -R packages/studio/tests/e2e/fixtures/aroll-backdrop \
+            packages/studio/data/projects/aroll-backdrop
       - name: Build the base the viewport gate compares against
         # The first parent of the checked-out commit, as in base-file.sh. Measured only when the head misses a budget.
         run: |
@@ -1000,7 +1015,7 @@ jobs:
           node packages/studio/tests/e2e/perf-ratchet.mjs check \
             packages/studio/tests/e2e/perf-ceilings.json studio-open /tmp/studio-open-counts.json \
             /tmp/base-perf-ceilings.json
-      - name: Check fade handles, render selects, thumbnail connection release and trim snapping
+      - name: Check fade handles, render selects, thumbnail connection release, trim snapping and a script-hidden backdrop
         if: success() || failure()
         run: |
           set -euo pipefail
@@ -1030,6 +1045,8 @@ jobs:
             packages/studio/data/projects/timeline-trim-snap
           STUDIO_URL="http://localhost:5316/#project/timeline-trim-snap" \
             node packages/studio/tests/e2e/timeline-snap-release.mjs || rc=1
+          STUDIO_URL="http://localhost:5316/#project/aroll-backdrop" \
+            node packages/studio/tests/e2e/aroll-backdrop.mjs || rc=1
           exit "$rc"
       - name: Measure the caret of a text edited in place
         if: success() || failure()

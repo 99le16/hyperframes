@@ -7,7 +7,7 @@
  */
 
 import { scanHtmlOpeningTags } from "@hyperframes/parsers/html-attribute-spans";
-import type { Browser, Page, PuppeteerNode } from "puppeteer-core";
+import type { Browser, LaunchOptions, Page, PuppeteerNode } from "puppeteer-core";
 import { execSync } from "child_process";
 import { existsSync, readdirSync, statSync } from "fs";
 import { join } from "path";
@@ -15,6 +15,7 @@ import { homedir } from "os";
 import { chromeMajorCeiling, exceedsChromeCeiling } from "./chromeHostCeiling.js";
 import { DEFAULT_CONFIG, type EngineConfig } from "../config.js";
 import { getSystemTotalMb, LOW_MEMORY_TOTAL_MB_THRESHOLD } from "./systemMemory.js";
+import { describeWslGpuAccess, type WslHostFacts } from "./wslHost.js";
 import {
   BrowserLeasePool,
   type BrowserLaunchFingerprint,
@@ -73,6 +74,19 @@ async function getPuppeteer(): Promise<PuppeteerNode> {
   return _puppeteer;
 }
 
+export interface GpuProbeLifecycle {
+  launch(puppeteer: PuppeteerNode, options: LaunchOptions): Promise<Browser>;
+  close(browser: Browser): Promise<void>;
+}
+
+interface GpuProbeOptions {
+  chromePath?: string;
+  browserTimeout?: number;
+  platform?: NodeJS.Platform;
+  probeLifecycle?: GpuProbeLifecycle;
+  wslHost?: WslHostFacts;
+}
+
 const GPU_PROBE_TIMEOUT_MS = 15_000;
 
 async function probeHardwareWebGlInfo(
@@ -81,11 +95,12 @@ async function probeHardwareWebGlInfo(
     args: string[];
     browserTimeout: number;
     executablePath: string | undefined;
+    probeLifecycle?: GpuProbeLifecycle;
   },
 ): Promise<WebGlProbeInfo> {
   let probeBrowser: Browser | undefined;
   try {
-    probeBrowser = await ppt.launch({
+    const launchOptions: LaunchOptions = {
       ...sigintLaunchOptions(),
       headless: true,
       args: options.args,
@@ -93,14 +108,20 @@ async function probeHardwareWebGlInfo(
       executablePath: options.executablePath,
       timeout: options.browserTimeout,
       waitForInitialPage: false,
-    });
+    };
+    probeBrowser = options.probeLifecycle
+      ? await options.probeLifecycle.launch(ppt, launchOptions)
+      : await ppt.launch(launchOptions);
     return await rejectAfter(
       readWebGlInfo(probeBrowser),
       GPU_PROBE_TIMEOUT_MS,
       `GPU probe page did not answer within ${GPU_PROBE_TIMEOUT_MS}ms`,
     );
   } finally {
-    if (probeBrowser) await closeBrowserAfterFailedProbe(probeBrowser);
+    if (probeBrowser) {
+      if (options.probeLifecycle) await options.probeLifecycle.close(probeBrowser);
+      else await closeBrowserAfterFailedProbe(probeBrowser);
+    }
   }
 }
 
@@ -476,6 +497,8 @@ export const _closeBrowserAfterFailedProbeForTests = closeBrowserAfterFailedProb
 interface GpuProbeOutcome {
   mode: "software" | "hardware";
   cause?: "no-gpu" | "probe-error";
+  /** Under WSL, what we checked on its GPU path (see describeWslGpuAccess). */
+  wslAccess?: string[];
 }
 
 /**
@@ -495,6 +518,7 @@ let _autoBrowserGpuModeCache: Promise<GpuProbeOutcome> | undefined;
 export function _resetAutoBrowserGpuModeCacheForTests(): void {
   _autoBrowserGpuModeCache = undefined;
   _unverifiedHardwareGpuWarned = false;
+  _wslSoftwareNoteLogged = false;
 }
 
 async function getPuppeteerOrNull(): Promise<PuppeteerNode | null> {
@@ -531,11 +555,7 @@ function formatProbeFailure(err: unknown): string {
   return `probe failed (${err instanceof Error ? err.message : String(err)})`;
 }
 
-async function probeAutoBrowserGpuMode(options: {
-  chromePath?: string;
-  browserTimeout?: number;
-  platform?: NodeJS.Platform;
-}): Promise<GpuProbeOutcome> {
+async function probeAutoBrowserGpuMode(options: GpuProbeOptions): Promise<GpuProbeOutcome> {
   const platform = options.platform ?? process.platform;
   const browserTimeout = options.browserTimeout ?? DEFAULT_CONFIG.browserTimeout;
   const executablePath = options.chromePath ?? resolveHeadlessShellPath({});
@@ -551,14 +571,21 @@ async function probeAutoBrowserGpuMode(options: {
       args: getHardwareGpuProbeArgs(platform),
       browserTimeout,
       executablePath,
+      probeLifecycle: options.probeLifecycle,
     });
     const resolved = resolveWebGlProbeMode(info);
     logResolvedBrowserGpuMode(resolved, describeWebGlProbe(info));
-    return resolved === "hardware" ? { mode: "hardware" } : { mode: "software", cause: "no-gpu" };
+    if (resolved === "hardware") return { mode: "hardware" };
+    return { mode: "software", cause: "no-gpu", ...wslAccess(options) };
   } catch (err) {
     logResolvedBrowserGpuMode("software", formatProbeFailure(err));
-    return { mode: "software", cause: "probe-error" };
+    return { mode: "software", cause: "probe-error", ...wslAccess(options) };
   }
+}
+
+function wslAccess(options: GpuProbeOptions): Pick<GpuProbeOutcome, "wslAccess"> {
+  const lines = describeWslGpuAccess(options.wslHost);
+  return lines ? { wslAccess: lines } : {};
 }
 
 /**
@@ -589,16 +616,20 @@ async function probeAutoBrowserGpuMode(options: {
  */
 export function resolveBrowserGpuMode(
   mode: EngineConfig["browserGpuMode"],
-  options: {
-    chromePath?: string;
-    browserTimeout?: number;
-    platform?: NodeJS.Platform;
-  } = {},
+  options: GpuProbeOptions = {},
 ): Promise<"software" | "hardware"> {
   if (mode === "software") return Promise.resolve(mode);
 
   _autoBrowserGpuModeCache ??= probeAutoBrowserGpuMode(options);
-  if (mode === "auto") return _autoBrowserGpuModeCache.then((probed) => probed.mode);
+  if (mode === "auto") {
+    return _autoBrowserGpuModeCache.then((probed) => {
+      if (probed.mode === "software" && probed.wslAccess && !_wslSoftwareNoteLogged) {
+        _wslSoftwareNoteLogged = true;
+        console.error(buildWslSoftwareNote(probed));
+      }
+      return probed.mode;
+    });
+  }
 
   return _autoBrowserGpuModeCache.then((probed) => {
     // Warn once per cache lifetime, not once per caller: `createCaptureSession`
@@ -606,9 +637,7 @@ export function resolveBrowserGpuMode(
     // an un-deduplicated warning prints N+1 times and buries itself.
     if (probed.mode === "software" && !_unverifiedHardwareGpuWarned) {
       _unverifiedHardwareGpuWarned = true;
-      console.warn(
-        buildUnverifiedHardwareGpuWarning(options.platform ?? process.platform, probed.cause),
-      );
+      console.warn(buildUnverifiedHardwareGpuWarning(options.platform ?? process.platform, probed));
     }
     return "hardware";
   });
@@ -619,6 +648,21 @@ export function resolveBrowserGpuMode(
  * cache lifetime (re-armed by `_resetAutoBrowserGpuModeCacheForTests`).
  */
 let _unverifiedHardwareGpuWarned = false;
+let _wslSoftwareNoteLogged = false;
+
+/** Auto mode under WSL selected software: say so, with what we checked. */
+function buildWslSoftwareNote({ cause, wslAccess = [] }: GpuProbeOutcome): string {
+  const check =
+    cause === "probe-error"
+      ? "the GPU check could not finish (see the probe line above)"
+      : "the GPU check found no hardware GPU";
+  return [
+    `[hyperframes] WSL: ${check}, so this render uses software WebGL (SwiftShader) and runs ` +
+      "at CPU speed.",
+    ...wslAccess,
+    "  Pass --no-browser-gpu to skip the GPU check and render in software.",
+  ].join("\n");
+}
 
 /**
  * Warning text for "you asked for hardware GPU and we could not confirm it".
@@ -631,33 +675,39 @@ let _unverifiedHardwareGpuWarned = false;
  */
 function buildUnverifiedHardwareGpuWarning(
   platform: NodeJS.Platform | string,
-  cause: GpuProbeOutcome["cause"],
+  { cause, wslAccess }: GpuProbeOutcome,
 ): string {
   if (cause === "probe-error") {
     return (
       "[hyperframes] browserGpuMode=hardware was requested, but the GPU probe could not run, " +
-      "so hardware acceleration is UNVERIFIED — if Chrome falls back to software WebGL the " +
+      "so hardware acceleration is UNVERIFIED. If Chrome falls back to software WebGL the " +
       "capture will run at CPU speed. Honouring the explicit request anyway.\n" +
       "  This is a probe failure, not evidence of a missing GPU: see the " +
       "`browserGpuMode probe → software (probe failed ...)` line above for the underlying " +
       "error, which usually means Chrome could not launch (bad HYPERFRAMES_BROWSER_PATH, " +
       "missing shared libraries, or a denied sandbox) rather than a GPU problem.\n" +
-      "  Run `hyperframes doctor` to check the Chrome install."
+      "  Run `hyperframes doctor` to check the Chrome install." +
+      (wslAccess
+        ? ["", "  Under WSL, a GPU path that is slow to start or unreachable can also cause it:"]
+            .concat(wslAccess)
+            .join("\n")
+        : "")
     );
   }
   const remediation =
-    platform === "linux"
-      ? "Inside Docker, the container needs GPU passthrough: `--gpus all` with the NVIDIA " +
+    wslAccess?.join("\n") ??
+    (platform === "linux"
+      ? "  Inside Docker, the container needs GPU passthrough: `--gpus all` with the NVIDIA " +
         "Container Toolkit installed, or `--device /dev/dri` for Mesa/AMD/Intel. The image " +
         "also needs the matching userspace driver + libEGL. Verify with " +
         "`hyperframes render --browser-gpu` and watch for this warning disappearing."
-      : "Check that the host exposes a GPU to this process and that the graphics drivers are " +
-        "installed.";
+      : "  Check that the host exposes a GPU to this process and that the graphics drivers " +
+        "are installed.");
   return (
     "[hyperframes] browserGpuMode=hardware was requested, but the WebGL probe found no " +
-    "hardware GPU — Chrome will silently fall back to software WebGL and the capture will " +
+    "hardware GPU, so Chrome will silently fall back to software WebGL and the capture will " +
     "run at CPU speed. Honouring the explicit request anyway.\n" +
-    `  ${remediation}\n` +
+    `${remediation}\n` +
     "  Pass --no-browser-gpu to select deterministic SwiftShader instead of waiting on a " +
     "hardware path that is not there."
   );
