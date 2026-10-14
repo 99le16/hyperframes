@@ -408,6 +408,18 @@ async function createSegmentWorker(run: SegmentRun, id: number): Promise<Segment
   };
 }
 
+async function openSegmentWorkersTogether(
+  run: SegmentRun,
+  workersToCloseLater: SegmentWorker[],
+): Promise<void> {
+  const opened = await Promise.allSettled(
+    Array.from({ length: run.workerCount }, (_, id) => createSegmentWorker(run, id)),
+  );
+  for (const o of opened) if (o.status === "fulfilled") workersToCloseLater.push(o.value);
+  const failure = opened.find((o) => o.status === "rejected");
+  if (failure && failure.status === "rejected") throw failure.reason;
+}
+
 /** Close this worker's browser and open a fresh one at a segment boundary. */
 async function recycleWorkerSession(
   run: SegmentRun,
@@ -585,7 +597,7 @@ export async function runCaptureSegmentedStage(
 
   try {
     assertNotAborted();
-    for (let id = 0; id < run.workerCount; id++) workers.push(await createSegmentWorker(run, id));
+    await openSegmentWorkersTogether(run, workers);
     // allSettled, not all: closing a session out from under a worker that is
     // still capturing orphans its ffmpeg and races the CDP connection, so
     // every worker has to stop before the finally runs. The first error is
