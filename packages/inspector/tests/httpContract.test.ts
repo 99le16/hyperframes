@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { expect, it } from "vitest";
-import { createInspectorServer } from "../src/server.ts";
+import { createInspectorServer } from "../src/server";
 
 const project = mkdtempSync(join(tmpdir(), "hf-inspector-"));
 
