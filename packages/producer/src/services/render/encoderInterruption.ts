@@ -1,11 +1,11 @@
-import { audioFailureDiagnostics, type AudioFailureDiagnostic } from "@hyperframes/engine";
+import type { AudioFailureDiagnostic } from "@hyperframes/engine";
 
 const ENCODER_INTERRUPTED = "ENCODER_INTERRUPTED" as const;
 
 interface EncoderFailureResult {
   error?: string;
   failureReason?: "external_interruption";
-  audioFailures?: readonly unknown[];
+  audioFailures?: AudioFailureDiagnostic[];
 }
 
 /** A host/process lifecycle interruption that is safe to retry on a fresh producer. */
@@ -19,11 +19,15 @@ export class EncoderInterruptedError extends Error {
 
   readonly audioFailures: AudioFailureDiagnostic[];
 
-  constructor(prefix: string, diagnosticMessage: string, audioFailures: readonly unknown[] = []) {
+  constructor(
+    prefix: string,
+    diagnosticMessage: string,
+    audioFailures: AudioFailureDiagnostic[] = [],
+  ) {
     super(`${prefix}: encoder process was interrupted by the host lifecycle`);
     this.name = "EncoderInterruptedError";
     this.diagnosticMessage = diagnosticMessage;
-    this.audioFailures = audioFailureDiagnostics(audioFailures);
+    this.audioFailures = audioFailures;
   }
 }
 

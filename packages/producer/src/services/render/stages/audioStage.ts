@@ -20,6 +20,7 @@
 import { join } from "node:path";
 import {
   MIXED_AUDIO_FILENAME,
+  audioFailureDiagnostics,
   processCompositionAudio,
   type AudioProcessingFailure,
 } from "@hyperframes/engine";
@@ -147,7 +148,7 @@ export async function runAudioStage(input: AudioStageInput): Promise<AudioStageR
       throw encoderFailureError("Audio processing failed", {
         error: interrupted.detail,
         failureReason: "external_interruption",
-        audioFailures: triggerFirst(audioResult.failures, interrupted),
+        audioFailures: audioFailureDiagnostics(triggerFirst(audioResult.failures, interrupted)),
       });
     }
 

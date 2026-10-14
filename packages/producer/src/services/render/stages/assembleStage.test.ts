@@ -9,15 +9,11 @@ const { applyFaststartMock, muxVideoWithAudioMock, packageHlsMock, padOrTrimAudi
     padOrTrimAudioMock: vi.fn(),
   }));
 
-vi.mock("@hyperframes/engine", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@hyperframes/engine")>();
-  return {
-    ...actual,
-    applyFaststart: applyFaststartMock,
-    muxVideoWithAudio: muxVideoWithAudioMock,
-    packageHls: packageHlsMock,
-  };
-});
+vi.mock("@hyperframes/engine", () => ({
+  applyFaststart: applyFaststartMock,
+  muxVideoWithAudio: muxVideoWithAudioMock,
+  packageHls: packageHlsMock,
+}));
 
 vi.mock("../audioPadTrim.js", () => ({
   AAC_DELIVERY_TRUE_PEAK_DBFS: -1,
