@@ -188,17 +188,18 @@ function textNodes(inner: string): string {
 }
 
 function textAfter(inner: string, found: Markup): string {
-  if (skipMarkup(found)) return textNodes(inner.slice(resumeAt(found)));
-  if (found.kind === "tag" && RAW_TEXT.has(found.name)) return textAfterRaw(inner, found);
+  if (found.kind !== "tag") return textNodes(inner.slice(found.end));
+  return textAfterTag(inner, found);
+}
+
+function textAfterTag(inner: string, found: TagMarkup): string {
+  if (skipsTag(found)) return textNodes(inner.slice(found.bracket + 1));
+  if (RAW_TEXT.has(found.name)) return textAfterRaw(inner, found);
   return textAfterChild(inner, found);
 }
 
-function skipMarkup(found: Markup): boolean {
-  return found.kind !== "tag" || found.closing || VOID.has(found.name);
-}
-
-function resumeAt(found: Markup): number {
-  return found.kind === "tag" ? found.bracket + 1 : found.end;
+function skipsTag(found: TagMarkup): boolean {
+  return found.closing || VOID.has(found.name);
 }
 
 function textAfterRaw(inner: string, found: TagMarkup): string {
