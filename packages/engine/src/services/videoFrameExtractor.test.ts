@@ -56,6 +56,12 @@ import {
   type VideoMetadata,
 } from "../utils/ffprobe.js";
 import { runFfmpeg } from "../utils/runFfmpeg.js";
+
+// Pass-through, so a test can tell whether extraction ran ffmpeg.
+vi.mock("../utils/runFfmpeg.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../utils/runFfmpeg.js")>();
+  return { ...real, runFfmpeg: vi.fn(real.runFfmpeg) };
+});
 import { COMPLETE_SENTINEL, GC_MARKER, SCHEMA_PREFIX } from "./extractionCache.js";
 import { resolveRuntimeMediaClipDuration } from "../../../core/src/runtime/media.js";
 import { compileTimingAttrs, sourceTimeAt } from "@hyperframes/core";
@@ -2696,15 +2702,13 @@ describe.skipIf(!HAS_FFMPEG)("extractAllVideoFrames on a VFR source", () => {
     expect(miss.errors).toEqual([]);
     expect(miss.phaseBreakdown.cacheHits).toBe(0);
     expect(miss.phaseBreakdown.cacheMisses).toBe(1);
+    const ffmpegRunsBeforeHit = vi.mocked(runFfmpeg).mock.calls.length;
 
     const hit = await extractWithCache(video, "out-cache-hit", CACHE_DIR);
     expect(hit.errors).toEqual([]);
     expect(hit.phaseBreakdown.cacheHits).toBe(1);
     expect(hit.phaseBreakdown.cacheMisses).toBe(0);
-    // extractMs on a hit is only the cache-lookup bookkeeping; asserting <50ms
-    // is loose enough to survive CI jitter but tight enough to catch a
-    // regression that accidentally triggered ffmpeg again.
-    expect(hit.phaseBreakdown.extractMs).toBeLessThan(50);
+    expect(vi.mocked(runFfmpeg).mock.calls.length).toBe(ffmpegRunsBeforeHit);
     expect(hit.extracted).toHaveLength(1);
     expect(hit.extracted[0]!.totalFrames).toBe(miss.extracted[0]!.totalFrames);
 
