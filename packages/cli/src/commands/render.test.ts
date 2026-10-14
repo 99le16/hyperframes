@@ -622,6 +622,7 @@ describe("renderLocal browser GPU config", () => {
     { quiet: false, interrupted: true, emits: true },
     { quiet: true, interrupted: false, emits: false },
   ])("writes the failure diagnostic only for piped non-JSON output: %j", async (mode) => {
+    const projectDir = mkdtempSync(join(tmpdir(), "hf-render-diagnostic-"));
     const failures = [
       {
         stage: "prepare",
@@ -653,7 +654,7 @@ describe("renderLocal browser GPU config", () => {
     });
     try {
       await expect(
-        renderLocal("/tmp/project", "/tmp/out.mp4", {
+        renderLocal(projectDir, join(projectDir, "out.mp4"), {
           fps: { num: 30, den: 1 },
           quality: "standard",
           format: "mp4",
@@ -675,6 +676,7 @@ describe("renderLocal browser GPU config", () => {
       }
     } finally {
       Object.defineProperty(process.stdout, "isTTY", { value: originalIsTTY, configurable: true });
+      rmSync(projectDir, { recursive: true, force: true });
     }
   });
 
