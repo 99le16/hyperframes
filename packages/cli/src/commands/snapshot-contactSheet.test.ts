@@ -1,16 +1,23 @@
 import { runCommand } from "citty";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  linkSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const capture = vi.hoisted(() => ({
   evaluate: vi.fn(),
-  screenshot: vi.fn(async ({ path }: { path: string }) => {
-    const bytes = Buffer.from("captured PNG");
-    writeFileSync(path, bytes);
-    return bytes;
-  }),
+  screenshot: vi.fn(async () => Buffer.from("captured PNG")),
   closeBrowser: vi.fn(async () => undefined),
   closeServer: vi.fn(async () => undefined),
   seek: vi.fn(async () => undefined),
@@ -165,11 +172,7 @@ describe("snapshot contact sheet failures", () => {
       historyRoot: historyDeps.historyRoot,
       ownerWaitMs: 0,
     });
-    capture.screenshot.mockImplementation(async ({ path }: { path: string }) => {
-      const bytes = Buffer.from("replaced PNG");
-      writeFileSync(path, bytes);
-      return bytes;
-    });
+    capture.screenshot.mockImplementation(async () => Buffer.from("replaced PNG"));
     primePage(2);
     try {
       await runCommand(snapshotCommand, args);
@@ -209,10 +212,7 @@ describe("snapshot --keep", () => {
   });
 
   async function snapshot(at: string, bytes: string) {
-    capture.screenshot.mockImplementation(async ({ path }: { path: string }) => {
-      writeFileSync(path, bytes);
-      return Buffer.from(bytes);
-    });
+    capture.screenshot.mockImplementation(async () => Buffer.from(bytes));
     primePage(at.split(",").length);
     await runCommand(snapshotCommand, {
       rawArgs: [project, "--keep", "--at", at, "--no-end", "--describe", "false", "-o", stills],
@@ -228,5 +228,35 @@ describe("snapshot --keep", () => {
     expect(readFileSync(join(stills, "at-0.5s.png"), "utf8")).toBe("redo PNG");
     expect(readFileSync(join(stills, "at-1.5s.png"), "utf8")).toBe("first PNG");
     expect(existsSync(join(stills, "contact-sheet.jpg"))).toBe(false);
+  });
+
+  it("refuses two times that would share a still, before touching the folder", async () => {
+    await snapshot("1.5", "first PNG");
+    capture.screenshot.mockClear();
+
+    await expect(snapshot("1.5,1.5004", "second PNG")).rejects.toThrow(
+      "--keep would name both 1.5 and 1.5004 at-1.5s.png",
+    );
+    expect(capture.screenshot).not.toHaveBeenCalled();
+    expect(readFileSync(join(stills, "at-1.5s.png"), "utf8")).toBe("first PNG");
+  });
+
+  it("replaces a linked still without writing through the link", async () => {
+    mkdirSync(stills, { recursive: true });
+    const hardVictim = join(project, "hard-victim.png");
+    writeFileSync(hardVictim, "hard victim");
+    linkSync(hardVictim, join(stills, "at-0.5s.png"));
+    const softVictim = join(project, "soft-victim.png");
+    writeFileSync(softVictim, "soft victim");
+    if (process.platform !== "win32") symlinkSync(softVictim, join(stills, "at-1.5s.png"));
+
+    await snapshot("0.5,1.5", "new PNG");
+
+    expect(readFileSync(hardVictim, "utf8")).toBe("hard victim");
+    expect(readFileSync(softVictim, "utf8")).toBe("soft victim");
+    for (const still of ["at-0.5s.png", "at-1.5s.png"]) {
+      expect(lstatSync(join(stills, still)).isFile()).toBe(true);
+      expect(readFileSync(join(stills, still), "utf8")).toBe("new PNG");
+    }
   });
 });
