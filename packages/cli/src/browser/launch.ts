@@ -1,4 +1,5 @@
 import type { Browser, LaunchOptions, PuppeteerNode } from "puppeteer-core";
+import { browserLaunchEnv } from "@hyperframes/engine/wsl-host";
 import {
   resolveCaptureBrowserGpuMode,
   type BrowserGpuMode,
@@ -68,6 +69,7 @@ export async function launchManagedBrowser(
   const abort = new AbortController();
   const signal = options.signal ? AbortSignal.any([options.signal, abort.signal]) : abort.signal;
   const launch = puppeteer.launch({
+    env: browserLaunchEnv(),
     ...options,
     signal,
     handleSIGINT: false,

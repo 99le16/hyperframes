@@ -15,12 +15,7 @@ import { homedir } from "os";
 import { chromeMajorCeiling, exceedsChromeCeiling } from "./chromeHostCeiling.js";
 import { DEFAULT_CONFIG, type EngineConfig } from "../config.js";
 import { getSystemTotalMb, LOW_MEMORY_TOTAL_MB_THRESHOLD } from "./systemMemory.js";
-import {
-  describeWslGpuAccess,
-  detectWsl,
-  type FullChromeRoute,
-  type WslHostFacts,
-} from "./wslHost.js";
+import { browserLaunchEnv, describeWslGpuAccess, type WslHostFacts } from "./wslHost.js";
 import {
   BrowserLeasePool,
   type BrowserLaunchFingerprint,
@@ -45,7 +40,11 @@ export function setHostHandlesSigint(owned: boolean): void {
   hostHandlesSigint = owned;
 }
 
-export const sigintLaunchOptions = () => ({ handleSIGINT: !hostHandlesSigint });
+/** Launch options every engine Chrome shares: who owns Ctrl+C, and the environment it starts in. */
+export const hostLaunchOptions = () => ({
+  handleSIGINT: !hostHandlesSigint,
+  env: browserLaunchEnv(),
+});
 
 interface WebGlProbeInfo {
   hasWebGL: boolean;
@@ -90,8 +89,6 @@ interface GpuProbeOptions {
   platform?: NodeJS.Platform;
   probeLifecycle?: GpuProbeLifecycle;
   wslHost?: WslHostFacts;
-  /** Finds full Chrome for the WSL fallback; tests pass a fake. */
-  findFullChrome?: () => string | undefined;
 }
 
 const GPU_PROBE_TIMEOUT_MS = 15_000;
@@ -108,7 +105,7 @@ async function probeHardwareWebGlInfo(
   let probeBrowser: Browser | undefined;
   try {
     const launchOptions: LaunchOptions = {
-      ...sigintLaunchOptions(),
+      ...hostLaunchOptions(),
       headless: true,
       args: options.args,
       defaultViewport: { width: 64, height: 64 },
@@ -545,8 +542,6 @@ interface GpuProbeOutcome {
   cause?: "no-gpu" | "probe-error";
   /** Under WSL, what we checked on its GPU path (see describeWslGpuAccess). */
   wslAccess?: string[];
-  /** Under WSL, the full Chrome that reached the GPU after the headless shell did not. */
-  browserPath?: string;
 }
 
 /**
@@ -604,6 +599,8 @@ function formatProbeFailure(err: unknown): string {
 }
 
 async function probeAutoBrowserGpuMode(options: GpuProbeOptions): Promise<GpuProbeOutcome> {
+  const platform = options.platform ?? process.platform;
+  const browserTimeout = options.browserTimeout ?? DEFAULT_CONFIG.browserTimeout;
   const executablePath = options.chromePath ?? resolveHeadlessShellPath({});
   const ppt = await getPuppeteerOrNull();
 
@@ -612,64 +609,26 @@ async function probeAutoBrowserGpuMode(options: GpuProbeOptions): Promise<GpuPro
     return { mode: "software", cause: "probe-error" };
   }
 
-  const probed = await probeWebGlMode(ppt, executablePath, options);
-  if (probed.mode === "hardware" || !detectWsl(options.wslHost)) return probed;
-  return probeWslFullChrome(ppt, executablePath, options, probed);
-}
-
-// heygen-com/hyperframes#5548: under WSL, chrome-headless-shell can fail EGL
-// setup on Mesa's D3D12 driver while full Chrome (--headless=new) gets the GPU.
-async function probeWslFullChrome(
-  ppt: PuppeteerNode,
-  shellPath: string | undefined,
-  options: GpuProbeOptions,
-  shellOutcome: GpuProbeOutcome,
-): Promise<GpuProbeOutcome> {
-  const fullChrome = (options.findFullChrome ?? resolveFullChromePath)();
-  let route: FullChromeRoute = { state: "missing" };
-  if (fullChrome) {
-    const viaFullChrome =
-      fullChrome === shellPath
-        ? shellOutcome
-        : await probeWebGlMode(ppt, fullChrome, options, "full Chrome: ");
-    if (viaFullChrome.mode === "hardware") return { mode: "hardware", browserPath: fullChrome };
-    route = { state: viaFullChrome.cause ?? "no-gpu", path: fullChrome };
-  }
-  return { ...shellOutcome, wslAccess: describeWslGpuAccess(options.wslHost, route) ?? undefined };
-}
-
-async function probeWebGlMode(
-  ppt: PuppeteerNode,
-  executablePath: string | undefined,
-  options: GpuProbeOptions,
-  label = "",
-): Promise<GpuProbeOutcome> {
   try {
     const info = await probeHardwareWebGlInfo(ppt, {
-      args: getHardwareGpuProbeArgs(options.platform ?? process.platform),
-      browserTimeout: options.browserTimeout ?? DEFAULT_CONFIG.browserTimeout,
+      args: getHardwareGpuProbeArgs(platform),
+      browserTimeout,
       executablePath,
       probeLifecycle: options.probeLifecycle,
     });
     const resolved = resolveWebGlProbeMode(info);
-    logResolvedBrowserGpuMode(resolved, label + describeWebGlProbe(info));
-    return resolved === "hardware" ? { mode: "hardware" } : { mode: "software", cause: "no-gpu" };
+    logResolvedBrowserGpuMode(resolved, describeWebGlProbe(info));
+    if (resolved === "hardware") return { mode: "hardware" };
+    return { mode: "software", cause: "no-gpu", ...wslAccess(options) };
   } catch (err) {
-    logResolvedBrowserGpuMode("software", label + formatProbeFailure(err));
-    return { mode: "software", cause: "probe-error" };
+    logResolvedBrowserGpuMode("software", formatProbeFailure(err));
+    return { mode: "software", cause: "probe-error", ...wslAccess(options) };
   }
 }
 
-/**
- * The browser a render launches for `resolvedMode`: under WSL, the full Chrome
- * the GPU probe fell back to; otherwise the headless shell.
- */
-export async function resolveCaptureBrowserPath(
-  resolvedMode: "software" | "hardware",
-  config?: Partial<Pick<EngineConfig, "chromePath">>,
-): Promise<string | undefined> {
-  const probed = resolvedMode === "hardware" ? await _autoBrowserGpuModeCache : undefined;
-  return probed?.browserPath ?? resolveHeadlessShellPath(config);
+function wslAccess(options: GpuProbeOptions): Pick<GpuProbeOutcome, "wslAccess"> {
+  const lines = describeWslGpuAccess(options.wslHost);
+  return lines ? { wslAccess: lines } : {};
 }
 
 /**
@@ -869,7 +828,7 @@ async function launchBrowser(
   let browser: Browser | undefined;
   try {
     browser = await ppt.launch({
-      ...sigintLaunchOptions(),
+      ...hostLaunchOptions(),
       headless: true,
       args: [...fingerprint.args],
       defaultViewport: null,
@@ -901,7 +860,7 @@ async function launchBrowser(
         );
         captureMode = "screenshot";
         browser = await ppt.launch({
-          ...sigintLaunchOptions(),
+          ...hostLaunchOptions(),
           headless: true,
           args: stripBeginFrameFlags([...fingerprint.args]),
           defaultViewport: null,
