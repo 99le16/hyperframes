@@ -408,15 +408,14 @@ async function createSegmentWorker(run: SegmentRun, id: number): Promise<Segment
   };
 }
 
-/**
- * Opens every worker at once so their media readiness waits overlap. Workers
- * that open stay in `workers` when one fails, so the caller's finally closes them.
- */
-async function openSegmentWorkers(run: SegmentRun, workers: SegmentWorker[]): Promise<void> {
+async function openSegmentWorkersTogether(
+  run: SegmentRun,
+  workersToCloseLater: SegmentWorker[],
+): Promise<void> {
   const opened = await Promise.allSettled(
     Array.from({ length: run.workerCount }, (_, id) => createSegmentWorker(run, id)),
   );
-  for (const o of opened) if (o.status === "fulfilled") workers.push(o.value);
+  for (const o of opened) if (o.status === "fulfilled") workersToCloseLater.push(o.value);
   const failure = opened.find((o) => o.status === "rejected");
   if (failure && failure.status === "rejected") throw failure.reason;
 }
@@ -598,7 +597,7 @@ export async function runCaptureSegmentedStage(
 
   try {
     assertNotAborted();
-    await openSegmentWorkers(run, workers);
+    await openSegmentWorkersTogether(run, workers);
     // allSettled, not all: closing a session out from under a worker that is
     // still capturing orphans its ffmpeg and races the CDP connection, so
     // every worker has to stop before the finally runs. The first error is
