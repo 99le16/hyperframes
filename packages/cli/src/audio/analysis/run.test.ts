@@ -65,6 +65,7 @@ describe.skipIf(!ffmpeg)("analyzeTargets", () => {
     expect(target.placement).toEqual({
       start: 4,
       end: 4.9,
+      dataStart: 4,
       mediaStart: 0.1,
       playbackRate: 1,
       volume: 1,

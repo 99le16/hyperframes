@@ -531,7 +531,8 @@ A film query (`--element`, `--at`, `--range`, `--boundary`) reads the project in
 the current directory or `--dir`, finds the `<audio>` and `<video>` clips it
 covers — nested compositions included — and analyzes only the part of each file
 that plays. `--json` returns times in file seconds with each clip's placement
-(`start`, `mediaStart`, `playbackRate`), so film time is
+(`start`, `mediaStart`, `playbackRate`, and `dataStart`, the element's own
+`data-start`, local to its composition), so film time is
 `start + (t − mediaStart) / playbackRate`; the text output prints film time.
 
 Every measurement comes from a provider ladder. Today the only provider is

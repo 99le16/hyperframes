@@ -6,7 +6,7 @@ const item = (fields: Partial<AudioItem>): AudioItem => ({
   file: "sfx/hit.wav",
   ref: "#hit",
   element: "audio",
-  placement: { start: 10, end: 11, mediaStart: 0.5, playbackRate: 1, volume: 1 },
+  placement: { start: 10, end: 11, dataStart: 10, mediaStart: 0.5, playbackRate: 1, volume: 1 },
   timebase: "file",
   window: { from: 0.5, to: 1.5 },
   duration: 1.5,

@@ -65,6 +65,7 @@ const timeline: ProjectTimeline = {
           absStart: 8,
           absEnd: 10,
           src: "../shared/riser.wav",
+          start: 2,
           file: "compositions/scene.html",
           playbackRate: 2,
           mediaStart: 1,
@@ -75,7 +76,14 @@ const timeline: ProjectTimeline = {
 };
 
 describe("film and file time", () => {
-  const placed: Placement = { start: 8, end: 10, mediaStart: 1, playbackRate: 2, volume: 1 };
+  const placed: Placement = {
+    start: 8,
+    end: 10,
+    dataStart: 8,
+    mediaStart: 1,
+    playbackRate: 2,
+    volume: 1,
+  };
 
   it("maps a file second to the film through the clip's start, in-point and rate, and back", () => {
     expect(filmTime(placed, 3)).toBe(9);
@@ -105,12 +113,13 @@ describe("filmTargets", () => {
     expect(fast!.window).toEqual({ from: 3, seconds: 2 });
   });
 
-  it("resolves a source against the file that declares the clip", () => {
+  it("resolves a source against the file that declares the clip, and keeps its local data-start", () => {
     const [fast] = filmTargets("/p", timeline, { by: "element", ref: "#fast" });
     expect(fast!.path).toBe("/p/shared/riser.wav");
     expect(fast!.placement).toEqual({
       start: 8,
       end: 10,
+      dataStart: 2,
       mediaStart: 1,
       playbackRate: 2,
       volume: 1,

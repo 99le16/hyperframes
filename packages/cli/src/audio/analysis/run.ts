@@ -48,7 +48,14 @@ export async function previewTarget(
     file,
     ref: null,
     kind: "file",
-    placement: { start: at, end: round(at + length), mediaStart, playbackRate: 1, volume: 1 },
+    placement: {
+      start: at,
+      end: round(at + length),
+      dataStart: at,
+      mediaStart,
+      playbackRate: 1,
+      volume: 1,
+    },
     window: { from: mediaStart, seconds: length },
   };
 }

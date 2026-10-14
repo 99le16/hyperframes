@@ -5,6 +5,8 @@ import type { ProjectTimeline, TimelineRow } from "../../timeline/describeProjec
 export interface Placement {
   start: number;
   end: number;
+  /** The element's own `data-start`: local to its composition, so it differs from `start` inside a sub-composition. */
+  dataStart: number;
   mediaStart: number;
   playbackRate: number;
   volume: number;
@@ -38,6 +40,7 @@ function placementOf(row: TimelineRow): Placement {
   return {
     start: row.absStart,
     end: row.absEnd,
+    dataStart: row.start,
     mediaStart: row.mediaStart ?? 0,
     playbackRate: row.playbackRate ?? 1,
     volume: row.volume ?? 1,
