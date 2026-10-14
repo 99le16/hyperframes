@@ -3119,7 +3119,7 @@ describe("initSandboxRuntimeModular", () => {
     const rootTimeline = createMockTimeline(10);
     const originalTotalTime = rootTimeline.totalTime;
     rootTimeline.totalTime = (time: number, suppressEvents?: boolean) => {
-      seekCalls.push({ time, suppressEvents });
+      if (time !== undefined) seekCalls.push({ time, suppressEvents });
       return originalTotalTime?.(time, suppressEvents);
     };
 
@@ -3155,7 +3155,7 @@ describe("initSandboxRuntimeModular", () => {
     const rootTimeline = createMockTimeline(10);
     const originalTotalTime = rootTimeline.totalTime;
     rootTimeline.totalTime = (time: number, suppressEvents?: boolean) => {
-      seekCalls.push({ time, suppressEvents });
+      if (time !== undefined) seekCalls.push({ time, suppressEvents });
       return originalTotalTime?.(time, suppressEvents);
     };
     Object.assign(rootTimeline, {

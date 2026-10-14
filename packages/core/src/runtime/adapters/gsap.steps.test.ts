@@ -549,6 +549,41 @@ describe("seekGsapTimeline", () => {
     expect(film.word.style.visibility).toBe("hidden");
   });
 
+  it("redraws a timeline parked at one time once, not on every seek", () => {
+    const film = hiddenAtZero();
+    const real = film.timeline;
+    let moves = 0;
+    const counted = {
+      ...real,
+      time: () => real.time(),
+      totalTime: (time?: number, suppressEvents?: boolean) => {
+        if (time === undefined) return real.totalTime!();
+        moves++;
+        return real.totalTime!(time, suppressEvents);
+      },
+      getChildren: real.getChildren!.bind(real),
+    } as RuntimeTimelineLike;
+    seekGsapTimeline(counted, 0, false);
+    const firstSeekMoves = moves;
+    seekGsapTimeline(counted, 0, false);
+    seekGsapTimeline(counted, 0, false);
+    expect(firstSeekMoves).toBeGreaterThan(1);
+    expect(moves - firstSeekMoves).toBe(2);
+  });
+
+  it("redraws again after the timeline is cleared and rebuilt", () => {
+    const film = hiddenAtZero();
+    seekGsapTimeline(film.timeline, 0, false);
+    const rebuilt = document.body.appendChild(document.createElement("span"));
+    const gsapTimeline = film.timeline as unknown as gsap.core.Timeline;
+    gsapTimeline
+      .clear()
+      .set(rebuilt, { visibility: "hidden" }, 0)
+      .set(rebuilt, { visibility: "visible" }, 0.5);
+    seekGsapTimeline(film.timeline, 0, false);
+    expect(rebuilt.style.visibility).toBe("hidden");
+  });
+
   it("fires a call at that time once across the next seeks", () => {
     const film = hiddenAtZero();
     seekGsapTimeline(film.timeline, 0, false);

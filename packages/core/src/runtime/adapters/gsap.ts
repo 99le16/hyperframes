@@ -49,6 +49,8 @@ export function rerenderGsapTimelineAt(
   }
 }
 
+const childrenAtLastInPlaceRedraw = new WeakMap<RuntimeTimelineLike, unknown[]>();
+
 export function seekGsapTimeline(
   timeline: RuntimeTimelineLike,
   t: number,
@@ -58,9 +60,15 @@ export function seekGsapTimeline(
     timeline.seek(t, suppressEvents);
     return false;
   }
-  const gsapSkipsRenderInPlace = timeline.time() === t;
+  const gsapSkipsRenderInPlace = Number(timeline.totalTime()) === t;
   timeline.totalTime(t, suppressEvents);
   if (!gsapSkipsRenderInPlace) return false;
+  const children = timeline.getChildren?.(false, true, true) ?? [];
+  const redrawn = childrenAtLastInPlaceRedraw.get(timeline);
+  const unchangedSinceRedraw =
+    redrawn?.length === children.length && children.every((child, i) => child === redrawn[i]);
+  if (unchangedSinceRedraw) return false;
+  childrenAtLastInPlaceRedraw.set(timeline, children);
   rerenderGsapTimelineAt(
     {
       totalTime: timeline.totalTime.bind(timeline),
