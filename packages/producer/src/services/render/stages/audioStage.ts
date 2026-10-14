@@ -140,6 +140,7 @@ export async function runAudioStage(input: AudioStageInput): Promise<AudioStageR
       throw encoderFailureError("Audio processing failed", {
         error: interrupted.detail,
         failureReason: "external_interruption",
+        audioFailures: audioResult.failures,
       });
     }
 

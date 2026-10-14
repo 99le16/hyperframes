@@ -74,6 +74,7 @@ import {
   errorBox,
 } from "../ui/format.js";
 import { warnIfWebmAlphaDropped } from "../utils/webmAlphaCheck.js";
+import { renderFailureDiagnostic } from "../ui/renderDiagnostic.js";
 import { renderProgress, renderMachineProgress } from "../ui/progress.js";
 import {
   trackRenderComplete,
@@ -1705,6 +1706,7 @@ function handleRenderError(
   job?: RenderJob,
 ): never {
   const message = normalizeErrorMessage(error);
+  renderFailureDiagnostic(job, error, options.quiet);
   trackRenderError({
     fps: fpsToNumber(options.fps),
     quality: options.quality,

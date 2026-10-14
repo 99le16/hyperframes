@@ -75,6 +75,20 @@ A render stops when the process that started it exits. To keep one running after
 its launcher exits, set `HYPERFRAMES_RENDER_DETACHED=1` and start it in its own
 process group, e.g. `bash -c 'set -m; HYPERFRAMES_RENDER_DETACHED=1 npx hyperframes render -o out.mp4 < /dev/null > render.log 2>&1 &'`.
 
+Piped, non-quiet renders emit a single `@hf-diagnostic ` JSON line when an audio
+failure reaches the CLI error handler. Version 1 has `operation: "render"` and
+at most 16 `audioFailures`: allowlisted stage, reason, owner, retryable, and
+optional subprocess exit code, signal, termination reason and OS code. It omits
+messages, stderr, source paths/URLs, element IDs and command arguments. Consumers
+must ignore unknown versions and fields. This is local CLI output; uploading it
+requires the caller's existing consent and privacy checks. Quiet mode (including
+batch JSON mode) emits no diagnostic line.
+
+This covers audio preparation and mix failures, including the typed external
+interruption path. Probe failures retain their existing stage/reason but do not
+gain subprocess evidence here; browser/FX failures remain classified as internal.
+Desktop ingestion and live report delivery are separate changes.
+
 ### `publish`
 
 Upload a project directory and get a hosted URL that keeps working after the CLI exits.
