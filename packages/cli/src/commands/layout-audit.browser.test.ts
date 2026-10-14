@@ -3019,6 +3019,17 @@ describe("layout-audit.browser occlusion", () => {
     expect(occluded).toMatchObject({ selector: "#headline", containerSelector: "#overlay" });
   });
 
+  it("still treats a radial cover after a clear stop as text occlusion", () => {
+    const occluded = auditOcclusionScene({
+      overlayStyle: {
+        backgroundImage: "radial-gradient(circle, #fff 1px, transparent 1px, #000 2px)",
+        backgroundSize: "400px 400px",
+      },
+      topmostId: "overlay",
+    }).find((issue) => issue.code === "text_occluded");
+    expect(occluded).toMatchObject({ selector: "#headline", containerSelector: "#overlay" });
+  });
+
   it("does not treat a sparse dot grid as an opaque cover", () => {
     const issues = auditOcclusionScene({
       overlayStyle: {

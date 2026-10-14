@@ -206,7 +206,7 @@ function quoteOf(quote: string, c: string): string {
 
 function quotedChar(quote: string, c: string): string {
   if (!quote || c === quote) return c;
-  return " ";
+  return " ".repeat(c.length);
 }
 
 function spliceIds(html: string, inserts: Insert[]): string {

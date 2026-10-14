@@ -881,7 +881,7 @@
   // Share of a radial dot's tile. A linear fill, or an opaque stop after a
   // transparent one, stays fully painted. A 1.6px dot on a 38px tile does not.
   function gradientStopCoverage(layer, backgroundSize) {
-    if (!/radial-gradient/i.test(layer)) return 1;
+    if (!/radial-gradient/i.test(layer) || namesAColor(layer)) return 1;
     const stops = [
       ...layer.matchAll(/(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|transparent)\s+([\d.]+)(px|%)/gi),
     ];
@@ -897,14 +897,28 @@
   }
 
   function leadingOpaqueRadius(stops, tile) {
-    let reach = 0;
-    let sawOpaque = false;
+    const walked = walkOpaquePrefix(stops, tile);
+    if (!walked || !walked.sawOpaque || !walked.sawTransparent) return null;
+    return walked.reach;
+  }
+
+  function walkOpaquePrefix(stops, tile) {
+    const state = { reach: 0, sawOpaque: false, sawTransparent: false };
     for (const stop of stops) {
-      if (stopAlpha(stop[1] || "") <= 0.6) return sawOpaque ? reach : null;
-      sawOpaque = true;
-      reach = Math.max(reach, stopLength(stop, tile));
+      if (!takeRadiusStop(state, stop, tile)) return null;
     }
-    return null;
+    return state;
+  }
+
+  function takeRadiusStop(state, stop, tile) {
+    if (stopAlpha(stop[1] || "") <= 0.6) {
+      state.sawTransparent = true;
+      return true;
+    }
+    if (state.sawTransparent) return false;
+    state.sawOpaque = true;
+    state.reach = Math.max(state.reach, stopLength(stop, tile));
+    return true;
   }
 
   function stopAlpha(color) {
@@ -965,7 +979,7 @@
 
   function namesAColor(known) {
     const words = known.replace(
-      /\b(?:to|top|bottom|left|right|center|circle|ellipse|closest-side|farthest-side|closest-corner|farthest-corner|from|deg|rad|turn|grad|transparent|repeating|linear|radial|conic)\b/gi,
+      /\b(?:to|top|bottom|left|right|center|circle|ellipse|closest-side|farthest-side|closest-corner|farthest-corner|from|deg|rad|turn|grad|transparent|repeating|linear|radial|conic|gradient)\b/gi,
       " ",
     );
     return /\b[a-z]{3,}\b/i.test(words);

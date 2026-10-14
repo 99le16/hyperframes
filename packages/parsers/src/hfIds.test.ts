@@ -61,6 +61,14 @@ describe("stampHfIdsInPlace keeps the source's own formatting", () => {
     expect(idOf(out, "path")).toMatch(/^hf-/);
   });
 
+  it("keeps an astral character from shifting the minted id", () => {
+    const html = `<div title='😀' data-hf-id=""><span>Hello</span></div>`;
+    const out = stampHfIdsInPlace(html);
+    expect(out).toContain(`title='😀' data-hf-id="`);
+    expect(out).not.toMatch(/data-hf-id=hf-/);
+    expect(ids(out)).toEqual(ids(ensureHfIds(html)));
+  });
+
   it("does not mint an id inside another attribute's quotes", () => {
     const html = `<div title=' data-hf-id=""' data-hf-id=""><p data-hf-id="">Hi</p></div>`;
     const out = stampHfIdsInPlace(html);
