@@ -49,13 +49,17 @@ export interface EnvironmentCheckOptions {
 }
 
 export function parseToolVersion(raw: string): string {
-  const m = raw.match(/(ffmpeg|ffprobe)\s+version\s+([\d][\d.\-\w]*)/i);
+  // Release-branch builds (BtbN and others) prefix the tag with "n": "ffmpeg version n8.0.1-66-...".
+  const m = raw.match(/(ffmpeg|ffprobe)\s+version\s+(n?\d[\d.\-\w]*)/i);
   return m ? `${m[1]} ${m[2]}` : raw.trim();
 }
 
-/** First `X.Y`-shaped number in a version banner (ffmpeg/ffprobe/Chrome all share this shape). */
+/**
+ * First `X.Y`-shaped number in a version banner (ffmpeg/ffprobe/Chrome all share this shape).
+ * Accepts the "n" tag prefix of release-branch ffmpeg builds; without it "n8.0.1" read as major 0.
+ */
 export function extractMajorVersion(raw: string): number | undefined {
-  const m = raw.match(/\b(\d+)\.\d+/);
+  const m = raw.match(/\bn?(\d+)\.\d+/);
   return m?.[1] ? Number(m[1]) : undefined;
 }
 
