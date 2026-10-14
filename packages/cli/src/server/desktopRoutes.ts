@@ -19,7 +19,10 @@ export function sameOriginPost(headers: {
   return origin === undefined || origin === `http://${host}`;
 }
 
-/** Edit with Framey's route: whether to show it, where to download, and whether the app takes the project. */
+/**
+ * Edit with Framey's route: whether to show it, where to download, whether the app takes the project, and whether it
+ * is installed yet (Studio asks again while someone installs it, then opens the project).
+ */
 export function mountDesktopRoutes(
   app: Hono,
   projectDir: string,
@@ -31,9 +34,15 @@ export function mountDesktopRoutes(
   } = {},
 ): void {
   const downloadUrl = desktopDownloadUrl(platform);
-  app.get("/api/open-in-desktop", (c) =>
-    c.json({ available: downloadUrl !== null || installed(), handoff: ready, downloadUrl }),
-  );
+  app.get("/api/open-in-desktop", (c) => {
+    const isInstalled = installed();
+    return c.json({
+      available: downloadUrl !== null || isInstalled,
+      handoff: ready,
+      downloadUrl,
+      installed: isInstalled,
+    });
+  });
   app.post("/api/open-in-desktop", (c) => {
     const allowed = sameOriginPost({
       host: c.req.header("host"),
