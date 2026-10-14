@@ -356,26 +356,36 @@ export async function settled(ctx, timeout = 15_000) {
   return now.m;
 }
 
-/** Ready once Studio's own seek tool reports the composition and the playhead landed. */
+const callTool = (page, name, args) =>
+  page.evaluate((n, a) => window.__editBench.call(n, a), name, args).catch(String);
+
+/**
+ * Seeks to the playhead once Studio reports the composition's duration, and returns the landed seek. A seek
+ * before that is replayed by the runtime's timeline bind from near 0, which skips the first keyframe of a
+ * tween starting at the playhead: the preview then holds a box no fresh seek or render shows.
+ */
 // fallow-ignore-next-line complexity
-export async function openStudio(ctx) {
-  ctx.handles = null;
-  await ctx.page.waitForFunction(() => window.__editBench?.has("studio_seek"), { timeout: 90_000 });
-  let seek = null;
+export async function seekBound(ctx) {
   for (const deadline = Date.now() + 30_000; Date.now() < deadline; await sleep(50)) {
-    seek = await ctx.page
-      .evaluate((time) => window.__editBench.call("studio_seek", { time }), ctx.playhead)
-      .catch(String);
+    const look = await callTool(ctx.page, "studio_look", {});
+    if (!(look?.ok && look.duration > 0)) continue;
+    const seek = await callTool(ctx.page, "studio_seek", { time: ctx.playhead });
     if (
       seek?.ok &&
       seek.duration > 0 &&
       seek.playhead === ctx.playhead &&
       (await findTarget(ctx.page))
     )
-      break;
-    seek = null;
+      return seek;
   }
-  if (!seek) throw new Error("studio never reported a seekable composition");
+  return null;
+}
+
+/** Ready once Studio's own seek tool reports the composition and the playhead landed. */
+export async function openStudio(ctx) {
+  ctx.handles = null;
+  await ctx.page.waitForFunction(() => window.__editBench?.has("studio_seek"), { timeout: 90_000 });
+  if (!(await seekBound(ctx))) throw new Error("studio never reported a seekable composition");
   return settled(ctx);
 }
 

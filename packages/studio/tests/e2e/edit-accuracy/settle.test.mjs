@@ -2,7 +2,14 @@ import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { STILL_FRAMES, heldStill, networkBusy, swapPending, unsettledBy } from "./case.mjs";
+import {
+  STILL_FRAMES,
+  heldStill,
+  networkBusy,
+  seekBound,
+  swapPending,
+  unsettledBy,
+} from "./case.mjs";
 import { heldSize } from "./sequences.mjs";
 
 describe("settling on the shown preview", () => {
@@ -116,6 +123,30 @@ describe("settling on the page's network", () => {
       expect(networkBusy(ctx).busy).toBe(false);
     } finally {
       rmSync(dir, { recursive: true });
+    }
+  });
+});
+
+describe("seeking to the playhead after a reload", () => {
+  it("seeks only once Studio reports the composition's duration, so the timeline bind cannot replay it", async () => {
+    // Studio before its timeline bind: a seek still moves the playhead, but the duration reads 0.
+    const calls = [];
+    let looks = 0;
+    const studio = {
+      studio_look: () => ({ ok: true, duration: ++looks > 2 ? 4 : 0 }),
+      studio_seek: ({ time }) => ({ ok: true, playhead: time, duration: looks > 2 ? 4 : 0 }),
+    };
+    globalThis.window = {
+      __editBench: { call: (name, args) => (calls.push(name), studio[name](args)) },
+    };
+    const host = { evaluate: async () => true, boundingBox: async () => ({ width: 1, height: 1 }) };
+    const preview = { url: () => "/preview", $: async () => ({}), frameElement: async () => host };
+    const page = { evaluate: async (fn, ...args) => fn(...args), frames: () => [preview] };
+    try {
+      expect(await seekBound({ page, playhead: 2 })).toMatchObject({ playhead: 2, duration: 4 });
+      expect(calls).toEqual(["studio_look", "studio_look", "studio_look", "studio_seek"]);
+    } finally {
+      delete globalThis.window;
     }
   });
 });
