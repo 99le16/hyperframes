@@ -128,6 +128,7 @@ const PROJECT_FILES = new Set([
   "frame.md",
   "STORYBOARD.md",
   "SCRIPT.md",
+  "audio_meta.json",
   "BRIEF.md",
   "boards/storyboard.html",
   "design.md",
