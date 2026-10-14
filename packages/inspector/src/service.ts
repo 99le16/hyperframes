@@ -326,3 +326,5 @@ export class Inspector {
     });
   }
 }
+
+export type { InspectRequest, TimelineRequest };

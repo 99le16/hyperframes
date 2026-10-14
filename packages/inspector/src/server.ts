@@ -16,7 +16,7 @@ const server = createServer(async (req, res) => {
     res.end(
       JSON.stringify({
         project: inspector.project,
-        capability: "inspect_components",
+        capability: "inspection",
         stats: inspector.stats,
       }),
     );

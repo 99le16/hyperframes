@@ -2,7 +2,7 @@
 
 Recover original HTML/CSS/GSAP context for **known elements before an edit**. This is not a video check, screenshot, diff, or affected-component verifier. It combines the I002 runtime/compiler provenance approach with the I003 HF-owned service boundary. The agent adapter holds no DOM or animation state.
 
-This source-only experimental package is private. It does not modify the shared installation or register itself in a harness. Base: HF 0.8.127, commit `b3d2b82fe`.
+Published as `@hyperframes/inspector`. It does not modify the shared installation or register itself in a harness.
 
 ## Start
 
@@ -80,6 +80,16 @@ Code blocks are atomic. `omitted`, `omittedCount`, and `nextOffset` describe mis
 `maxBytes` can be raised explicitly (2,048–256,000). A block larger than the budget is not cut in half: request that ID with a larger budget or read its file/range. Pagination can therefore remain at the same offset until the budget increases. Old-generation continuations are rejected.
 
 Full runtime evidence is only available by an explicit HTTP request with `debug: true`; it is deliberately not part of the default request or its output budget.
+
+## Timeline
+
+`POST /timeline` answers which animations are scheduled when, from the same browser, page and generation as `/inspect`. It never seeks, renders or edits files.
+
+```json
+{ "component": { "selector": "#title" }, "boundary": 7.9 }
+```
+
+`component` is optional and resolves like an `/inspect` target; omit it for every registered HF timeline. Give at most one of `at`, `range: [start, end]` or `boundary`, in global seconds; omit all three for the schedule overview. Results are short text grouped by component, with event times, targets, properties and source locations; `generation` and `offset` page through them. Coverage is registered DOM-target GSAP animations and explicit HF items only; anything outside that, or past the expansion limits, is reported as incomplete coverage rather than guessed.
 
 ## Lifecycle and overhead
 

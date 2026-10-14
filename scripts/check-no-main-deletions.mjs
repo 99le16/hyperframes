@@ -57,6 +57,10 @@ export const ALLOWED_DELETIONS = new Map([
   ["packages/inspector/src/tools.ts", INSPECTOR_TOOLS_REASON],
   ["packages/inspector/tests/outputSchemas.ts", INSPECTOR_TOOLS_REASON],
   [
+    "packages/inspector/INSPECT-TIMELINE.md",
+    "described the deleted MCP tool; the README's Timeline section covers POST /timeline",
+  ],
+  [
     "docs/public/catalog/vendor/BufferGeometryUtils.json",
     "bundled into three-modules.json so catalog scripts run under the docs host policy",
   ],
