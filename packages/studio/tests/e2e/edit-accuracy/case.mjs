@@ -276,11 +276,17 @@ const unannounced = ({ dir, files, net }) =>
     (f) => statSync(join(dir, f)).mtimeMs > Math.max(net.since, net.announced.get(f) ?? 0),
   );
 
-/** Whether the page is waiting on the network; a request whose frame is gone never finishes. */
+/**
+ * Whether the page is waiting on the network. A request whose frame is gone never finishes, so it is dropped,
+ * and counted as activity like a finished one: a window that began while it was in flight then restarts.
+ */
 // fallow-ignore-next-line complexity
 export function networkBusy(ctx) {
   for (const request of ctx.net.inflight)
-    if (request.frame()?.detached !== false) ctx.net.inflight.delete(request);
+    if (request.frame()?.detached !== false) {
+      ctx.net.inflight.delete(request);
+      ctx.net.activity++;
+    }
   return { busy: ctx.net.inflight.size > 0 || unannounced(ctx), activity: ctx.net.activity };
 }
 

@@ -74,6 +74,18 @@ describe("settling on the page's network", () => {
     expect(heldStill(read(false, 0), 0, since - 500, 500)).toBe(true);
   });
 
+  it("restarts a window that began busy once its request's frame is gone", () => {
+    const request = { frame: () => ({ detached: false }) };
+    const net = { inflight: new Set([request]), activity: 0, announced: new Map(), since: Date.now() };
+    const ctx = { dir: tmpdir(), files: [], net };
+    const start = { ...read(false, 0), net: networkBusy(ctx) };
+    expect(start.net.busy).toBe(true);
+    request.frame = () => null;
+    const now = { ...read(false, 0), net: networkBusy(ctx) };
+    expect(now.net.busy).toBe(false);
+    expect(unsettledBy(start, now)).toBe(true);
+  });
+
   it("waits for requests in live frames and for the server to announce each written file", () => {
     const dir = mkdtempSync(join(tmpdir(), "edit-bench-net-"));
     try {
@@ -89,7 +101,7 @@ describe("settling on the page's network", () => {
         since: since * 1000,
       };
       const ctx = { dir, files: ["index.html"], net };
-      expect(networkBusy(ctx)).toEqual({ busy: true, activity: 7 });
+      expect(networkBusy(ctx)).toEqual({ busy: true, activity: 9 });
       expect([...net.inflight]).toEqual([live]);
       net.inflight.clear();
       expect(networkBusy(ctx).busy).toBe(false);
