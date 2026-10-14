@@ -48,7 +48,14 @@ const CATALOG_FONT_REASON =
 const DESIGN_NOTES_REASON =
   "plan and contract notes are working notes kept out of the repo; docs/contracts/ and docs/plans/ are gitignored";
 
+const INSPECTOR_TOOLS_REASON =
+  "the inspector ships the capability, not agent tools; each harness defines its own tool names, descriptions and schemas";
+
 export const ALLOWED_DELETIONS = new Map([
+  ["packages/inspector/src/mcp.ts", INSPECTOR_TOOLS_REASON],
+  ["packages/inspector/src/outputSchemas.ts", INSPECTOR_TOOLS_REASON],
+  ["packages/inspector/src/tools.ts", INSPECTOR_TOOLS_REASON],
+  ["packages/inspector/tests/outputSchemas.ts", INSPECTOR_TOOLS_REASON],
   [
     "docs/public/catalog/vendor/BufferGeometryUtils.json",
     "bundled into three-modules.json so catalog scripts run under the docs host policy",
