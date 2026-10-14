@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ensureHfIds, mintHfId, walkCompositionDescendants } from "./hfIds.js";
+import { ensureHfIds, mintHfId, stampHfIdsInPlace, walkCompositionDescendants } from "./hfIds.js";
 import { parseHTML } from "linkedom";
 import { assignHfIds } from "./hfIdAssignment.js";
 
@@ -40,6 +40,25 @@ describe("ensureHfIds fragment detection", () => {
     expect(out).toContain("<html>");
     expect(idOf(out, "#title")).toMatch(/^hf-[a-z0-9]{4}$/);
     expect(ensureHfIds(out)).toBe(out);
+  });
+});
+
+describe("stampHfIdsInPlace keeps the source's own formatting", () => {
+  it("only inserts ids into a composition written without whitespace", () => {
+    const html =
+      '<template id="s-template"><div data-composition-id="s" data-start="0" data-duration="4"><style>#t{color:red}</style><img src="a.png"/><input disabled><p class=\'t\' id=t>Hi<br></p></div></template>';
+    const out = stampHfIdsInPlace(html);
+    expect(out.replace(/ data-hf-id="hf-[a-z0-9]{4}"/g, "")).toBe(html);
+    expect(ids(out.replace(/<\/?template[^>]*>/g, ""))).toHaveLength(5);
+    expect(stampHfIdsInPlace(out)).toBe(out);
+  });
+
+  it("only inserts ids into a full document with comments, scripts and SVG", () => {
+    const html = `<!DOCTYPE html>\n<html>\n<head><meta charset="UTF-8"><script>if(a<b){x="<div>"}</script></head>\n<body>\n  <!-- <span> -->\n  <div id="root" data-composition-id="main"><svg viewBox="0 0 10 10"><path d="M0 0"/></svg></div>\n</body>\n</html>\n`;
+    const out = stampHfIdsInPlace(html);
+    expect(out.replace(/ data-hf-id="hf-[a-z0-9]{4}"/g, "")).toBe(html);
+    expect(ids(out)).toEqual(ids(ensureHfIds(html)));
+    expect(idOf(out, "path")).toMatch(/^hf-/);
   });
 });
 
