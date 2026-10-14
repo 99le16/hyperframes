@@ -200,10 +200,7 @@ export function desktopInstalled({
   return DESKTOP_BUNDLE_IDS.some(spotlight);
 }
 
-/**
- * Where this project goes next in the desktop app: open it there, or download the app first. `command` is the
- * `hyperframes open` that hands it over, null where the app cannot take a project yet.
- */
+/** Open the project in the app, or download the app first; `command` is null where the app takes no project yet. */
 export type DesktopGuide =
   | { action: "open"; command: string; downloadUrl: null }
   | { action: "download"; command: string | null; downloadUrl: string };
@@ -215,7 +212,6 @@ type GuideOptions = {
   platform?: NodeJS.Platform;
 };
 
-/** Null inside the app, or with nothing here to open or download. */
 export function desktopGuide(
   dir: string,
   {
@@ -244,15 +240,10 @@ export const desktopHintFor = (guide: DesktopGuide): string =>
     ? `Keep editing by chatting with Framey in the desktop app: ${guide.command}`
     : downloadHint(guide.downloadUrl);
 
-/**
- * What the agent running the CLI should do with the guide. The person rarely reads the agent's terminal, so the app
- * reaches them only when the agent says it in the conversation.
- */
 export function desktopAgentNote(
   guide: DesktopGuide,
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  // Only Claude Code, Codex and Grok leave a conversation the app can pick up.
   const conversation = agentSession(env) ? " with this conversation" : "";
   if (guide.action === "open")
     return (
@@ -268,7 +259,6 @@ export function desktopAgentNote(
   );
 }
 
-/** The guide as JSON payloads carry it, with the agent's note; null where render and preview print no app line. */
 export type DesktopPayload = DesktopGuide & { agentNote: string };
 
 export function desktopPayload(dir: string, options: GuideOptions = {}): DesktopPayload | null {

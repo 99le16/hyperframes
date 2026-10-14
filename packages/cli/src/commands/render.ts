@@ -1965,7 +1965,6 @@ function printRenderComplete(input: {
   const guide = input.desktopHint ? desktopGuide(input.projectDir) : null;
   if (!guide) return;
   console.log("   " + c.dim(desktopHintFor(guide)));
-  // Under an agent the person reads the agent's reply, not this terminal: the agent has to carry the app over.
   if (detectAgentRuntime() !== null) console.log("   " + desktopAgentNote(guide));
 }
 

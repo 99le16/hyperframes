@@ -1308,7 +1308,6 @@ function printStudioSummary(
   const guide = desktopGuide(projectDir);
   if (guide) {
     console.log(`  ${c.dim("Desktop")}   ${desktopHintFor(guide)}`);
-    // The person reads the agent's reply, not this terminal: under an agent, the agent carries the app over.
     if (detectAgentRuntime() !== null)
       console.log(`  ${c.dim("Agents")}    ${desktopAgentNote(guide)}`);
   }

@@ -15,7 +15,6 @@ export interface PreviewLifecycleSession {
   serverUrl: string;
   studioUrl: string;
   ready: boolean;
-  /** Where this project goes next in the desktop app, with what the agent should tell the person; null inside it. */
   desktop?: DesktopPayload | null;
   logPath?: string;
 }
