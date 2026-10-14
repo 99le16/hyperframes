@@ -67,58 +67,36 @@ export function detectWsl(host: WslHostFacts = realHost): boolean {
 
 const RENDER_NODE = "/dev/dri/renderD128";
 
-export type FullChromeRoute =
-  | { state: "missing" }
-  | { state: "no-gpu" | "probe-error"; path: string };
-
 const NATIVE_WINDOWS =
   "render from native Windows (project copied to a Windows drive, run from PowerShell), " +
   "where Chrome uses the GPU through Direct3D.";
-
-function routeToGpu(fullChrome: FullChromeRoute): string[] {
-  const viaFullChrome =
-    fullChrome.state === "missing"
-      ? [
-          "  Under WSL, Chrome's headless shell often cannot reach the GPU while full Chrome can. " +
-            "Install full Chrome with `npx @puppeteer/browsers install chrome@stable --path " +
-            "~/.cache/puppeteer` and HyperFrames will try it when the headless shell finds no GPU " +
-            "(or point HYPERFRAMES_BROWSER_PATH at a full Chrome).",
-        ]
-      : fullChrome.state === "no-gpu"
-        ? [`  Full Chrome (${fullChrome.path}) found no hardware GPU either.`]
-        : [`  Full Chrome (${fullChrome.path}) could not finish its GPU check either.`];
-  return [...viaFullChrome, `  Or ${NATIVE_WINDOWS}`];
-}
 
 /**
  * Indented lines saying what we checked on the WSL GPU path and what to try,
  * or null outside WSL. Says nothing about the render mode: callers own that.
  */
-export function describeWslGpuAccess(
-  host: WslHostFacts = realHost,
-  fullChrome: FullChromeRoute = { state: "missing" },
-): string[] | null {
+export function describeWslGpuAccess(host: WslHostFacts = realHost): string[] | null {
   if (!detectWsl(host)) return null;
   const access = host.renderNodeAccess(RENDER_NODE);
   if (access.state === "denied" && !access.userInGroup) {
     return [
       `  Your Linux user cannot read and write ${RENDER_NODE} and is not in its group ` +
         `("${access.group}"), which can stop Mesa from reaching the GPU.`,
-      `  First run \`sudo usermod -aG ${access.group} $USER\`, then \`wsl --shutdown\` from ` +
-        "Windows and reopen WSL. On its own that may not be enough:",
-      ...routeToGpu(fullChrome),
+      `  Fix: run \`sudo usermod -aG ${access.group} $USER\`, then \`wsl --shutdown\` from ` +
+        "Windows, reopen WSL and render again.",
+      `  Or ${NATIVE_WINDOWS}`,
     ];
   }
   if (access.state === "denied") {
     return [
       `  Your Linux user is in the "${access.group}" group but still cannot read and write ` +
         `${RENDER_NODE}; check its permissions with \`ls -l ${RENDER_NODE}\`.`,
-      ...routeToGpu(fullChrome),
+      `  Or ${NATIVE_WINDOWS}`,
     ];
   }
   const seen = access.state === "missing" ? "does not exist" : "is readable and writable";
   return [
     `  ${RENDER_NODE} ${seen}, so file permissions are not the cause.`,
-    ...routeToGpu(fullChrome),
+    `  To use the GPU, ${NATIVE_WINDOWS}`,
   ];
 }

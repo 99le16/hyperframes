@@ -1163,6 +1163,10 @@ export const ALLOWED_DELETIONS = new Map([
   ["docs/contracts/2026-10-02-thumbnail-document-lifetime.html", DESIGN_NOTES_REASON],
   ["docs/contracts/2026-10-05-transcribe-language-progress.html", DESIGN_NOTES_REASON],
   ["docs/plans/2026-09-26-image-thumbnails.md", DESIGN_NOTES_REASON],
+  [
+    "packages/engine/src/services/frameCapture-wslFullChrome.test.ts",
+    "tests the WSL full-Chrome GPU fallback, replaced by the probe without WAYLAND_DISPLAY (frameCapture-wslWayland.test.ts)",
+  ],
 ]);
 
 export function parseBase(argv, fallback = "origin/main") {

@@ -249,18 +249,6 @@ sudo usermod -aG render $USER
 wsl --shutdown
 ```
 
-That alone may not be enough: on some drivers Chrome's headless shell, which
-HyperFrames installs, cannot reach the GPU under WSL while full Chrome can.
-Install full Chrome once; when the headless shell finds no GPU, HyperFrames tries
-it and renders with it if it reaches the GPU:
-
-```bash
-npx @puppeteer/browsers install chrome@stable --path ~/.cache/puppeteer
-```
-
-The log then shows `browserGpuMode probe → hardware (full Chrome: ...)`. To pick a
-full Chrome yourself, set `HYPERFRAMES_BROWSER_PATH` to its path.
-
 If the GPU is still not used, render from Windows instead. Copy the project to
 a Windows drive (for example `C:\Users\you\renders\my-video`) and run the same
 command from PowerShell, where Chrome uses the graphics card through Direct3D:

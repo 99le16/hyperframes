@@ -15,12 +15,7 @@ import { homedir } from "os";
 import { chromeMajorCeiling, exceedsChromeCeiling } from "./chromeHostCeiling.js";
 import { DEFAULT_CONFIG, type EngineConfig } from "../config.js";
 import { getSystemTotalMb, LOW_MEMORY_TOTAL_MB_THRESHOLD } from "./systemMemory.js";
-import {
-  describeWslGpuAccess,
-  detectWsl,
-  type FullChromeRoute,
-  type WslHostFacts,
-} from "./wslHost.js";
+import { describeWslGpuAccess, detectWsl, type WslHostFacts } from "./wslHost.js";
 import {
   BrowserLeasePool,
   type BrowserLaunchFingerprint,
@@ -90,8 +85,6 @@ interface GpuProbeOptions {
   platform?: NodeJS.Platform;
   probeLifecycle?: GpuProbeLifecycle;
   wslHost?: WslHostFacts;
-  /** Finds full Chrome for the WSL fallback; tests pass a fake. */
-  findFullChrome?: () => string | undefined;
 }
 
 const GPU_PROBE_TIMEOUT_MS = 15_000;
@@ -103,6 +96,7 @@ async function probeHardwareWebGlInfo(
     browserTimeout: number;
     executablePath: string | undefined;
     probeLifecycle?: GpuProbeLifecycle;
+    env?: NodeJS.ProcessEnv;
   },
 ): Promise<WebGlProbeInfo> {
   let probeBrowser: Browser | undefined;
@@ -113,6 +107,7 @@ async function probeHardwareWebGlInfo(
       args: options.args,
       defaultViewport: { width: 64, height: 64 },
       executablePath: options.executablePath,
+      env: options.env,
       timeout: options.browserTimeout,
       waitForInitialPage: false,
     };
@@ -545,8 +540,8 @@ interface GpuProbeOutcome {
   cause?: "no-gpu" | "probe-error";
   /** Under WSL, what we checked on its GPU path (see describeWslGpuAccess). */
   wslAccess?: string[];
-  /** Under WSL, the full Chrome that reached the GPU after the headless shell did not. */
-  browserPath?: string;
+  /** Under WSL, Chrome reached the GPU only without WSLg's WAYLAND_DISPLAY. */
+  withoutWaylandDisplay?: boolean;
 }
 
 /**
@@ -604,7 +599,6 @@ function formatProbeFailure(err: unknown): string {
 }
 
 async function probeAutoBrowserGpuMode(options: GpuProbeOptions): Promise<GpuProbeOutcome> {
-  const executablePath = options.chromePath ?? resolveHeadlessShellPath({});
   const ppt = await getPuppeteerOrNull();
 
   if (ppt === null) {
@@ -612,44 +606,30 @@ async function probeAutoBrowserGpuMode(options: GpuProbeOptions): Promise<GpuPro
     return { mode: "software", cause: "probe-error" };
   }
 
-  const probed = await probeWebGlMode(ppt, executablePath, options);
-  if (probed.mode === "hardware" || !detectWsl(options.wslHost)) return probed;
-  return probeWslFullChrome(ppt, executablePath, options, probed);
-}
-
-// heygen-com/hyperframes#5548: under WSL, chrome-headless-shell can fail EGL
-// setup on Mesa's D3D12 driver while full Chrome (--headless=new) gets the GPU.
-async function probeWslFullChrome(
-  ppt: PuppeteerNode,
-  shellPath: string | undefined,
-  options: GpuProbeOptions,
-  shellOutcome: GpuProbeOutcome,
-): Promise<GpuProbeOutcome> {
-  const fullChrome = (options.findFullChrome ?? resolveFullChromePath)();
-  let route: FullChromeRoute = { state: "missing" };
-  if (fullChrome) {
-    const viaFullChrome =
-      fullChrome === shellPath
-        ? shellOutcome
-        : await probeWebGlMode(ppt, fullChrome, options, "full Chrome: ");
-    if (viaFullChrome.mode === "hardware") return { mode: "hardware", browserPath: fullChrome };
-    route = { state: viaFullChrome.cause ?? "no-gpu", path: fullChrome };
+  const probed = await probeWebGlMode(ppt, options);
+  if (probed.mode === "hardware") return probed;
+  // Chrome 150+ uses WSLg Wayland EGL, which lacks offscreen configs: https://issues.chromium.org/issues/567222741
+  if (detectWsl(options.wslHost) && process.env.WAYLAND_DISPLAY !== undefined) {
+    const env = envWithoutWaylandDisplay();
+    const retried = await probeWebGlMode(ppt, options, env, "without WAYLAND_DISPLAY: ");
+    if (retried.mode === "hardware") return { mode: "hardware", withoutWaylandDisplay: true };
   }
-  return { ...shellOutcome, wslAccess: describeWslGpuAccess(options.wslHost, route) ?? undefined };
+  return { ...probed, ...wslAccess(options) };
 }
 
 async function probeWebGlMode(
   ppt: PuppeteerNode,
-  executablePath: string | undefined,
   options: GpuProbeOptions,
+  env?: NodeJS.ProcessEnv,
   label = "",
 ): Promise<GpuProbeOutcome> {
   try {
     const info = await probeHardwareWebGlInfo(ppt, {
       args: getHardwareGpuProbeArgs(options.platform ?? process.platform),
       browserTimeout: options.browserTimeout ?? DEFAULT_CONFIG.browserTimeout,
-      executablePath,
+      executablePath: options.chromePath ?? resolveHeadlessShellPath({}),
       probeLifecycle: options.probeLifecycle,
+      env,
     });
     const resolved = resolveWebGlProbeMode(info);
     logResolvedBrowserGpuMode(resolved, label + describeWebGlProbe(info));
@@ -660,16 +640,22 @@ async function probeWebGlMode(
   }
 }
 
-/**
- * The browser a render launches for `resolvedMode`: under WSL, the full Chrome
- * the GPU probe fell back to; otherwise the headless shell.
- */
-export async function resolveCaptureBrowserPath(
+function envWithoutWaylandDisplay(): NodeJS.ProcessEnv {
+  const { WAYLAND_DISPLAY: _wslg, ...env } = process.env;
+  return env;
+}
+
+/** True when a `resolvedMode` render must launch without WAYLAND_DISPLAY to reach the GPU. */
+export async function captureWithoutWaylandDisplay(
   resolvedMode: "software" | "hardware",
-  config?: Partial<Pick<EngineConfig, "chromePath">>,
-): Promise<string | undefined> {
-  const probed = resolvedMode === "hardware" ? await _autoBrowserGpuModeCache : undefined;
-  return probed?.browserPath ?? resolveHeadlessShellPath(config);
+): Promise<boolean> {
+  if (resolvedMode !== "hardware") return false;
+  return (await _autoBrowserGpuModeCache)?.withoutWaylandDisplay === true;
+}
+
+function wslAccess(options: GpuProbeOptions): Pick<GpuProbeOutcome, "wslAccess"> {
+  const lines = describeWslGpuAccess(options.wslHost);
+  return lines ? { wslAccess: lines } : {};
 }
 
 /**
@@ -809,11 +795,13 @@ function logResolvedBrowserGpuMode(resolved: "hardware" | "software", reason: st
   console.error(`[hyperframes] browserGpuMode probe → ${resolved} (${reason})`);
 }
 
+type BrowserLaunchConfig = Partial<
+  Pick<EngineConfig, "browserTimeout" | "protocolTimeout" | "chromePath" | "forceScreenshot">
+> & { withoutWaylandDisplay?: boolean };
+
 function createBrowserLaunchFingerprint(
   chromeArgs: string[],
-  config?: Partial<
-    Pick<EngineConfig, "browserTimeout" | "protocolTimeout" | "chromePath" | "forceScreenshot">
-  >,
+  config?: BrowserLaunchConfig,
 ): BrowserLaunchFingerprint {
   const launchConfig = {
     browserTimeout: DEFAULT_CONFIG.browserTimeout,
@@ -838,6 +826,7 @@ function createBrowserLaunchFingerprint(
   return {
     args: chromeArgs,
     executablePath: headlessShell,
+    withoutWaylandDisplay: launchConfig.withoutWaylandDisplay === true,
     browserTimeoutMs: launchConfig.browserTimeout,
     protocolTimeoutMs: launchConfig.protocolTimeout,
     requestedCaptureMode,
@@ -849,12 +838,7 @@ export const _createBrowserLaunchFingerprintForTests = createBrowserLaunchFinger
 
 export async function acquireBrowser(
   chromeArgs: string[],
-  config?: Partial<
-    Pick<
-      EngineConfig,
-      "browserTimeout" | "protocolTimeout" | "enableBrowserPool" | "chromePath" | "forceScreenshot"
-    >
-  >,
+  config?: BrowserLaunchConfig & Partial<Pick<EngineConfig, "enableBrowserPool">>,
 ): Promise<AcquiredBrowser> {
   const enablePool = config?.enableBrowserPool ?? DEFAULT_CONFIG.enableBrowserPool;
   return browserLeasePool.acquire(createBrowserLaunchFingerprint(chromeArgs, config), enablePool);
@@ -865,6 +849,7 @@ async function launchBrowser(
   fingerprint: Readonly<BrowserLaunchFingerprint>,
 ): Promise<{ browser: Browser; captureMode: CaptureMode }> {
   const ppt = await getPuppeteer();
+  const env = fingerprint.withoutWaylandDisplay ? envWithoutWaylandDisplay() : undefined;
   let captureMode = fingerprint.requestedCaptureMode;
   let browser: Browser | undefined;
   try {
@@ -874,6 +859,7 @@ async function launchBrowser(
       args: [...fingerprint.args],
       defaultViewport: null,
       executablePath: fingerprint.executablePath,
+      env,
       timeout: fingerprint.browserTimeoutMs,
       protocolTimeout: fingerprint.protocolTimeoutMs,
     });
@@ -906,6 +892,7 @@ async function launchBrowser(
           args: stripBeginFrameFlags([...fingerprint.args]),
           defaultViewport: null,
           executablePath: fingerprint.executablePath,
+          env,
           timeout: fingerprint.browserTimeoutMs,
           protocolTimeout: fingerprint.protocolTimeoutMs,
         });

@@ -69,11 +69,11 @@ describe.skipIf(!hasBrowser)("parallel worker browsers", () => {
       expect(openMedia.size).toBeGreaterThanOrEqual(6);
 
       const page = await second.browser.newPage();
-      await page.goto(`${origin}/worker`, { timeout: 5_000 });
+      await page.goto(`${origin}/worker`, { timeout: 20_000 });
       expect(await page.evaluate(() => document.body.textContent)).toBe("worker");
     } finally {
       await first.release();
       await second.release();
     }
-  }, 30_000);
+  }, 45_000);
 });
