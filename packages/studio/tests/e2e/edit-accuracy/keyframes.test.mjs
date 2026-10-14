@@ -81,9 +81,16 @@ describe("strayCss", () => {
 describe("the keyframed grid", () => {
   const grid = buildGrid("keyframes");
 
-  it("crosses 6 variants, 5 gestures and 3 playheads each with rotation and zoom, at the root", () => {
-    expect(grid).toHaveLength(6 * 5 * 3 * 2 * 2);
-    expect(new Set(grid.map((c) => c.nesting))).toEqual(new Set(["root"]));
+  it("crosses 6 variants, 5 gestures and 3 playheads each with rotation and zoom at the root, plus a nested resize per variant", () => {
+    expect(grid).toHaveLength(6 * 5 * 3 * 2 * 2 + 6);
+    const nested = grid.filter((c) => c.nesting === "nested");
+    expect(nested.map((c) => c.id)).toContain("resize-scale-px-r0-nested-z100-on");
+    expect(nested).toHaveLength(6);
+    expect(
+      nested.every(
+        (c) => c.gesture === "resize" && c.at === "on" && c.zoom === 100 && c.rotation === 0,
+      ),
+    ).toBe(true);
     expect(new Set(grid.map((c) => c.id)).size).toBe(grid.length);
     expect(new Set(grid.map((c) => c.gsap))).toEqual(
       new Set(["size", "scale", "spin", "keys", "fromto", "late"]),
