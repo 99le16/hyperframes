@@ -30,6 +30,17 @@ await Promise.all([
     entryPoints: [at("./src/server.ts")],
     outfile: at("./dist/server.js"),
     banner: { js: `#!/usr/bin/env node\n${banner.js}` },
+    plugins: [
+      {
+        name: "external-service",
+        setup(build) {
+          build.onResolve({ filter: /^\.\/service$/ }, () => ({
+            path: "./service.js",
+            external: true,
+          }));
+        },
+      },
+    ],
   }),
   build({
     entryPoints: [at("./src/liveRuntime.ts")],
