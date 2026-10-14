@@ -1073,8 +1073,8 @@ export const compositionRules: Array<(ctx: LintContext) => HyperframeLintFinding
   // is in the DOM, laid out, and invisible. The message therefore names the CAUSE
   // and the remedy rather than implying the tool failed.
   //
-  // THE CONDITION IS LOAD-BEARING AND THE MESSAGE STATES IT. The element is only
-  // dropped when its nearest ancestor stacking context is the composition root,
+  // The element is only dropped when its nearest ancestor stacking context is
+  // the composition root,
   // which is the shape #4366 reports. Give any ancestor a stacking context and it
   // renders correctly: measured at 0.8.72 on ONE frame carrying the same
   // `z-index: -1` band under six triggers -- isolation:isolate, transform,

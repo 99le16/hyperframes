@@ -66,8 +66,6 @@ type GsapWindow = {
 };
 
 const SCENE_BOUNDARY_EPSILON_SECONDS = 0.05;
-// 2.35 + 0.22 evaluates to 2.5700000000000003, so a tween that ends where the
-// next one starts is a few ULPs of overlap. A millisecond is still a touch.
 const TWEEN_ENDPOINT_EPSILON_SECONDS = 0.001;
 
 // Sentinel the GSAP parser assigns to a tween whose target it cannot statically
@@ -183,10 +181,6 @@ function stringValue(value: string | number | undefined): string | null {
   return null;
 }
 
-// Two fromTo calls fight only when they both immediateRender the same property.
-// A position tween beside a scale tween has nothing to overwrite, and telling
-// the author to set immediateRender:false on the scale tween shows the element
-// before the pop.
 function fromToGroupSharesFromProperty(windows: GsapWindow[]): boolean {
   if (windows.some((win) => win.fromPropertyValues === undefined)) return true;
   const counts = new Map<string, number>();
