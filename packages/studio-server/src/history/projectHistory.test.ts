@@ -842,7 +842,7 @@ describe("openProjectHistory", () => {
       try {
         const window = await history.beginWindow(agent, "Agent turn", { idleMs: 50 });
         writeFileSync(join(staged, "b.html"), "b");
-        for (const until = Date.now() + 150; Date.now() < until; );
+        for (const until = Date.now() + 150; Date.now() < until;);
         rmSync(join(projectDir, file));
         renameSync(staged, join(projectDir, "a"));
         await window.close();
@@ -1386,7 +1386,7 @@ describe("openProjectHistory", () => {
       const window = await history.beginWindow(agent, "Retitle", { idleMs: 50 });
       write("index.html", "A2");
       await history.claim(you, "Nothing", []); // a claim scans first: the agent's write is seen
-      for (const until = Date.now() + 150; Date.now() < until; );
+      for (const until = Date.now() + 150; Date.now() < until;);
       write("index.html", "A3");
       await history.claim(you, "Dragged Title", ["index.html"], {
         overwrote: { "index.html": fileContentVersion("A2") },
@@ -2584,5 +2584,37 @@ describe("idle windows", () => {
     expect(Math.max(...delays)).toBeLessThanOrEqual(2 ** 31 - 1);
     expect(Math.max(...delays)).toBeGreaterThan(86_400_000);
     await window.close();
+  });
+});
+
+describe("a file shortened while the history copies it in", () => {
+  /** Fails, instead of hanging the run, when `work` has not returned in 10 s. */
+  const within = (work: Promise<unknown>, what: string) =>
+    Promise.race([
+      work,
+      pause(10_000).then(() => {
+        throw new Error(`${what} never returned`);
+      }),
+    ]);
+
+  it("never stalls the sweep or the undo behind it", { timeout: 30_000 }, async () => {
+    const { projectDir, historyRoot, history } = await project({ "index.html": "<h1>Hello</h1>" });
+    const clip = join(projectDir, "clip.bin");
+    writeFileSync(clip, Buffer.alloc(64 * 1024 * 1024, 1));
+    let settled = false;
+    const swept = history.flush().finally(() => (settled = true));
+    // The clip's copy is under way once a temp copy passes 1 MB; a disk that clones may finish before it is seen.
+    const copying = () =>
+      readdirSync(historyRoot, { recursive: true }).some((name) => {
+        const path = join(historyRoot, String(name));
+        return (
+          basename(path).startsWith("incoming-") &&
+          (statSync(path, { throwIfNoEntry: false })?.size ?? 0) > 2 ** 20
+        );
+      });
+    while (!settled && !copying()) await new Promise(setImmediate);
+    writeFileSync(clip, "");
+    await within(swept, "the sweep");
+    await within(history.step("back", you), "the undo");
   });
 });

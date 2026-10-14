@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
-import { constants, createReadStream, renameSync } from "node:fs";
+import { constants, createReadStream, createWriteStream, renameSync } from "node:fs";
 import { copyFile, mkdir, readdir, readFile, rename, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { pipeline } from "node:stream/promises";
 import { atomicTempPath } from "@hyperframes/core/atomic-file";
 
 /** File contents stored once by sha256, text and binary alike. */
@@ -33,6 +34,16 @@ async function hashFile(path: string): Promise<string> {
   return hash.digest("hex");
 }
 
+/** Copies a file another writer may be changing: a clone is one snapshot, else a stream read to the file's real end.
+ * fs.copyFile's own byte copy never returns when a writer shortens the file under it. */
+async function snapshot(from: string, to: string): Promise<void> {
+  try {
+    await copyFile(from, to, constants.COPYFILE_FICLONE_FORCE);
+  } catch {
+    await pipeline(createReadStream(from), createWriteStream(to));
+  }
+}
+
 async function cloneOrCopy(from: string, to: string, beforeReplace?: () => void): Promise<void> {
   await mkdir(dirname(to), { recursive: true });
   const temp = atomicTempPath(to);
@@ -61,7 +72,7 @@ export async function openBlobStore(dir: string): Promise<BlobStore> {
       const temp = join(dir, `incoming-${randomUUID()}`);
       // Recreated if removed while open, so a missing folder is never mistaken for a deleted project file.
       await mkdir(dir, { recursive: true });
-      await copyFile(absPath, temp, constants.COPYFILE_FICLONE);
+      await snapshot(absPath, temp);
       const hash = await hashFile(temp);
       if (sizes.has(hash)) {
         await rm(temp, { force: true });
