@@ -292,6 +292,18 @@ describe("createPickerModule", () => {
       }
     });
 
+    it("does not pick a faint texture veil that covers the frame", () => {
+      const picker = createPickerModule({ postMessage: createMockPostMessage() });
+      picker.installPickerApi();
+      document.body.innerHTML =
+        '<div id="scene"><div id="grain-tex" style="opacity:0.07;background-image:url(grain.svg)"></div><p id="copy">Hello</p></div>';
+      const el = (id: string) => document.getElementById(id)!;
+      expect(candidatesUnder(() => [el("grain-tex"), el("copy"), el("scene")])).toEqual([
+        "#copy",
+        "#scene",
+      ]);
+    });
+
     it("keeps a click-through overlay host passing through to what is under it", () => {
       const picker = createPickerModule({ postMessage: createMockPostMessage() });
       picker.installPickerApi();

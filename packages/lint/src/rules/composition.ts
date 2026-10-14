@@ -558,6 +558,74 @@ function elementSelector(tag: OpenTag): string | undefined {
   return elementId ? `#${elementId}` : undefined;
 }
 
+// A parent with one of these is a stacking context, measured at 0.8.72: the
+// negative-z child paints above that parent's background and is visible.
+const STACKING_CONTEXT_DECLARATION =
+  /(?:^|[;{])\s*(?:isolation\s*:\s*isolate|opacity\s*:\s*(?:0\b|0?\.\d+)|transform\s*:\s*(?!none\b)[^;]+|filter\s*:\s*(?!none\b)[^;]+|backdrop-filter\s*:\s*(?!none\b)[^;]+|-webkit-backdrop-filter\s*:\s*(?!none\b)[^;]+|contain\s*:[^;]*\bpaint\b|will-change\s*:[^;]*(?:transform|opacity|filter))/i;
+
+function stackingContextSelectors(styles: readonly ExtractedBlock[]): Set<string> {
+  const selectors = new Set<string>();
+  for (const style of styles) {
+    const content = stripCssComments(style.content);
+    const rule = /([^{}]+)\{([^{}]*)\}/g;
+    let match: RegExpExecArray | null;
+    while ((match = rule.exec(content)) !== null) {
+      if (!STACKING_CONTEXT_DECLARATION.test(match[2] ?? "")) continue;
+      for (const part of (match[1] ?? "").split(",")) {
+        const selector = part.trim();
+        if (/^[.#][\w-]+$/.test(selector)) selectors.add(selector);
+      }
+    }
+  }
+  return selectors;
+}
+
+function classTokens(tag: OpenTag): string[] {
+  return (readAttr(tag.raw, "class") ?? "").split(/\s+/).filter(Boolean);
+}
+
+function tagMatchesSimpleSelector(tag: OpenTag, selector: string): boolean {
+  if (selector.startsWith("#")) return readAttr(tag.raw, "id") === selector.slice(1);
+  if (selector.startsWith(".")) return classTokens(tag).includes(selector.slice(1));
+  return false;
+}
+
+function nearestParentTag(tag: OpenTag, tags: readonly OpenTag[]): OpenTag | undefined {
+  let parent: OpenTag | undefined;
+  for (const candidate of tags) {
+    if (candidate.closeIndex == null) continue;
+    if (tag.index <= candidate.index || tag.index >= candidate.closeIndex) continue;
+    if (!parent || candidate.index > parent.index) parent = candidate;
+  }
+  return parent;
+}
+
+function ancestorHasStackingContext(
+  tag: OpenTag,
+  tags: readonly OpenTag[],
+  stacking: ReadonlySet<string>,
+): boolean {
+  for (let parent = nearestParentTag(tag, tags); parent; parent = nearestParentTag(parent, tags)) {
+    const id = readAttr(parent.raw, "id");
+    if (id && stacking.has(`#${id}`)) return true;
+    if (classTokens(parent).some((name) => stacking.has(`.${name}`))) return true;
+    const inline = readAttr(parent.raw, "style");
+    if (inline && STACKING_CONTEXT_DECLARATION.test(inline)) return true;
+  }
+  return false;
+}
+
+function negativeZIndexIsContained(
+  selector: string | undefined,
+  tags: readonly OpenTag[],
+  stacking: ReadonlySet<string>,
+): boolean {
+  if (!selector || !/^[.#][\w-]+$/.test(selector)) return false;
+  const matched = tags.filter((tag) => tagMatchesSimpleSelector(tag, selector));
+  if (matched.length === 0) return false;
+  return matched.every((tag) => ancestorHasStackingContext(tag, tags, stacking));
+}
+
 function negativeZIndexFinding(
   match: RegExpExecArray,
   selector: string | undefined,
@@ -1015,19 +1083,22 @@ export const compositionRules: Array<(ctx: LintContext) => HyperframeLintFinding
   // That is ordinary CSS painting order: a negative-z child paints above its
   // stacking context root's own background, so only the root case is hidden.
   //
-  // This rule matches CSS TEXT and does not resolve the cascade, so it cannot know
-  // whether an ancestor forms a stacking context and fires on both shapes. That is
-  // why the message is CONDITIONAL rather than an assertion of absence: an
-  // unconditional "silently dropped" is false for every isolated case, and a lint
-  // message that overclaims is how authors learn to disregard the rule.
+  // A simple class or id ancestor that this file itself sets as a stacking
+  // context (isolation, transform, opacity below 1, filter, contain:paint,
+  // will-change) is enough to know the element paints. Anything the cascade
+  // could still hide stays a finding, and that message stays CONDITIONAL:
+  // an unconditional "silently dropped" is false for every isolated case.
   ({ tags, styles }) => {
     const findings: HyperframeLintFinding[] = [];
+    const stacking = stackingContextSelectors(styles);
     for (const style of styles) {
       const content = stripCssComments(style.content);
       NEGATIVE_Z_INDEX.lastIndex = 0;
       let match: RegExpExecArray | null;
       while ((match = NEGATIVE_Z_INDEX.exec(content)) !== null) {
-        findings.push(negativeZIndexFinding(match, cssOwnerSelector(content, match.index)));
+        const selector = cssOwnerSelector(content, match.index);
+        if (negativeZIndexIsContained(selector, tags, stacking)) continue;
+        findings.push(negativeZIndexFinding(match, selector));
       }
     }
     for (const tag of tags) {
@@ -1035,7 +1106,9 @@ export const compositionRules: Array<(ctx: LintContext) => HyperframeLintFinding
       if (!inline) continue;
       NEGATIVE_Z_INDEX.lastIndex = 0;
       const match = NEGATIVE_Z_INDEX.exec(inline);
-      if (match) findings.push(negativeZIndexFinding(match, elementSelector(tag)));
+      if (!match) continue;
+      if (ancestorHasStackingContext(tag, tags, stacking)) continue;
+      findings.push(negativeZIndexFinding(match, elementSelector(tag)));
     }
     return findings;
   },

@@ -127,6 +127,15 @@ export function createPickerModule(deps: PickerModuleDeps): PickerModule {
     return () => style.remove();
   }
 
+  function isDecorativeVeil(el: HTMLElement, win: Window): boolean {
+    const style = win.getComputedStyle(el);
+    const opacity = Number.parseFloat(style.opacity || "1");
+    if (!Number.isFinite(opacity) || opacity >= 0.2) return false;
+    if ((el.textContent ?? "").trim()) return false;
+    const image = style.backgroundImage;
+    return Boolean(image && image !== "none");
+  }
+
   function isEffectivelyHidden(el: HTMLElement): boolean {
     const win = el.ownerDocument.defaultView;
     if (!win) return false;
@@ -136,6 +145,7 @@ export function createPickerModule(deps: PickerModuleDeps): PickerModule {
       const computed = win.getComputedStyle(current);
       if (computed.display === "none") return true;
       if (computed.pointerEvents === "none") return true;
+      if (isDecorativeVeil(current, win)) return true;
       const opacity = Number.parseFloat(computed.opacity);
       if (
         Number.isFinite(opacity) &&

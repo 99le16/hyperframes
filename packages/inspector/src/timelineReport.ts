@@ -202,9 +202,10 @@ function describeGroups(
 function targetSummary(targets: TimelineEvent["targets"]): string[] {
   const counts = new Map<string, number>();
   for (const target of targets) {
-    const name = target.id
+    const own = target.id
       ? `#${target.id}`
       : (target.hfId ?? (target.classes.length ? `.${target.classes.join(".")}` : target.tag));
+    const name = !target.id && target.withinId ? `${own} in #${target.withinId}` : own;
     counts.set(name, (counts.get(name) ?? 0) + 1);
   }
   return [...counts].map(([name, count]) => (count > 1 ? `${name} ×${count}` : name));

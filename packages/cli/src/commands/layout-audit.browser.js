@@ -662,10 +662,14 @@
   }
 
   function hasAllowOverlapFlag(element) {
-    // Overlap intent belongs to the text block that participates in the
-    // layering. Inheriting this marker from a scene/root would turn one local
-    // waiver into a blanket exemption for every collision in that subtree.
-    return element.hasAttribute("data-layout-allow-overlap");
+    // The marker applies to the element that carries it and to text inside
+    // that container. It stops at the composition root: a waiver on the scene
+    // itself would exempt every collision in the subtree.
+    for (let current = element; current; current = current.parentElement) {
+      if (current.hasAttribute("data-composition-id")) return false;
+      if (current.hasAttribute("data-layout-allow-overlap")) return true;
+    }
+    return false;
   }
 
   function isTransparentColor(color) {
@@ -800,16 +804,48 @@
       message: "Two text blocks overlap and may render unreadable.",
       rect: a.rect,
       fixHint:
-        "Give each block its own zone, or mark intentional layering with data-layout-allow-overlap.",
+        "Give each block its own zone, or put data-layout-allow-overlap on the text or on a container inside the scene. A marker on the scene root does not apply.",
+    };
+  }
+
+  function hiddenVisibilityAncestor(element) {
+    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+      const visibility = getComputedStyle(parent).visibility;
+      if (visibility === "hidden" || visibility === "collapse") return parent;
+    }
+    return null;
+  }
+
+  function visibilityEscapeIssue(block, hiddenAncestor, time) {
+    return {
+      code: "visibility_escapes_segment",
+      severity: "warning",
+      time,
+      selector: uniqueSelectorFor(block.element),
+      containerSelector: uniqueSelectorFor(hiddenAncestor),
+      text: textContentFor(block.element),
+      message:
+        "This text stays on screen after its segment ends. visibility:visible here overrides an ancestor's visibility:hidden, so the runtime hide does not reach it.",
+      rect: block.rect,
+      fixHint: "Remove the explicit visibility:visible so this element hides with its ancestor.",
     };
   }
 
   function contentOverlapIssues(root, time) {
     const blocks = collectSolidTextBlocks(root);
     const issues = [];
-    for (let i = 0; i < blocks.length; i++) {
-      for (let j = i + 1; j < blocks.length; j++) {
-        const issue = overlapIssue(blocks[i], blocks[j], time);
+    const participating = [];
+    for (const block of blocks) {
+      const hiddenAncestor = hiddenVisibilityAncestor(block.element);
+      if (hiddenAncestor) {
+        issues.push(visibilityEscapeIssue(block, hiddenAncestor, time));
+        continue;
+      }
+      participating.push(block);
+    }
+    for (let i = 0; i < participating.length; i++) {
+      for (let j = i + 1; j < participating.length; j++) {
+        const issue = overlapIssue(participating[i], participating[j], time);
         if (issue) issues.push(issue);
       }
     }
@@ -820,8 +856,10 @@
     let imageAlpha = 0;
     if (style.backgroundImage && style.backgroundImage !== "none") {
       if (style.backgroundImage.includes("url(")) return true;
-      // A gradient only occludes as much as its colours — a 4%-alpha grid/scrim must not count.
-      imageAlpha = gradientLayersAlpha(style.backgroundImage);
+      // A gradient only occludes as much as its colours — a 4%-alpha grid/scrim
+      // must not count, and neither must a solid-color dot a couple of pixels
+      // wide tiled across a much larger background-size.
+      imageAlpha = gradientLayersAlpha(style.backgroundImage, style.backgroundSize);
     }
     const colorValue = isTransparentColor(style.backgroundColor)
       ? 0
@@ -831,12 +869,39 @@
   }
 
   // background-image layers stack: two 0.5-alpha gradients paint at 1-(1-.5)^2 = .75.
-  function gradientLayersAlpha(backgroundImage) {
+  function gradientLayersAlpha(backgroundImage, backgroundSize) {
     let combined = 0;
     for (const layer of splitTopLevelCommas(backgroundImage)) {
-      combined = 1 - (1 - combined) * (1 - gradientMaxAlpha(layer));
+      const coverage = gradientStopCoverage(layer, backgroundSize);
+      combined = 1 - (1 - combined) * (1 - gradientMaxAlpha(layer) * coverage);
     }
     return combined;
+  }
+
+  // Share of the tile an opaque stop actually paints. Stops without a position
+  // fill the layer. A 1.6px dot on a 38px tile does not.
+  function gradientStopCoverage(layer, backgroundSize) {
+    const stops = [
+      ...layer.matchAll(/(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|transparent)\s+([\d.]+)(px|%)/gi),
+    ];
+    if (stops.length === 0) return 1;
+    const sizeMatch = String(backgroundSize || "").match(/([\d.]+)px/);
+    const tile = sizeMatch ? Number(sizeMatch[1]) : 0;
+    if (!tile) return 1;
+    let opaqueReach = 0;
+    let sawTransparent = false;
+    for (const stop of stops) {
+      const color = stop[1] || "";
+      const length = stop[3] === "%" ? (Number(stop[2]) / 100) * tile : Number(stop[2]);
+      const alpha = color === "transparent" ? 0 : color.startsWith("#") ? 1 : colorAlpha(color);
+      if (alpha > 0.6) opaqueReach = Math.max(opaqueReach, length);
+      else sawTransparent = true;
+    }
+    if (!sawTransparent) return 1;
+    const fraction = /radial-gradient/i.test(layer)
+      ? (Math.PI * opaqueReach * opaqueReach) / (tile * tile)
+      : opaqueReach / tile;
+    return Math.min(1, fraction);
   }
 
   function splitTopLevelCommas(value) {
