@@ -151,6 +151,8 @@ export function inspectTimelineRuntime(
   const resolver = createRuntimeStartTimeResolver({
     timelineRegistry: registry,
     documentRef: scope.ownerDocument,
+    // The runtime strips nested hosts' data-duration/data-end after boot and keeps them as data-hf-authored-*.
+    includeAuthoredTimingAttrs: true,
   });
   const rootElement = findRootCompositionElement(scope.ownerDocument);
   const clocks = new Map<TimedAnimation, Element>();

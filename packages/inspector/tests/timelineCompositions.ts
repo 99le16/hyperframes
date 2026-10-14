@@ -21,7 +21,11 @@ writeFileSync(
   <div data-composition-id="ramp" data-start="20" data-duration="5" data-automation='{"version":1,"lanes":[{"target":"rate","points":[{"t":0,"v":1},{"t":2,"v":3}]}]}'>
     <div id="ramp"></div>
   </div>
+  <div data-composition-id="loop" data-start="26" data-duration="3">
+    <div id="loopa"></div><div id="loopb"></div>
+  </div>
 </div>
+<script>(()=>{const loop=gsap.timeline({paused:true});["#loopa","#loopb"].forEach(s=>loop.to(s,{x:1,duration:1},0));window.__timelines={loop:loop};})();</script>
 <script>
 const main = gsap.timeline({paused:true});
 const card = gsap.timeline({paused:true});
@@ -38,7 +42,8 @@ fast.to('#partial',{opacity:1,duration:1},.5);
 main.add(fast,99);
 const ramp = gsap.timeline({paused:true});
 ramp.to('#ramp',{x:100,duration:3.641},0);
-window.__timelines = {main:main, card:card, fast:fast, ramp:ramp};
+main.add(window.__timelines.loop,99);
+window.__timelines = {...window.__timelines, main:main, card:card, fast:fast, ramp:ramp};
 </script></body></html>`,
 );
 const inspector = new Inspector(project);
@@ -61,6 +66,26 @@ try {
   close(await intervals("#trimmed"), []);
   close(await intervals("#partial"), [[10, 10.25]]);
   close(await intervals("#ramp"), [[20, 22]]);
+  // The runtime strips a nested host's data-duration once loaded; its item keeps the authored window.
+  const hostItem = async (composition: string) =>
+    (
+      await inspector.timeline({
+        component: { selector: `[data-composition-id="${composition}"]` },
+      })
+    ).events
+      .filter((e) => e.kind === "item" && e.targets[0]?.composition === composition)
+      .map((e) => [e.start, e.end]);
+  close(await hostItem("card"), [[2.39, 6.39]]);
+  close(await hostItem("fast"), [[10, 15]]);
+  const loop = await inspector.timeline({ component: { selector: "#loopa" } });
+  const loopAnimation = loop.events.find((e) => e.kind === "animation")!;
+  assert.equal(loopAnimation.sources.length, 1);
+  assert.equal(
+    loop.text
+      .split("\n")
+      .filter((line) => line.trim() === `index.html:${loopAnimation.sources[0].line}`).length,
+    1,
+  );
   const paused = await inspector.timeline({ component: { selector: "#paused" } });
   assert.equal(paused.events.length, 0);
   assert(paused.warnings.some((w) => w.includes("Paused or zero-speed")));
@@ -74,7 +99,7 @@ try {
     0,
   );
   console.log(
-    "PASS managed paused compositions, host offsets, playback offsets/rates/ramps, paused children, boundary/at",
+    "PASS managed paused compositions, host offsets, playback offsets/rates/ramps, paused children, boundary/at, authored host windows, one location per source line",
   );
 } finally {
   await inspector.dispose();
