@@ -536,6 +536,30 @@ describe("initSandboxRuntimeModular", () => {
         document.head.querySelector("style[data-hf-hidden-clip-contents]")?.remove();
       }
     });
+
+    it("leaves an image the HDR layer mask shows inside a container the mask hides", () => {
+      hideTimedClipsUntilFirstPass();
+      const mask = Object.assign(document.createElement("style"), {
+        textContent: `[data-hf-render-id="logo"] { visibility: visible !important; }`,
+      });
+      try {
+        document.body.innerHTML =
+          `<div id="root" data-composition-id="main" data-root="true" data-start="0" data-duration="10" data-width="1920" data-height="1080">` +
+          `<img id="logo" src="logo.png" style="position: absolute" data-start="0" data-duration="10" data-hf-render-id="logo">` +
+          `</div>`;
+        window.__timelines = { main: createMockTimeline(10) };
+        initSandboxRuntimeModular();
+        window.__player?.seek(1);
+        // As the engine's DOM-layer mask hides the other layers of an HDR frame.
+        document.getElementById("root")!.style.setProperty("visibility", "hidden", "important");
+        document.head.append(mask);
+        expect(getComputedStyle(document.getElementById("logo")!).visibility).toBe("visible");
+      } finally {
+        mask.remove();
+        revealTimedClipsAfterFirstPass();
+        document.head.querySelector("style[data-hf-hidden-clip-contents]")?.remove();
+      }
+    });
   });
 
   /**
