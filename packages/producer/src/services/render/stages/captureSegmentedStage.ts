@@ -409,9 +409,8 @@ async function createSegmentWorker(run: SegmentRun, id: number): Promise<Segment
 }
 
 /**
- * Opens every worker at once so each page's media readiness wait overlaps the
- * others. Opened workers land in `workers` even when one fails, so the
- * caller's finally still closes their sessions.
+ * Opens every worker at once so their media readiness waits overlap. Workers
+ * that open stay in `workers` when one fails, so the caller's finally closes them.
  */
 async function openSegmentWorkers(run: SegmentRun, workers: SegmentWorker[]): Promise<void> {
   const opened = await Promise.allSettled(
