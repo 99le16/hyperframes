@@ -25,7 +25,12 @@ const node = { bundle: true, platform: "node", format: "esm", target: "node22", 
 await Promise.all([
   build({ ...node, entryPoints: [at("./src/live.ts")], outfile: at("./dist/live.js") }),
   build({ ...node, entryPoints: [at("./src/service.ts")], outfile: at("./dist/service.js") }),
-  build({ ...node, entryPoints: [at("./src/server.ts")], outfile: at("./dist/server.js") }),
+  build({
+    ...node,
+    entryPoints: [at("./src/server.ts")],
+    outfile: at("./dist/server.js"),
+    banner: { js: `#!/usr/bin/env node\n${banner.js}` },
+  }),
   build({
     entryPoints: [at("./src/liveRuntime.ts")],
     outfile: at("./dist/inspection.js"),

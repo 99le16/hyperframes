@@ -91,6 +91,14 @@ Full runtime evidence is only available by an explicit HTTP request with `debug:
 
 `component` is optional and resolves like an `/inspect` target; omit it for every registered HF timeline. Give at most one of `at`, `range: [start, end]` or `boundary`, in global seconds; omit all three for the schedule overview. Results are short text grouped by component, with event times, targets, properties and source locations; `generation` and `offset` page through them. Coverage is registered DOM-target GSAP animations and explicit HF items only; anything outside that, or past the expansion limits, is reported as incomplete coverage rather than guessed.
 
+## Element map
+
+`POST /element-map` returns the composition's element map from the same page. It reads no query fields. A project with no `index.html` answers `404` `{ "error": "no-composition", "code": "no-composition" }`.
+
+## Errors
+
+Every refusal is JSON `{ "error", "code" }`. `code` is the stable token (`no-composition`, `stale_generation`, `source_changed_during_query`, `request_too_large`); a sentence with no token is `invalid_request`. An unknown route is `404` `{ "error": "not_found", "code": "not_found" }`. `GET /info` adds `version`, this package's version. The process listens on `127.0.0.1` and refuses a `Host` that is not loopback, so a rebinding request cannot read the project path. Install the server with the package: `hyperframes-inspector <project> [port]`, or `node dist/server.js`.
+
 ## Lifecycle and overhead
 
 One lazy browser, one immutable bundled page per project service. Warm queries reuse both. Source HTML/JS/CSS/JSON are content-hashed; a change closes the old page and creates a new one, reusing the browser. The service serializes requests and checks the source fingerprint again after querying. No Studio hot-patching or old timeline objects survive a rebuild. Two idle minutes release both page and browser. Changes to only media bytes are not part of this source-context invalidation mechanism.
