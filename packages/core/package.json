@@ -266,6 +266,12 @@
       "import": "./src/audibleVideo.ts",
       "types": "./src/audibleVideo.ts"
     },
+    "./audio-analysis": {
+      "bun": "./src/audioAnalysis.ts",
+      "node": "./dist/audioAnalysis.js",
+      "import": "./src/audioAnalysis.ts",
+      "types": "./src/audioAnalysis.ts"
+    },
     "./audio-gain": {
       "bun": "./src/audioGain.ts",
       "node": "./dist/audioGain.js",
@@ -701,6 +707,10 @@
       "./audible-video": {
         "import": "./dist/audibleVideo.js",
         "types": "./dist/audibleVideo.d.ts"
+      },
+      "./audio-analysis": {
+        "import": "./dist/audioAnalysis.js",
+        "types": "./dist/audioAnalysis.d.ts"
       },
       "./audio-gain": {
         "import": "./dist/audioGain.js",
