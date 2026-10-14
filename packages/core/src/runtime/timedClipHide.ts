@@ -12,9 +12,15 @@ const HIDE_UNTIL_FIRST_PASS =
   "[data-start]:not(video, audio, img) { visibility: hidden !important; }";
 const PREVIEW_HIDE_UNTIL_FIRST_PASS = 'img[loading="lazy"] { display: none !important; }';
 const SKIP_ATTR = "data-hf-skip-hidden-images";
-export const SKIPPED_CLIP = `[data-start]:not(video, audio, img, [${STUDIO_PREVIEW_UPCOMING_ATTR}], [${RUNTIME_STAMPED_ATTR}])[style*="visibility: hidden"]`;
+/** A timed clip the visibility pass hid; Studio owns a stamped clip's visibility. */
+const HIDDEN_CLIP = `[data-start]:not(video, audio, img, [${RUNTIME_STAMPED_ATTR}])[style*="visibility: hidden"]`;
+export const SKIPPED_CLIP = `${HIDDEN_CLIP}:not([${STUDIO_PREVIEW_UPCOMING_ATTR}])`;
 const SKIP_HIDDEN_IMAGES = `${SKIPPED_CLIP} img { display: none !important; }`;
 const STUDIO_PREVIEW_MARK = `meta[name="${STUDIO_PREVIEW_MARK_META}"]`;
+// A hidden clip's contents stay hidden: CSS lets a descendant marked visible paint through a hidden parent, and a GSAP
+// set rewound to its recorded start writes exactly that inline (a later scene's layer painting over an earlier one).
+const CONTENTS_ATTR = "data-hf-hidden-clip-contents";
+const HIDE_HIDDEN_CLIP_CONTENTS = `${HIDDEN_CLIP} * { visibility: hidden !important; }`;
 
 type FirstPassWindow = Window & {
   __hfFirstPassHidden?: boolean;
@@ -39,6 +45,8 @@ export function hideTimedClipsUntilFirstPass(): void {
   if (!parent) return;
   const preview = document.querySelector(STUDIO_PREVIEW_MARK) !== null;
   if (preview && !skipsHiddenImages()) appendStyle(parent, SKIP_ATTR, SKIP_HIDDEN_IMAGES);
+  if (!document.querySelector(`style[${CONTENTS_ATTR}]`))
+    appendStyle(parent, CONTENTS_ATTR, HIDE_HIDDEN_CLIP_CONTENTS);
   const win = window as FirstPassWindow;
   // A runtime that already initialised may never run another pass to lift a new rule.
   if (win.__hfFirstPassHidden || win.__hyperframeRuntimeBootstrapped) return;

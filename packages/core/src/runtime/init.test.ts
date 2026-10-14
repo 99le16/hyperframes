@@ -512,6 +512,30 @@ describe("initSandboxRuntimeModular", () => {
         document.head.querySelector("style[data-hf-skip-hidden-images]")?.remove();
       }
     });
+
+    it("keeps a hidden scene's contents hidden when a rewound GSAP set marks one visible inline", () => {
+      hideTimedClipsUntilFirstPass();
+      try {
+        document.body.innerHTML =
+          `<div data-composition-id="main" data-root="true" data-start="0" data-duration="10" data-width="1920" data-height="1080">` +
+          `<div id="scene" style="position: absolute" data-start="5" data-duration="2"><div id="layer"></div></div>` +
+          `</div>`;
+        window.__timelines = { main: createMockTimeline(10) };
+        initSandboxRuntimeModular();
+        const layer = document.getElementById("layer")!;
+        const shown = (time: number) => {
+          window.__player?.seek(time);
+          return getComputedStyle(layer).visibility;
+        };
+        expect(shown(6)).toBe("visible");
+        // What GSAP writes when a set recorded while the scene showed is rewound past.
+        layer.style.visibility = "visible";
+        expect([shown(1), shown(6), shown(8)]).toEqual(["hidden", "visible", "hidden"]);
+      } finally {
+        revealTimedClipsAfterFirstPass();
+        document.head.querySelector("style[data-hf-hidden-clip-contents]")?.remove();
+      }
+    });
   });
 
   /**
