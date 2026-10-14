@@ -43,7 +43,7 @@ export function formatTimeline(
   const events = groups.flat().map((event, index) => ({
     ...event,
     stack: undefined,
-    sources: lineLocations(event.stack ? view.map(event.stack, index) : []).map((s) => ({
+    sources: onePerSourceLine(event.stack ? view.map(event.stack, index) : []).map((s) => ({
       file: s.file,
       line: s.startLine,
     })),
@@ -112,12 +112,11 @@ function labeler(): Labeler {
 }
 
 const at = (seconds: number) => seconds.toFixed(4);
-/** Creation, caller and dependency snippets often share one line (minified or one-line scripts). */
-function lineLocations<T extends { file: string; startLine: number }>(sources: T[]): T[] {
+function onePerSourceLine<T extends { file: string; startLine: number }>(sources: T[]): T[] {
   return [...new Map(sources.map((s) => [`${s.file}:${s.startLine}`, s])).values()];
 }
 const located = (sources: { file: string; startLine: number }[]) =>
-  lineLocations(sources)
+  onePerSourceLine(sources)
     .map((s) => `${s.file}:${s.startLine}`)
     .join(", ");
 
