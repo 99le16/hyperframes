@@ -1,8 +1,3 @@
-/**
- * WSL host detection and what we can check about its GPU path when Chrome's
- * GPU probe does not confirm a hardware GPU (heygen-com/hyperframes#5548).
- */
-
 import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
 import { platform, release } from "node:os";
 
@@ -65,10 +60,7 @@ export function detectWsl(host: WslHostFacts = realHost): boolean {
   }
 }
 
-/**
- * Under WSL, Chrome's env minus WSLg's WAYLAND_DISPLAY: Chrome 150+ otherwise picks Wayland EGL,
- * which has no offscreen configs there (https://issues.chromium.org/issues/567222741).
- */
+// Chrome 150+ under WSLg picks Wayland EGL, which has no offscreen configs: https://issues.chromium.org/issues/567222741
 export function browserLaunchEnv(
   host: WslHostFacts = realHost,
   env: NodeJS.ProcessEnv = process.env,
