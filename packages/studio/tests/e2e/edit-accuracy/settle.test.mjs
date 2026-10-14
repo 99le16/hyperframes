@@ -76,7 +76,12 @@ describe("settling on the page's network", () => {
 
   it("restarts a window that began busy once its request's frame is gone", () => {
     const request = { frame: () => ({ detached: false }) };
-    const net = { inflight: new Set([request]), activity: 0, announced: new Map(), since: Date.now() };
+    const net = {
+      inflight: new Set([request]),
+      activity: 0,
+      announced: new Map(),
+      since: Date.now(),
+    };
     const ctx = { dir: tmpdir(), files: [], net };
     const start = { ...read(false, 0), net: networkBusy(ctx) };
     expect(start.net.busy).toBe(true);
