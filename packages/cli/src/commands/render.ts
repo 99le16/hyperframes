@@ -847,7 +847,7 @@ async function renderDocker(
       const stderrTail = createStderrTail();
       // stderr is piped so the failure can name its cause; it is still echoed live.
       const child = spawn("docker", dockerArgs, {
-        stdio: options.quiet ? ["pipe", "pipe", "pipe"] : ["inherit", "inherit", "pipe"],
+        stdio: options.quiet ? ["pipe", "ignore", "pipe"] : ["inherit", "inherit", "pipe"],
       });
       child.stderr?.on("data", (chunk: Buffer) => {
         process.stderr.write(chunk);
