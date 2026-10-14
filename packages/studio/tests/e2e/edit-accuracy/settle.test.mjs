@@ -1,5 +1,8 @@
+import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { swapPending, unsettledBy } from "./case.mjs";
+import { STILL_FRAMES, heldStill, networkBusy, swapPending, unsettledBy } from "./case.mjs";
 import { heldSize } from "./sequences.mjs";
 
 describe("settling on the shown preview", () => {
@@ -44,6 +47,59 @@ describe("settling on the shown preview", () => {
   it("never waits on a swap in a case without keyframes, so its undo keeps main's timing", async () => {
     expect(await swapPending({ page: swapping })).toBe(false);
     expect(await swapPending({ page: swapping, keys: undefined, selector: "#other" })).toBe(false);
+  });
+});
+
+describe("settling on the page's network", () => {
+  const read = (busy, activity) => ({
+    pending: false,
+    frames: "a",
+    m: { visible: [[0, 0]] },
+    net: { busy, activity },
+  });
+
+  it("restarts on a request in flight or any network activity since the window began", () => {
+    expect(unsettledBy(read(false, 3), read(false, 3))).toBe(false);
+    expect(unsettledBy(read(false, 3), read(true, 3))).toBe(true);
+    expect(unsettledBy(read(false, 3), read(false, 4))).toBe(true);
+  });
+
+  it("holds after STILL_FRAMES quiet reads, or after the fixed window when one is set", () => {
+    const since = Date.now();
+    expect(heldStill(read(false, 0), STILL_FRAMES - 1, since, null)).toBe(false);
+    expect(heldStill(read(false, 0), STILL_FRAMES, since, null)).toBe(true);
+    expect(heldStill(read(true, 0), STILL_FRAMES, since, null)).toBe(false);
+    expect(heldStill({ ...read(false, 0), pending: true }, STILL_FRAMES, since, null)).toBe(false);
+    expect(heldStill(read(false, 0), 100, since, 500)).toBe(false);
+    expect(heldStill(read(false, 0), 0, since - 500, 500)).toBe(true);
+  });
+
+  it("waits for requests in live frames and for the server to announce each written file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "edit-bench-net-"));
+    try {
+      writeFileSync(join(dir, "index.html"), "");
+      const since = Date.now() / 1000;
+      utimesSync(join(dir, "index.html"), since - 10, since - 10);
+      const request = (detached) => ({ frame: () => (detached === null ? null : { detached }) });
+      const live = request(false);
+      const net = {
+        inflight: new Set([live, request(true), request(null)]),
+        activity: 7,
+        announced: new Map(),
+        since: since * 1000,
+      };
+      const ctx = { dir, files: ["index.html"], net };
+      expect(networkBusy(ctx)).toEqual({ busy: true, activity: 7 });
+      expect([...net.inflight]).toEqual([live]);
+      net.inflight.clear();
+      expect(networkBusy(ctx).busy).toBe(false);
+      utimesSync(join(dir, "index.html"), since + 5, since + 5);
+      expect(networkBusy(ctx).busy).toBe(true);
+      net.announced.set("index.html", since * 1000 + 6000);
+      expect(networkBusy(ctx).busy).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
   });
 });
 
