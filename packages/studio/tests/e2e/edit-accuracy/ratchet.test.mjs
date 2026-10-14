@@ -158,6 +158,12 @@ describe("gate", () => {
     expect(g.reasons.join()).toContain("fell from 2 to 1");
   });
 
+  it("does not count a case retired from the grid with its baseline.json entry, and lists it", () => {
+    const g = gate(base, baseline({ a: good }), [run("a")]);
+    expect(g).toMatchObject({ basePassing: 1, missing: [], retired: ["b"], ok: true });
+    expect(comment(g)).toContain("Retired");
+  });
+
   it("counts only the cases that ran when a run covers part of the grid, still failing a regression", () => {
     const slice = new Set(["a"]);
     expect(gate(base, base, [run("a")], {}, slice)).toMatchObject({ missing: [], ok: true });

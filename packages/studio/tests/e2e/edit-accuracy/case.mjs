@@ -231,7 +231,8 @@ export async function measure(ctx) {
   return { map, quad, size, visible: visibleQuad(quad, size, parseInset(box.clip)) };
 }
 
-const STILL_MS = 1000;
+// 500 ms, from 1000: the window restarts on any change, so a shorter one still waits out a slow save or swap.
+const STILL_MS = Number(process.env.EDIT_ACCURACY_STILL_MS ?? 500);
 
 // Studio reloads an edited preview in a shadow iframe (`_t` in its URL) and swaps it in when painted.
 const previewFrames = (page) =>
@@ -303,7 +304,6 @@ export async function openStudio(ctx) {
     seek = null;
   }
   if (!seek) throw new Error("studio never reported a seekable composition");
-  await sleep(1000);
   return settled(ctx);
 }
 
@@ -675,8 +675,23 @@ export function smoothness(rec) {
 const CONTROL_PAGE = `data:text/html,<body style="margin:0;background:%23202020"><div id="box"
   style="position:absolute;left:600px;top:300px;width:240px;height:160px;background:%23f0c020"></div>`;
 
+// Reported, never gated, so it runs once per gesture per browser rather than once per case.
+const controls = new WeakMap();
+
 /** The case's drag schedule and per-frame reads on a blank page in the same Chrome: the machine's own frame drops. */
-export async function controlDrag(browser, gesture) {
+export function controlDrag(browser, gesture) {
+  const byGesture = controls.get(browser) ?? new Map();
+  controls.set(browser, byGesture);
+  if (!byGesture.has(gesture)) {
+    const measured = measureControl(browser, gesture);
+    // A failed control is not cached, so one transient failure does not fail every later case.
+    measured.catch(() => byGesture.get(gesture) === measured && byGesture.delete(gesture));
+    byGesture.set(gesture, measured);
+  }
+  return byGesture.get(gesture);
+}
+
+async function measureControl(browser, gesture) {
   const context = await browser.createBrowserContext();
   try {
     const page = await context.newPage();

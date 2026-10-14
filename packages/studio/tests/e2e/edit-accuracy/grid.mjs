@@ -27,13 +27,16 @@ export function localAsset(url) {
 
 // Studio has corner handles only (ResizeHandle is nw|ne|sw|se); its edge strips crop, so there is no edge resize.
 const GESTURES = ["move", "resize", "rotate", "crop", "nudge"];
+// Trimmed from 2061 cases: across 444 historical result snapshots, zoom 200, the pct and center placements and most nested
+// keyframed cases never failed where a kept case with the same gesture, GSAP mode and playhead did not. Drag paths and
+// sequences still cover pct, center and zoom 200.
 const AXES = {
   // idle: GSAP loaded and a paused timeline tweens another element; the target itself is plain CSS.
   gsap: ["none", "idle", "tween", "hold"],
-  placement: ["px", "pct", "center", "xpercent"],
+  placement: ["px", "xpercent"],
   rotation: [0, 30],
   nesting: ["root", "nested"],
-  zoom: [50, 100, 200],
+  zoom: [50, 100],
 };
 
 // Timelines with keyframes at `times` (0, 2 and 3 s unless set) on the property each animates; `css` is it in CSS.
@@ -105,22 +108,29 @@ function keyframedCases() {
     nesting: AXES.nesting,
     zoom: AXES.zoom,
     gesture: GESTURES,
-  }).flatMap((c) => {
-    const times = KEYFRAMED[c.gsap].times ?? KEY_TIMES;
-    return playheadsFor(times).map((at) => ({
-      id: `${caseId(c)}-${at}`,
-      ...c,
-      at,
-      playhead: AT[at],
-      keys: {
-        times: times.filter((t) => t !== AT[at]),
-        props: KEYFRAMED[c.gsap].props,
-        css: KEYFRAMED[c.gsap].css,
-        render: times.at(-1),
-      },
-    }));
-  });
+  })
+    .flatMap((c) => {
+      const times = KEYFRAMED[c.gsap].times ?? KEY_TIMES;
+      return playheadsFor(times).map((at) => ({
+        id: `${caseId(c)}-${at}`,
+        ...c,
+        at,
+        playhead: AT[at],
+        keys: {
+          times: times.filter((t) => t !== AT[at]),
+          props: KEYFRAMED[c.gsap].props,
+          css: KEYFRAMED[c.gsap].css,
+          render: times.at(-1),
+        },
+      }));
+    })
+    .filter((c) => c.nesting === "root" || NESTED_KEYFRAMED(c));
 }
+
+// Nested keyframed cases are kept only for a resize on a keyframe at zoom 100 without rotation, so the PR slice
+// still catches the nested resize regression two historical gate runs failed on (resize-scale-px-r0-nested-z100-on).
+const NESTED_KEYFRAMED = (c) =>
+  c.gesture === "resize" && c.at === "on" && c.zoom === 100 && c.rotation === 0;
 
 const product = (axes) =>
   Object.entries(axes).reduce(
