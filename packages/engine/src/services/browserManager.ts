@@ -608,7 +608,7 @@ async function probeAutoBrowserGpuMode(options: GpuProbeOptions): Promise<GpuPro
 
   const probed = await probeWebGlMode(ppt, options);
   if (probed.mode === "hardware") return probed;
-  // Chrome 150+ picks Wayland EGL under WSLg, which has no offscreen configs: https://issues.chromium.org/issues/567222741
+  // Chrome 150+ uses WSLg Wayland EGL, which lacks offscreen configs: https://issues.chromium.org/issues/567222741
   if (detectWsl(options.wslHost) && process.env.WAYLAND_DISPLAY !== undefined) {
     const env = envWithoutWaylandDisplay();
     const retried = await probeWebGlMode(ppt, options, env, "without WAYLAND_DISPLAY: ");
