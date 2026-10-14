@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { browserLaunchEnv, describeWslGpuAccess, detectWsl, type WslHostFacts } from "./wslHost.js";
+import { describeWslGpuAccess, detectWsl, type WslHostFacts } from "./wslHost.js";
 
 const RENDER_NODE = "/dev/dri/renderD128";
 
@@ -45,20 +45,6 @@ describe("detectWsl", () => {
   });
 });
 
-describe("browserLaunchEnv", () => {
-  const wslgEnv = { PATH: "/usr/bin", DISPLAY: ":0", WAYLAND_DISPLAY: "wayland-0" };
-
-  it("drops WSLg's WAYLAND_DISPLAY under WSL and keeps everything else", () => {
-    expect(browserLaunchEnv(fakeHost(), wslgEnv)).toEqual({ PATH: "/usr/bin", DISPLAY: ":0" });
-  });
-
-  it("leaves the inherited environment alone outside WSL or without WAYLAND_DISPLAY", () => {
-    const plainLinux = fakeHost({ release: "6.8.0-45-generic", readProcVersion: () => "" });
-    expect(browserLaunchEnv(plainLinux, wslgEnv)).toBeUndefined();
-    expect(browserLaunchEnv(fakeHost(), { PATH: "/usr/bin" })).toBeUndefined();
-  });
-});
-
 describe("describeWslGpuAccess", () => {
   it("gives the usermod fix only when access is denied and the user is not in the node's group", () => {
     const text = note(fakeHost());
@@ -96,6 +82,28 @@ describe("describeWslGpuAccess", () => {
     const missing = note(fakeHost({ renderNodeAccess: () => ({ state: "missing" }) }));
     expect(missing).toContain(`${RENDER_NODE} does not exist`);
     expect(missing).not.toContain("usermod");
+  });
+
+  it("does not promise the group change alone gets the GPU", () => {
+    const text = note(fakeHost());
+    expect(text).toContain("On its own that may not be enough");
+    expect(text).toContain(
+      "npx @puppeteer/browsers install chrome@stable --path ~/.cache/puppeteer",
+    );
+    expect(text).toContain("HYPERFRAMES_BROWSER_PATH");
+  });
+
+  it("names full Chrome and native Windows as routes once permissions are fine", () => {
+    const host = fakeHost({ renderNodeAccess: () => ({ state: "read-write" }) });
+    const missing = describeWslGpuAccess(host, { state: "missing" })?.join("\n");
+    expect(missing).toContain("full Chrome can");
+    expect(missing).toContain("native Windows");
+    const tried = describeWslGpuAccess(host, { state: "no-gpu", path: "/c/chrome" })?.join("\n");
+    expect(tried).toContain("Full Chrome (/c/chrome) found no hardware GPU either.");
+    expect(tried).not.toContain("@puppeteer/browsers install");
+    expect(tried).toContain("native Windows");
+    const timedOut = describeWslGpuAccess(host, { state: "probe-error", path: "/c/chrome" });
+    expect(timedOut?.join("\n")).toContain("could not finish its GPU check either");
   });
 
   it("returns null outside WSL", () => {

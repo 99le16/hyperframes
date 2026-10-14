@@ -1165,7 +1165,7 @@ export const ALLOWED_DELETIONS = new Map([
   ["docs/plans/2026-09-26-image-thumbnails.md", DESIGN_NOTES_REASON],
   [
     "packages/engine/src/services/frameCapture-wslFullChrome.test.ts",
-    "tests the WSL full-Chrome GPU fallback, removed once every WSL Chrome launches without WAYLAND_DISPLAY",
+    "tests the WSL full-Chrome GPU fallback, replaced by the probe without WAYLAND_DISPLAY (frameCapture-wslWayland.test.ts)",
   ],
 ]);
 
