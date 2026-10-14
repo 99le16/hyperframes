@@ -129,7 +129,7 @@ const PROJECT_FILES = new Set([
   "STORYBOARD.md",
   "SCRIPT.md",
   "BRIEF.md",
-  "storyboard.html",
+  "boards/storyboard.html",
   "design.md",
   "_role.md",
   "cinematic.json",
