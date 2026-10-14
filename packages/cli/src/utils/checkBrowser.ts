@@ -1439,6 +1439,7 @@ const LAYOUT_ISSUE_CODES: readonly LayoutIssueCode[] = [
   "canvas_overflow",
   "container_overflow",
   "content_overlap",
+  "visibility_escapes_segment",
   "text_occluded",
   "text_not_painted",
   "caption_zone_collision",
