@@ -211,6 +211,7 @@ export async function openSettledCompositionPage(
     const resolvedGpuMode = await resolveManagedGpuMode(requestedGpuMode, executablePath, {
       signal: options.signal,
       onBrowser: options.onBrowser,
+      noListen: answer !== undefined,
     });
     options.signal?.throwIfAborted();
     const webGpu = resolveLocalWebGpu(resolvedGpuMode, requiresWebGpu);

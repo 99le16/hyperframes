@@ -42,13 +42,23 @@ function ownSignals(): void {
 export async function resolveManagedGpuMode(
   requestedMode: BrowserGpuMode,
   chromePath?: string,
-  context: { signal?: AbortSignal; onBrowser?: (browser: Browser) => void } = {},
+  context: {
+    signal?: AbortSignal;
+    onBrowser?: (browser: Browser) => void;
+    noListen?: boolean;
+  } = {},
 ): Promise<ResolvedBrowserGpuMode> {
   ownSignals();
   return resolveCaptureBrowserGpuMode(requestedMode, chromePath, {
     launch: async (puppeteer, options) => {
       context.signal?.throwIfAborted();
-      const browser = await launchManagedBrowser(puppeteer, { ...options, signal: context.signal });
+      const browser = await launchManagedBrowser(puppeteer, {
+        ...options,
+        ...(context.noListen
+          ? { pipe: true, args: [...(options.args ?? []), "--single-process"] }
+          : {}),
+        signal: context.signal,
+      });
       try {
         context.onBrowser?.(browser);
       } catch (error) {
