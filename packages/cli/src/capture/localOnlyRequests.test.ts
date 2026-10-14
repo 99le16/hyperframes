@@ -1,9 +1,13 @@
-import { createServer, type Server } from "node:http";
+import { createServer, Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { closeManagedBrowser } from "../browser/launch.js";
 import { openSettledCompositionPage } from "./captureCompositionFrame.js";
 import { allowedLocalOnlyRequest } from "./localOnlyRequests.js";
+import { serveStaticProjectHtml } from "../utils/staticProjectServer.js";
 
 describe("allowedLocalOnlyRequest", () => {
   const server = "http://127.0.0.1:4100/index.html";
@@ -19,6 +23,9 @@ describe("allowedLocalOnlyRequest", () => {
     ["https://cdn.jsdelivr.net/gh/someone/repo/payload.txt", false],
     ["https://cdn.jsdelivr.net/npm/gsap-extra/index.js", false],
     ["https://fonts.googleapis.com.example.com/x", false],
+    ["https://fonts.googleapis.com@example.com/x", false],
+    ["https://fonts.googleapis.com:8443/css2", false],
+    ["http://fonts.googleapis.com/css2", false],
   ])("%s -> %s", (url, allowed) => {
     expect(allowedLocalOnlyRequest(url, server)).toBe(allowed);
   });
@@ -134,7 +141,7 @@ ${PROBES[probe]!.replaceAll("FOREIGN", foreignHost)}</script></body></html>`;
       localOnly: true,
       beforeNavigate: (p) => {
         p.on("request", (r) => {
-          if (r.isInterceptResolutionHandled() || !r.url().startsWith(origin)) return;
+          if (r.isInterceptResolutionHandled() || new URL(r.url()).origin !== origin) return;
           void r.respond({ status: 200, contentType: "text/html", body: page }, 0);
         });
       },
@@ -163,4 +170,62 @@ ${PROBES[probe]!.replaceAll("FOREIGN", foreignHost)}</script></body></html>`;
     },
     60_000,
   );
+});
+
+describe("a --local-only page served in-process, where a sandbox refuses listen()", () => {
+  let foreign: Server;
+  let foreignHost: string;
+  let foreignHits = 0;
+
+  beforeAll(async () => {
+    [foreign, foreignHost] = await listen((_req, res) => {
+      foreignHits++;
+      res.writeHead(200, { "access-control-allow-origin": "*" }).end("FOREIGN TEXT");
+    });
+  });
+  afterAll(async () => {
+    await new Promise((resolve) => foreign.close(resolve));
+  });
+
+  async function run(): Promise<{ title: string; failed: string[] }> {
+    foreignHits = 0;
+    const failed: string[] = [];
+    const dir = mkdtempSync(join(tmpdir(), "hf-local-only-inprocess-"));
+    const html = `<!doctype html><html><body>
+<div data-composition-id="main" data-width="320" data-height="180" data-duration="1"></div>
+<script>window.__timelines={main:{duration:()=>1,seek:()=>{},pause:()=>{}}};
+fetch("http://${foreignHost}/x").then((r) => r.text()).then((t) => { document.title = t; }, () => { document.title = "blocked"; });</script>
+</body></html>`;
+    const refused = Object.assign(new Error("sandbox refused listen"), { code: "EPERM" });
+    vi.spyOn(Server.prototype, "listen").mockImplementationOnce(function (this: Server) {
+      setImmediate(() => this.emit("error", refused));
+      return this;
+    });
+    const server = await serveStaticProjectHtml(dir, html);
+    expect(server.port).toBe(0);
+    const { browser, page } = await openSettledCompositionPage(html, server.url, {
+      renderReadyTimeoutMs: 2_000,
+      renderReadyWarningSuffix: "local-only test",
+      browserGpuMode: "software",
+      localOnly: true,
+      beforeNavigate: (p) => {
+        p.on("requestfailed", (r) => failed.push(`${r.url()} ${r.failure()?.errorText}`));
+      },
+    });
+    try {
+      await page.waitForFunction(() => document.title !== "", { timeout: 10_000 });
+      return { title: await page.title(), failed };
+    } finally {
+      await closeManagedBrowser(browser);
+      await server.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("blocks another host and still loads the project", async () => {
+    const { title, failed } = await run();
+    expect(title).toBe("blocked");
+    expect(foreignHits).toBe(0);
+    expect(failed).toEqual([`http://${foreignHost}/x net::ERR_BLOCKED_BY_CLIENT.Inspector`]);
+  }, 60_000);
 });

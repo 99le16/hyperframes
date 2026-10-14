@@ -1,21 +1,18 @@
 import type { Page } from "puppeteer-core";
 
-// The template CDNs a --local-only page still loads: GSAP and Google Fonts.
-const TEMPLATE_CDN_PREFIXES = [
-  "https://cdn.jsdelivr.net/npm/gsap@",
-  "https://cdn.jsdelivr.net/npm/gsap/",
-  "https://fonts.googleapis.com/",
-  "https://fonts.gstatic.com/",
-];
-
-const TEMPLATE_CDN_HOSTS = ["cdn.jsdelivr.net", "fonts.googleapis.com", "fonts.gstatic.com"];
+// The template CDNs a --local-only page still loads, by host and path: GSAP and Google Fonts.
+const TEMPLATE_CDN_PATHS: Record<string, string[]> = {
+  "cdn.jsdelivr.net": ["/npm/gsap@", "/npm/gsap/"],
+  "fonts.googleapis.com": ["/"],
+  "fonts.gstatic.com": ["/"],
+};
 
 /**
  * Chrome-wide part of --local-only: every target (workers, service workers, popups, WebSocket)
  * goes through a proxy port nothing serves unless it is the server's own host:port or a CDN host.
  */
 export function localOnlyChromeArgs(serverUrl: string): string[] {
-  const bypass = ["<-loopback>", new URL(serverUrl).host, ...TEMPLATE_CDN_HOSTS];
+  const bypass = ["<-loopback>", new URL(serverUrl).host, ...Object.keys(TEMPLATE_CDN_PATHS)];
   return [
     "--proxy-server=http://127.0.0.1:9",
     `--proxy-bypass-list=${bypass.join(";")}`,
@@ -34,12 +31,17 @@ export function isLocalOnlyBlock(errorText: string | undefined): boolean {
 /** True when a --local-only page may load `url`: the CLI's own server, data:/blob:, or a template CDN. */
 export function allowedLocalOnlyRequest(url: string, serverUrl: string): boolean {
   if (url.startsWith("data:") || url.startsWith("blob:")) return true;
+  let target: URL;
   try {
-    if (new URL(url).origin === new URL(serverUrl).origin) return true;
+    target = new URL(url);
+    if (target.origin === new URL(serverUrl).origin) return true;
   } catch {
     return false;
   }
-  return TEMPLATE_CDN_PREFIXES.some((prefix) => url.startsWith(prefix));
+  if (target.protocol !== "https:" || target.port !== "") return false;
+  return (
+    TEMPLATE_CDN_PATHS[target.hostname]?.some((path) => target.pathname.startsWith(path)) ?? false
+  );
 }
 
 /** Every other request, redirect hops included, fails as a load blocked by the client. */
