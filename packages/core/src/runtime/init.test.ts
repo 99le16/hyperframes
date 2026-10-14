@@ -512,6 +512,80 @@ describe("initSandboxRuntimeModular", () => {
         document.head.querySelector("style[data-hf-skip-hidden-images]")?.remove();
       }
     });
+
+    it("keeps a hidden scene's contents hidden when a rewound GSAP set marks one visible inline", () => {
+      hideTimedClipsUntilFirstPass();
+      try {
+        document.body.innerHTML =
+          `<div data-composition-id="main" data-root="true" data-start="0" data-duration="10" data-width="1920" data-height="1080">` +
+          `<div id="scene" style="position: absolute" data-start="5" data-duration="2"><div id="layer"></div></div>` +
+          `</div>`;
+        window.__timelines = { main: createMockTimeline(10) };
+        initSandboxRuntimeModular();
+        const layer = document.getElementById("layer")!;
+        const shown = (time: number) => {
+          window.__player?.seek(time);
+          return getComputedStyle(layer).visibility;
+        };
+        expect(shown(6)).toBe("visible");
+        // What GSAP writes when a set recorded while the scene showed is rewound past.
+        layer.style.visibility = "visible";
+        expect([shown(1), shown(6), shown(8)]).toEqual(["hidden", "visible", "hidden"]);
+      } finally {
+        revealTimedClipsAfterFirstPass();
+        document.head.querySelector("style[data-hf-hidden-clip-contents]")?.remove();
+      }
+    });
+
+    it("shows a hidden scene's contents in a copy a shader transition forces visible", () => {
+      hideTimedClipsUntilFirstPass();
+      try {
+        document.body.innerHTML =
+          `<div data-composition-id="main" data-root="true" data-start="0" data-duration="10" data-width="1920" data-height="1080">` +
+          `<div id="scene" style="position: absolute" data-start="5" data-duration="2"><p id="title">Title</p></div>` +
+          `</div>`;
+        window.__timelines = { main: createMockTimeline(10) };
+        initSandboxRuntimeModular();
+        window.__player?.seek(1);
+        const copy = document.getElementById("scene")!.cloneNode(true) as HTMLElement;
+        document.body.append(copy);
+        // As showSceneAndClips forces a captured scene and its clips visible.
+        copy.style.setProperty("visibility", "visible", "important");
+        expect(copy.hasAttribute("data-hf-clip-hidden")).toBe(true);
+        const sheet = document.querySelector<HTMLStyleElement>(
+          "style[data-hf-hidden-clip-contents]",
+        )!.sheet!;
+        const rule = sheet.cssRules[0] as CSSStyleRule;
+        expect(copy.querySelector("p")!.matches(rule.selectorText)).toBe(false);
+        expect(document.getElementById("title")!.matches(rule.selectorText)).toBe(true);
+      } finally {
+        revealTimedClipsAfterFirstPass();
+        document.head.querySelector("style[data-hf-hidden-clip-contents]")?.remove();
+      }
+    });
+
+    it("leaves an image the HDR layer mask shows inside a container the mask hides", () => {
+      hideTimedClipsUntilFirstPass();
+      try {
+        document.body.innerHTML =
+          `<div id="root" data-composition-id="main" data-root="true" data-start="0" data-duration="10" data-width="1920" data-height="1080">` +
+          `<img id="logo" src="logo.png" style="position: absolute" data-start="0" data-duration="10" data-hf-render-id="logo">` +
+          `</div>`;
+        window.__timelines = { main: createMockTimeline(10) };
+        initSandboxRuntimeModular();
+        window.__player?.seek(1);
+        // As the engine's DOM-layer mask hides the other layers of an HDR frame; its show rule is weaker than ours.
+        document.getElementById("root")!.style.setProperty("visibility", "hidden", "important");
+        const sheet = document.querySelector<HTMLStyleElement>(
+          "style[data-hf-hidden-clip-contents]",
+        )!.sheet!;
+        const rule = sheet.cssRules[0] as CSSStyleRule;
+        expect(document.getElementById("logo")!.matches(rule.selectorText)).toBe(false);
+      } finally {
+        revealTimedClipsAfterFirstPass();
+        document.head.querySelector("style[data-hf-hidden-clip-contents]")?.remove();
+      }
+    });
   });
 
   /**

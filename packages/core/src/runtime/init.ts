@@ -6,7 +6,12 @@ import { preloadMedia, releaseMedia, lengthIsAuthored, stopMediaDownload } from 
 import { installRuntimeControlBridge, postRuntimeMessage, setRuntimeProtocolFps } from "./bridge";
 import { instantTolerance } from "../clipFacts";
 import { isInClipWindow } from "./clipWindow";
-import { revealTimedClipsAfterFirstPass, SKIPPED_CLIP, skipsHiddenImages } from "./timedClipHide";
+import {
+  CLIP_HIDDEN_ATTR,
+  revealTimedClipsAfterFirstPass,
+  SKIPPED_CLIP,
+  skipsHiddenImages,
+} from "./timedClipHide";
 import {
   PREVIEW_ONLY_ATTRS,
   RUNTIME_STAMPED_ATTR,
@@ -295,6 +300,7 @@ const RUNTIME_MEDIA_ATTRS = new Set([
   "src",
   COLOR_GRADING_AUTHORED_OPACITY_ATTR,
   EDIT_ORIGINAL_TRANSLATE_ATTR,
+  CLIP_HIDDEN_ATTR,
   ...PREVIEW_ONLY_ATTRS,
 ]);
 const ownClasses = (value: string) =>
@@ -2823,6 +2829,7 @@ export function initSandboxRuntimeModular(): void {
         clipChainVisibleAt(rawNode.parentElement, currentTime, visibleAt, rootComp);
       const isRuntimeStamped = stampsForStudio && rawNode.hasAttribute(RUNTIME_STAMPED_ATTR);
       if (!isRuntimeStamped) rawNode.style.visibility = isVisibleNow ? "visible" : "hidden";
+      rawNode.toggleAttribute(CLIP_HIDDEN_ATTR, !isRuntimeStamped && !isVisibleNow);
       const upcoming =
         hiddenImagesSkipped && !isVisibleNow && dueSoon(rawNode, visibleAt, currentTime);
       if (upcoming && !rawNode.hasAttribute(STUDIO_PREVIEW_UPCOMING_ATTR))
