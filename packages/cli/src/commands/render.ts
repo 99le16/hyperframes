@@ -64,7 +64,7 @@ import { resolve, dirname, join, basename } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { loadProducer } from "../utils/producer.js";
 import { c } from "../ui/colors.js";
-import { desktopHint } from "../utils/desktopApp.js";
+import { desktopAgentNote, desktopGuide, desktopHintFor } from "../utils/desktopApp.js";
 import {
   formatBytes,
   formatRenderSummaryDetail,
@@ -82,6 +82,7 @@ import {
   type RenderOutputShapeTelemetryPayload,
   type RenderEnvironmentTelemetryPayload,
 } from "../telemetry/events.js";
+import { detectAgentRuntime } from "../telemetry/agent_runtime.js";
 import { maybePromptRenderFeedback } from "../telemetry/feedback.js";
 import {
   readConfigFresh,
@@ -1961,8 +1962,11 @@ function printRenderComplete(input: {
   console.log(c.success("\u25C7") + "  " + c.accent(outputPath));
   console.log("   " + c.bold(fileSize) + c.dim(" \u00B7 " + detail));
   if (perf) printRenderPipeline(perf, input.requestedGpuMode);
-  const hint = input.desktopHint ? desktopHint(input.projectDir) : null;
-  if (hint) console.log("   " + c.dim(hint));
+  const guide = input.desktopHint ? desktopGuide(input.projectDir) : null;
+  if (!guide) return;
+  console.log("   " + c.dim(desktopHintFor(guide)));
+  // Under an agent the person reads the agent's reply, not this terminal: the agent has to carry the app over.
+  if (detectAgentRuntime() !== null) console.log("   " + desktopAgentNote(guide));
 }
 
 function printRenderPipeline(

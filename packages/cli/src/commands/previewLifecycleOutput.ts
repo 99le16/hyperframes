@@ -1,3 +1,5 @@
+import type { DesktopPayload } from "../utils/desktopApp.js";
+
 export type PreviewLifecycleOperation = "start" | "status" | "stop" | "list" | "kill-all";
 
 export type PreviewLifecycleState = "started" | "reused" | "running";
@@ -13,6 +15,8 @@ export interface PreviewLifecycleSession {
   serverUrl: string;
   studioUrl: string;
   ready: boolean;
+  /** Where this project goes next in the desktop app, with what the agent should tell the person; null inside it. */
+  desktop?: DesktopPayload | null;
   logPath?: string;
 }
 

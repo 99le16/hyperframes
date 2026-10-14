@@ -7,8 +7,11 @@ import {
   AGENT_HANDOFF_FILE,
   HANDOFF_READY,
   agentSession,
+  desktopAgentNote,
+  desktopGuide,
   desktopHint,
   desktopInstalled,
+  desktopPayload,
   openCommandFor,
   openInDesktop,
 } from "./desktopApp.js";
@@ -305,5 +308,70 @@ describe("desktopHint", () => {
       installed: true,
     };
     expect(desktopHint(process.cwd(), inApp)).toBeNull();
+  });
+});
+
+describe("desktop guide for agents", () => {
+  const mac = { env: {}, platform: "darwin" as const };
+  const claude = { CLAUDE_CODE_SESSION_ID: "s-1" };
+
+  it("opens an installed app, or downloads first and opens once the app takes projects", () => {
+    expect(desktopGuide(process.cwd(), { ...mac, ready: true, installed: true })).toEqual({
+      action: "open",
+      command: "hyperframes open .",
+      downloadUrl: null,
+    });
+    expect(desktopGuide(process.cwd(), { ...mac, ready: true, installed: false })).toEqual({
+      action: "download",
+      command: "hyperframes open .",
+      downloadUrl: MAC_DOWNLOAD,
+    });
+    expect(
+      desktopGuide(process.cwd(), { env: {}, platform: "linux", ready: false, installed: true }),
+    ).toEqual({ action: "download", command: null, downloadUrl: `${MAC_DOWNLOAD}?os=linux` });
+  });
+
+  it("tells the agent to run `hyperframes open` now and say so, naming the conversation only where it carries over", () => {
+    const open = { action: "open", command: "hyperframes open .", downloadUrl: null } as const;
+    expect(desktopAgentNote(open, claude)).toBe(
+      'Agents: run "hyperframes open ." now: it opens this project in the HyperFrames desktop app with this conversation, ' +
+        "where the person keeps editing this video by chatting with Framey. Then tell them in your reply that it is open there.",
+    );
+    expect(desktopAgentNote(open, {})).not.toContain("with this conversation");
+  });
+
+  it("tells the agent to pass on the download, and to open the project once the app is in", () => {
+    const mac = {
+      action: "download",
+      command: "hyperframes open .",
+      downloadUrl: MAC_DOWNLOAD,
+    } as const;
+    expect(desktopAgentNote(mac, claude)).toBe(
+      "Agents: tell the person now, in your reply, that the HyperFrames desktop app is where they keep editing this " +
+        `video by chatting with Framey, and give them the download link: ${MAC_DOWNLOAD}. ` +
+        'Once it is installed, run "hyperframes open .": it opens this project there with this conversation.',
+    );
+    const linux = {
+      action: "download",
+      command: null,
+      downloadUrl: `${MAC_DOWNLOAD}?os=linux`,
+    } as const;
+    expect(desktopAgentNote(linux, {})).not.toContain("hyperframes open");
+  });
+
+  it("carries the guide and the note in JSON, and nothing inside the app or where there is no build", () => {
+    expect(
+      desktopPayload(process.cwd(), { ...mac, env: claude, ready: true, installed: true }),
+    ).toMatchObject({
+      action: "open",
+      agentNote: expect.stringContaining('run "hyperframes open ." now'),
+    });
+    const inApp = { HYPERFRAMES_DESKTOP_PROJECT: "/p" };
+    expect(
+      desktopPayload(process.cwd(), { ...mac, env: inApp, ready: true, installed: true }),
+    ).toBeNull();
+    expect(
+      desktopPayload(process.cwd(), { env: {}, platform: "win32", installed: false }),
+    ).toBeNull();
   });
 });

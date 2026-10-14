@@ -39,7 +39,13 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import * as clack from "@clack/prompts";
 import { c } from "../ui/colors.js";
-import { desktopHint } from "../utils/desktopApp.js";
+import {
+  desktopAgentNote,
+  desktopGuide,
+  desktopHintFor,
+  desktopPayload,
+} from "../utils/desktopApp.js";
+import { detectAgentRuntime } from "../telemetry/agent_runtime.js";
 import { isDevMode } from "../utils/env.js";
 import { normalizeErrorMessage as errorMessage } from "../utils/errorMessage.js";
 import { buildNpxCommand } from "../utils/npxCommand.js";
@@ -109,7 +115,7 @@ interface StudioSignalTarget {
   once(event: StudioShutdownSignal, listener: () => void): unknown;
   off(event: StudioShutdownSignal, listener: () => void): unknown;
 }
-type ContextField = "server" | "selection" | "lint" | "capabilities";
+type ContextField = "server" | "selection" | "lint" | "capabilities" | "desktop";
 type CompactSelectionPayload = Pick<
   StudioSelectionSnapshot,
   | "schemaVersion"
@@ -125,7 +131,13 @@ type CompactSelectionPayload = Pick<
   | "thumbnailUrl"
 >;
 
-const DEFAULT_CONTEXT_FIELDS: ContextField[] = ["server", "selection", "lint", "capabilities"];
+const DEFAULT_CONTEXT_FIELDS: ContextField[] = [
+  "server",
+  "selection",
+  "lint",
+  "capabilities",
+  "desktop",
+];
 
 const PREVIEW_PORT_MISMATCH_CODE = "preview-port-mismatch";
 
@@ -215,7 +227,7 @@ export default defineCommand({
     "context-fields": {
       type: "string",
       description:
-        "Comma-separated context fields to include: server,selection,lint,capabilities (only with --context)",
+        "Comma-separated context fields to include: server,selection,lint,capabilities,desktop (only with --context)",
     },
     "context-detail": {
       type: "string",
@@ -1139,6 +1151,7 @@ async function printCurrentContext(
     if (!selection.ok) addContextError(payload, "selection", selection.error);
   }
   if (contextIncludes(fields, "lint")) payload.lint = lint;
+  if (contextIncludes(fields, "desktop")) payload.desktop = desktopPayload(server.projectDir);
   if (contextIncludes(fields, "capabilities")) {
     payload.capabilities = {
       selection: true,
@@ -1266,6 +1279,7 @@ function previewLifecycleSession(options: {
     serverUrl,
     studioUrl: studioDeepLink(serverUrl, options.projectName),
     ready: true,
+    desktop: desktopPayload(options.projectDir),
     ...(options.logPath ? { logPath: options.logPath } : {}),
   };
 }
@@ -1291,8 +1305,13 @@ function printStudioSummary(
   console.log(`  ${c.dim("Project")}   ${c.accent(projectName)}`);
   console.log(`  ${c.dim("Studio")}    ${c.accent(urls.studioUrl)}`);
   console.log(`  ${c.dim("Server")}    ${c.accent(urls.serverUrl)}`);
-  const hint = desktopHint(projectDir);
-  if (hint) console.log(`  ${c.dim("Desktop")}   ${hint}`);
+  const guide = desktopGuide(projectDir);
+  if (guide) {
+    console.log(`  ${c.dim("Desktop")}   ${desktopHintFor(guide)}`);
+    // The person reads the agent's reply, not this terminal: under an agent, the agent carries the app over.
+    if (detectAgentRuntime() !== null)
+      console.log(`  ${c.dim("Agents")}    ${desktopAgentNote(guide)}`);
+  }
   console.log();
   for (const detail of opts.details ?? []) {
     console.log(`  ${c.dim(detail)}`);
