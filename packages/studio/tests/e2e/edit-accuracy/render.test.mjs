@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { FIXTURE_CDN } from "./grid.mjs";
+import { heldBrowser, holdProducerBrowser, renderBox } from "./render.mjs";
 
 const require = createRequire(import.meta.url);
 const gsapUrl = `${FIXTURE_CDN}npm/gsap@${require("gsap/package.json").version}/dist/gsap.min.js`;
@@ -49,7 +50,6 @@ vi.mock("../../../../producer/src/index.js", () => ({
 const decoder = { evaluate: async () => ({ left: 0, right: 1, top: 0, bottom: 1, area: 1 }) };
 
 async function render(html) {
-  const { renderBox } = await import("./render.mjs");
   const dir = mkdtempSync(join(tmpdir(), "edit-bench-render-"));
   if (html) writeFileSync(join(dir, "index.html"), html);
   onNewDocument.length = 0;
@@ -84,7 +84,6 @@ describe("renderBox", () => {
   });
 
   it("holds the producer browser with the renders' launch settings and no page of its own", async () => {
-    const { holdProducerBrowser } = await import("./render.mjs");
     const dir = mkdtempSync(join(tmpdir(), "edit-bench-hold-"));
     sessionArgs.length = 0;
     closed.length = 0;
@@ -104,7 +103,6 @@ describe("renderBox", () => {
   });
 
   it("drops a held browser that died or never launched and holds a new one", async () => {
-    const { heldBrowser, holdProducerBrowser } = await import("./render.mjs");
     const dir = mkdtempSync(join(tmpdir(), "edit-bench-hold-"));
     const first = { connected: true };
     producer.browser = first;
