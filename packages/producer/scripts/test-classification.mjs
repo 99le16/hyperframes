@@ -33,6 +33,7 @@ const INTEGRATION_TEST_FILES = new Set([
   "src/services/render/hlsRender.integration.test.ts",
   "src/services/render/motionBlurVideo.integration.test.ts",
   "src/services/render/renderCancel.integration.test.ts",
+  "src/services/render/segmentedColorGrading.integration.test.ts",
   "src/services/render/stages/compileStage.mediaType.test.ts",
   "src/services/render/stages/gifEncodeArgs.test.ts",
   "src/services/videoFrameBorderClip.test.ts",
