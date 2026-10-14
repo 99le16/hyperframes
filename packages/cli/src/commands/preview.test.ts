@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import * as clack from "@clack/prompts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runCommand } from "citty";
+import { desktopPayload } from "../utils/desktopApp.js";
 import { PreviewServerPortMismatchError } from "../utils/studioSelectionClient.js";
 import { PreviewPortUnavailableError } from "./previewLifecycle.js";
 import {
@@ -472,6 +473,8 @@ describe("foreground preview JSON", () => {
         serverUrl: "http://127.0.0.1:4567",
         studioUrl: "http://127.0.0.1:4567/#project/Launch%20%231",
         ready: true,
+        // Where the project goes next in the desktop app, as this machine has it.
+        desktop: desktopPayload(dir),
       },
     });
   });
