@@ -141,11 +141,11 @@ export function createPickerModule(deps: PickerModuleDeps): PickerModule {
     if (!win) return false;
     let current: HTMLElement | null = el;
     if (win.getComputedStyle(el).visibility === "hidden") return true;
+    if (isDecorativeVeil(el, win)) return true;
     while (current && current !== document.body && current !== document.documentElement) {
       const computed = win.getComputedStyle(current);
       if (computed.display === "none") return true;
       if (computed.pointerEvents === "none") return true;
-      if (isDecorativeVeil(current, win)) return true;
       const opacity = Number.parseFloat(computed.opacity);
       if (
         Number.isFinite(opacity) &&

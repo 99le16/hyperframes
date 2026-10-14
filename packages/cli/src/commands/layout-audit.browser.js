@@ -878,30 +878,43 @@
     return combined;
   }
 
-  // Share of the tile an opaque stop actually paints. Stops without a position
-  // fill the layer. A 1.6px dot on a 38px tile does not.
+  // Share of a radial dot's tile. A linear fill, or an opaque stop after a
+  // transparent one, stays fully painted. A 1.6px dot on a 38px tile does not.
   function gradientStopCoverage(layer, backgroundSize) {
+    if (!/radial-gradient/i.test(layer)) return 1;
     const stops = [
       ...layer.matchAll(/(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|transparent)\s+([\d.]+)(px|%)/gi),
     ];
-    if (stops.length === 0) return 1;
+    const tile = pxTile(backgroundSize);
+    const reach = tile ? leadingOpaqueRadius(stops, tile) : null;
+    if (reach === null) return 1;
+    return Math.min(1, (Math.PI * reach * reach) / (tile * tile));
+  }
+
+  function pxTile(backgroundSize) {
     const sizeMatch = String(backgroundSize || "").match(/([\d.]+)px/);
-    const tile = sizeMatch ? Number(sizeMatch[1]) : 0;
-    if (!tile) return 1;
-    let opaqueReach = 0;
-    let sawTransparent = false;
+    return sizeMatch ? Number(sizeMatch[1]) : 0;
+  }
+
+  function leadingOpaqueRadius(stops, tile) {
+    let reach = 0;
+    let sawOpaque = false;
     for (const stop of stops) {
-      const color = stop[1] || "";
-      const length = stop[3] === "%" ? (Number(stop[2]) / 100) * tile : Number(stop[2]);
-      const alpha = color === "transparent" ? 0 : color.startsWith("#") ? 1 : colorAlpha(color);
-      if (alpha > 0.6) opaqueReach = Math.max(opaqueReach, length);
-      else sawTransparent = true;
+      if (stopAlpha(stop[1] || "") <= 0.6) return sawOpaque ? reach : null;
+      sawOpaque = true;
+      reach = Math.max(reach, stopLength(stop, tile));
     }
-    if (!sawTransparent) return 1;
-    const fraction = /radial-gradient/i.test(layer)
-      ? (Math.PI * opaqueReach * opaqueReach) / (tile * tile)
-      : opaqueReach / tile;
-    return Math.min(1, fraction);
+    return null;
+  }
+
+  function stopAlpha(color) {
+    if (color === "transparent") return 0;
+    if (color.startsWith("#")) return 1;
+    return colorAlpha(color);
+  }
+
+  function stopLength(stop, tile) {
+    return stop[3] === "%" ? (Number(stop[2]) / 100) * tile : Number(stop[2]);
   }
 
   function splitTopLevelCommas(value) {
@@ -927,6 +940,7 @@
       .replace(/(?:repeating-)?(?:linear|radial|conic)-gradient\(/gi, "(")
       .replace(/rgba?\([^)]*\)/gi, "");
     if (/[a-z][a-z-]+\(/i.test(known)) return 1;
+    if (namesAColor(known)) return 1;
     const colors = backgroundImage.match(/rgba?\([^)]*\)|#[0-9a-fA-F]{3,8}\b|\btransparent\b/g);
     if (!colors) return 1;
     let max = 0;
@@ -947,6 +961,14 @@
       }
     }
     return max;
+  }
+
+  function namesAColor(known) {
+    const words = known.replace(
+      /\b(?:to|top|bottom|left|right|center|circle|ellipse|closest-side|farthest-side|closest-corner|farthest-corner|from|deg|rad|turn|grad|transparent|repeating|linear|radial|conic)\b/gi,
+      " ",
+    );
+    return /\b[a-z]{3,}\b/i.test(words);
   }
 
   const RASTER_TAGS = new Set(["IMG", "VIDEO", "CANVAS"]);

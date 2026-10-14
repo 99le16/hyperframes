@@ -600,19 +600,22 @@ function nearestParentTag(tag: OpenTag, tags: readonly OpenTag[]): OpenTag | und
   return parent;
 }
 
-function ancestorHasStackingContext(
+function parentHasStackingContext(
   tag: OpenTag,
   tags: readonly OpenTag[],
   stacking: ReadonlySet<string>,
 ): boolean {
-  for (let parent = nearestParentTag(tag, tags); parent; parent = nearestParentTag(parent, tags)) {
-    const id = readAttr(parent.raw, "id");
-    if (id && stacking.has(`#${id}`)) return true;
-    if (classTokens(parent).some((name) => stacking.has(`.${name}`))) return true;
-    const inline = readAttr(parent.raw, "style");
-    if (inline && STACKING_CONTEXT_DECLARATION.test(inline)) return true;
-  }
-  return false;
+  const parent = nearestParentTag(tag, tags);
+  if (!parent) return false;
+  return elementFormsStackingContext(parent, stacking);
+}
+
+function elementFormsStackingContext(tag: OpenTag, stacking: ReadonlySet<string>): boolean {
+  const id = readAttr(tag.raw, "id");
+  if (id && stacking.has(`#${id}`)) return true;
+  if (classTokens(tag).some((name) => stacking.has(`.${name}`))) return true;
+  const inline = readAttr(tag.raw, "style");
+  return Boolean(inline && STACKING_CONTEXT_DECLARATION.test(inline));
 }
 
 function negativeZIndexIsContained(
@@ -623,7 +626,7 @@ function negativeZIndexIsContained(
   if (!selector || !/^[.#][\w-]+$/.test(selector)) return false;
   const matched = tags.filter((tag) => tagMatchesSimpleSelector(tag, selector));
   if (matched.length === 0) return false;
-  return matched.every((tag) => ancestorHasStackingContext(tag, tags, stacking));
+  return matched.every((tag) => parentHasStackingContext(tag, tags, stacking));
 }
 
 function negativeZIndexFinding(
@@ -1075,7 +1078,7 @@ export const compositionRules: Array<(ctx: LintContext) => HyperframeLintFinding
   //
   // The element is only dropped when its nearest ancestor stacking context is
   // the composition root,
-  // which is the shape #4366 reports. Give any ancestor a stacking context and it
+  // which is the shape #4366 reports. Give its parent a stacking context and it
   // renders correctly: measured at 0.8.72 on ONE frame carrying the same
   // `z-index: -1` band under six triggers -- isolation:isolate, transform,
   // opacity below 1, filter, contain:paint, will-change -- all six PRESENT at full
@@ -1083,7 +1086,7 @@ export const compositionRules: Array<(ctx: LintContext) => HyperframeLintFinding
   // That is ordinary CSS painting order: a negative-z child paints above its
   // stacking context root's own background, so only the root case is hidden.
   //
-  // A simple class or id ancestor that this file itself sets as a stacking
+  // A simple class or id parent that this file itself sets as a stacking
   // context (isolation, transform, opacity below 1, filter, contain:paint,
   // will-change) is enough to know the element paints. Anything the cascade
   // could still hide stays a finding, and that message stays CONDITIONAL:
@@ -1107,7 +1110,7 @@ export const compositionRules: Array<(ctx: LintContext) => HyperframeLintFinding
       NEGATIVE_Z_INDEX.lastIndex = 0;
       const match = NEGATIVE_Z_INDEX.exec(inline);
       if (!match) continue;
-      if (ancestorHasStackingContext(tag, tags, stacking)) continue;
+      if (parentHasStackingContext(tag, tags, stacking)) continue;
       findings.push(negativeZIndexFinding(match, elementSelector(tag)));
     }
     return findings;

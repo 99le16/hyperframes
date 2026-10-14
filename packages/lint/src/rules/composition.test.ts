@@ -2578,6 +2578,16 @@ ${body}
       expect(finding?.selector).toBe("#under");
     });
 
+    it("still flags a negative z-index hidden by a card under an isolated stage", async () => {
+      const result = await lintHyperframeHtml(
+        wrap(
+          ".stage { isolation: isolate; } .card { background: #fff; } .bg { position: absolute; z-index: -1; }",
+          `    <div class="stage"><div class="card"><i class="bg"></i></div></div>`,
+        ),
+      );
+      expect(result.findings.some((f) => f.code === "negative_z_index")).toBe(true);
+    });
+
     it("stays quiet when a parent in the same file forms a stacking context", async () => {
       const result = await lintHyperframeHtml(
         wrap(

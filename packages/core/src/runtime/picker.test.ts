@@ -292,6 +292,15 @@ describe("createPickerModule", () => {
       }
     });
 
+    it("still picks an image inside a faint texture wrapper", () => {
+      const picker = createPickerModule({ postMessage: createMockPostMessage() });
+      picker.installPickerApi();
+      document.body.innerHTML =
+        '<div id="scene"><div id="wash" style="opacity:0.07;background-image:url(grain.svg)"><img id="photo" alt=""></div></div>';
+      const el = (id: string) => document.getElementById(id)!;
+      expect(candidatesUnder(() => [el("photo"), el("wash"), el("scene")])).toContain("#photo");
+    });
+
     it("does not pick a faint texture veil that covers the frame", () => {
       const picker = createPickerModule({ postMessage: createMockPostMessage() });
       picker.installPickerApi();

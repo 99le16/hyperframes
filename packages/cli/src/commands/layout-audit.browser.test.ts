@@ -2997,6 +2997,28 @@ describe("layout-audit.browser occlusion", () => {
     expect(issues.some((issue) => issue.code === "text_occluded")).toBe(false);
   });
 
+  it("still treats a linear fill that starts transparent as text occlusion", () => {
+    const occluded = auditOcclusionScene({
+      overlayStyle: {
+        backgroundImage: "linear-gradient(transparent 10px, #000 10px)",
+        backgroundSize: "400px 400px",
+      },
+      topmostId: "overlay",
+    }).find((issue) => issue.code === "text_occluded");
+    expect(occluded).toMatchObject({ selector: "#headline", containerSelector: "#overlay" });
+  });
+
+  it("still treats a named-color linear fill as text occlusion", () => {
+    const occluded = auditOcclusionScene({
+      overlayStyle: {
+        backgroundImage: "linear-gradient(transparent 50%, black 50%)",
+        backgroundSize: "100px 100px",
+      },
+      topmostId: "overlay",
+    }).find((issue) => issue.code === "text_occluded");
+    expect(occluded).toMatchObject({ selector: "#headline", containerSelector: "#overlay" });
+  });
+
   it("does not treat a sparse dot grid as an opaque cover", () => {
     const issues = auditOcclusionScene({
       overlayStyle: {
