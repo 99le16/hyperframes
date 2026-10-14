@@ -97,7 +97,7 @@ Full runtime evidence is only available by an explicit HTTP request with `debug:
 
 ## Errors
 
-Every refusal is JSON `{ "error", "code" }`. `code` is the stable token (`no-composition`, `stale_generation`, `source_changed_during_query`, `request_too_large`); a sentence with no token is `invalid_request`. An unknown route is `404` `{ "error": "not_found", "code": "not_found" }`. `GET /info` adds `version`, this package's version. The process listens on `127.0.0.1` and refuses a `Host` that is not loopback, so a rebinding request cannot read the project path. Install the server with the package: `hyperframes-inspector <project> [port]`, or `node dist/server.js`.
+Every refusal is JSON `{ "error", "code" }`. `code` is the stable token (`no-composition`, `stale_generation`, `source_changed_during_query`, `request_too_large`); a sentence with no token is `invalid_request`. A missing browser is `503` `browser_unavailable`, and an unexpected failure is `500` `internal_error`. Importing the module does not listen; `createInspectorServer(project)` builds one. An unknown route is `404` `{ "error": "not_found", "code": "not_found" }`. `GET /info` adds `version`, this package's version. The process listens on `127.0.0.1` and refuses a `Host` that is not loopback, so a rebinding request cannot read the project path. Install the server with the package: `hyperframes-inspector <project> [port]`, or `node dist/server.js`.
 
 ## Lifecycle and overhead
 

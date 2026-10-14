@@ -1,17 +1,19 @@
 import { spawn } from "node:child_process";
-import { request as httpRequest } from "node:http";
-import { mkdtempSync } from "node:fs";
+import { Agent, request as httpRequest } from "node:http";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { expect, it } from "vitest";
+import { createInspectorServer } from "../src/server.ts";
 
 const project = mkdtempSync(join(tmpdir(), "hf-inspector-"));
 
-function start() {
+function start(env?: NodeJS.ProcessEnv) {
   const server = spawn("bun", ["src/server.ts", project, "0"], {
     cwd: new URL("..", import.meta.url).pathname,
     stdio: ["ignore", "pipe", "pipe"],
+    env,
   });
   const lines = createInterface({ input: server.stdout! });
   const ready = new Promise<string>((resolve, reject) => {
@@ -40,7 +42,10 @@ it("answers info with a version, codes every refusal, and does not turn a large 
     expect(info.version).toMatch(/^\d+\.\d+\.\d+/);
     const missing = await fetch(url + "/nope");
     expect(missing.status).toBe(404);
-    expect(await missing.json()).toEqual({ error: "not_found", code: "not_found" });
+    expect(await missing.json()).toEqual({
+      error: "not_found",
+      code: "not_found",
+    });
     // fetch refuses to send a foreign Host, so this one request is raw HTTP.
     const rebound = await new Promise<{ status: number; body: unknown }>((resolve, reject) => {
       const req = httpRequest(url + "/info", { headers: { host: "evil.example" } }, (res) => {
@@ -57,7 +62,10 @@ it("answers info with a version, codes every refusal, and does not turn a large 
       req.end();
     });
     expect(rebound.status).toBe(403);
-    expect(rebound.body).toEqual({ error: "host_not_allowed", code: "host_not_allowed" });
+    expect(rebound.body).toEqual({
+      error: "host_not_allowed",
+      code: "host_not_allowed",
+    });
     const oversized = await fetch(url + "/inspect", {
       method: "POST",
       body: "x".repeat(64_001),
@@ -66,6 +74,65 @@ it("answers info with a version, codes every refusal, and does not turn a large 
     expect(await oversized.json()).toEqual({
       error: "request_too_large",
       code: "request_too_large",
+    });
+    const agent = new Agent({ keepAlive: true });
+    const again = await new Promise<{ status: number }>((resolve, reject) => {
+      const first = httpRequest(
+        url + "/inspect",
+        {
+          method: "POST",
+          agent,
+          headers: { "content-type": "application/json" },
+        },
+        (res) => {
+          res.resume();
+          res.on("end", () => {
+            const second = httpRequest(url + "/info", { agent }, (next) => {
+              next.resume();
+              resolve({ status: next.statusCode ?? 0 });
+            });
+            second.on("error", reject);
+            second.end();
+          });
+        },
+      );
+      first.on("error", reject);
+      first.end("x".repeat(64_001));
+    });
+    agent.destroy();
+    expect(again.status).toBe(200);
+    const empty = await fetch(url + "/inspect", {
+      method: "POST",
+      body: "null",
+    });
+    expect(empty.status).toBe(500);
+    expect(await empty.json()).toEqual({
+      error: "internal_error",
+      code: "internal_error",
+    });
+  } finally {
+    await server.stop();
+  }
+});
+
+it("importing the server does not listen", () => {
+  expect(typeof createInspectorServer).toBe("function");
+});
+
+it("a project with no browser answers 503 browser_unavailable", async () => {
+  const home = mkdtempSync(join(tmpdir(), "hf-home-"));
+  const server = start({ ...process.env, HOME: home, HF_INSPECT_CHROME: "" });
+  try {
+    const url = await server.url;
+    writeFileSync(join(project, "index.html"), "<!doctype html><html><body></body></html>");
+    const map = await fetch(url + "/element-map", {
+      method: "POST",
+      body: "{}",
+    });
+    expect(map.status).toBe(503);
+    expect(await map.json()).toEqual({
+      error: "browser_unavailable",
+      code: "browser_unavailable",
     });
   } finally {
     await server.stop();
