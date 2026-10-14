@@ -16,6 +16,7 @@ export interface ElementNode {
   position: number;
   groupSelector: string;
   siblingMatchCount: number;
+  generated?: boolean;
   children: number[];
 }
 export interface ElementDom {

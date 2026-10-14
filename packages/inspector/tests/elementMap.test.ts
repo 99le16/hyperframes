@@ -115,9 +115,78 @@ test("classes and text the timeline sets at the current frame do not change the 
     writeFileSync(join(dir, "index.html"), authored);
     const sources = authoredHtml(dir);
     const atRest = formatElementMap(withAuthoredState(collect(authored), sources)).text;
-    assert.match(atRest, /i\.ch ×3 "0\.0"/);
+    assert.match(atRest, /i\.ch ×3 @1-3 "0\.0"/);
     assert.equal(formatElementMap(withAuthoredState(collect(playing), sources)).text, atRest);
     assert.notEqual(map(playing).text, atRest);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("script-built letters inside a source text stay one stable line", () => {
+  const authored =
+    '<span id="a-type" data-hf-id="hf-t" class="a-type">Hi</span><b id="km" data-hf-id="hf-k">0.0</b>';
+  const playing = (on: boolean) =>
+    `<span id="a-type" data-hf-id="hf-t" class="a-type"><span class="a-ch${on ? " on" : ""}">H</span><span class="a-ch${on ? " on cur" : ""}">i</span></span><b id="km" data-hf-id="hf-k">${on ? "5.2" : "0.0"}</b>`;
+  const dir = mkdtempSync(join(tmpdir(), "inspect-map-"));
+  try {
+    writeFileSync(join(dir, "index.html"), authored);
+    const sources = authoredHtml(dir);
+    const early = formatElementMap(withAuthoredState(collect(playing(false)), sources)).text;
+    const later = formatElementMap(withAuthoredState(collect(playing(true)), sources)).text;
+    assert.equal(early, later);
+    assert.match(early, /#a-type[^\n]*"Hi"/);
+    assert.match(early, /span ×2 @1-2 \(generated\)/);
+    assert.match(early, /"0\.0"/);
+    assert.doesNotMatch(early, /a-ch|5\.2/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an empty source element keeps the elements a script appended", () => {
+  const dir = mkdtempSync(join(tmpdir(), "inspect-map-"));
+  try {
+    writeFileSync(join(dir, "index.html"), '<div id="box" data-hf-id="hf-b"></div>');
+    const text = formatElementMap(
+      withAuthoredState(
+        collect('<div id="box" data-hf-id="hf-b"><i class="e-p"></i><i class="e-p"></i></div>'),
+        authoredHtml(dir),
+      ),
+    ).text;
+    assert.match(text, /i\.e-p ×2/);
+    assert.doesNotMatch(text, /generated/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("class names stay in source order", () => {
+  const dir = mkdtempSync(join(tmpdir(), "inspect-map-"));
+  try {
+    writeFileSync(join(dir, "index.html"), '<i data-hf-id="hf-a" class="word light">x</i>');
+    const text = formatElementMap(
+      withAuthoredState(
+        collect('<i data-hf-id="hf-a" class="word light">x</i>'),
+        authoredHtml(dir),
+      ),
+    ).text;
+    assert.match(text, /i\.word\.light/);
+    assert.doesNotMatch(text, /i\.light\.word/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an id the runtime removed stays visible without becoming the selector", () => {
+  const dir = mkdtempSync(join(tmpdir(), "inspect-map-"));
+  try {
+    writeFileSync(join(dir, "index.html"), '<div id="root" data-hf-id="hf-r"></div>');
+    const text = formatElementMap(
+      withAuthoredState(collect('<div data-hf-id="hf-r"></div>'), authoredHtml(dir)),
+    ).text;
+    assert.match(text, /id="root"/);
+    assert.doesNotMatch(text, /#root/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

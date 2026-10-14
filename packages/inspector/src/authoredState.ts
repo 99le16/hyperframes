@@ -7,14 +7,75 @@ export function withAuthoredState(snapshot: ElementDom, sources: AuthoredHtml): 
   const byHfId = group(sources.htmlTags, (tag) => tag.hfId);
   const byId = group(sources.htmlTags, (tag) => tag.id);
   const live = snapshot.nodes;
-  const nodes = live.map((node) => {
-    const tag = sourceTag(node, byHfId, byId);
-    if (!tag) return node;
-    const text = node.children.length ? node.text : (leafText(sources, tag) ?? node.text);
-    const classes = authoredClasses(node, tag, live);
-    return classes ? { ...node, text, ...classes } : { ...node, text };
-  });
+  const matched = live.map((node) => sourceTag(node, byHfId, byId));
+  const generated = generatedInsideText(live, matched, sources);
+  const nodes = live.map((node, index) =>
+    generated.has(index)
+      ? steadyGenerated(node, live, generated)
+      : authoredNode(node, matched[index], sources, live),
+  );
   return { ...snapshot, nodes };
+}
+
+function authoredNode(
+  node: ElementNode,
+  tag: SourceTag | undefined,
+  sources: AuthoredHtml,
+  live: ElementNode[],
+): ElementNode {
+  if (!tag) return node;
+  const text = leafText(sources, tag) || node.text;
+  const id = node.id || tag.id || "";
+  const classes = authoredClasses(node, tag, live);
+  const next = { ...node, text, id };
+  return classes ? { ...next, ...classes } : next;
+}
+
+function generatedInsideText(
+  live: ElementNode[],
+  matched: (SourceTag | undefined)[],
+  sources: AuthoredHtml,
+) {
+  const generated = new Set<number>();
+  for (const [index, tag] of matched.entries()) {
+    if (!tag || !leafText(sources, tag)) continue;
+    for (const child of live[index]!.children)
+      if (!matched[child]) markGenerated(child, live, matched, generated);
+  }
+  return generated;
+}
+
+function markGenerated(
+  index: number,
+  live: ElementNode[],
+  matched: (SourceTag | undefined)[],
+  generated: Set<number>,
+) {
+  if (generated.has(index) || matched[index]) return;
+  generated.add(index);
+  for (const child of live[index]!.children) markGenerated(child, live, matched, generated);
+}
+
+function steadyGenerated(
+  node: ElementNode,
+  live: ElementNode[],
+  generated: Set<number>,
+): ElementNode {
+  const siblings =
+    node.parent === null ? [node] : live[node.parent]!.children.map((index) => live[index]!);
+  const siblingMatchCount = siblings.filter(
+    (other) => generated.has(other.index) && other.tag === node.tag,
+  ).length;
+  return {
+    ...node,
+    id: "",
+    classes: [],
+    text: "",
+    generated: true,
+    groupSelector: node.tag,
+    relative: `${node.tag}:nth-child(${node.position})`,
+    siblingMatchCount,
+  };
 }
 
 function group(tags: SourceTag[], key: (tag: SourceTag) => string | undefined) {
@@ -46,7 +107,7 @@ function leafText(sources: AuthoredHtml, tag: SourceTag): string | null {
 }
 
 function authoredClasses(node: ElementNode, tag: SourceTag, live: ElementNode[]) {
-  const classes = [...tag.classes].sort();
+  const classes = [...tag.classes];
   if (classes.join(" ") === node.classes.join(" ")) return null;
   if (!classes.every((c) => PLAIN_CLASS.test(c) && node.classes.includes(c))) return null;
   const simple = `${node.tag}${classes.map((c) => `.${c}`).join("")}`;
