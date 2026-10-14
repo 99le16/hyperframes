@@ -49,6 +49,7 @@ import { formatLintFindings } from "../utils/lintFormat.js";
 import { normalizeErrorMessage } from "../utils/errorMessage.js";
 import { serveStaticProjectHtml } from "../utils/staticProjectServer.js";
 import { c } from "../ui/colors.js";
+import { writeCaptureFileSync } from "../capture/captureFile.js";
 import { runCancellableProcess } from "../utils/cancellableProcess.js";
 import { findFFmpeg, findFFprobe, getFFmpegInstallHint } from "../browser/ffmpeg.js";
 import { parseAngle, type Camera } from "./motionShotLayout.js";
@@ -98,6 +99,21 @@ const FFMPEG_EXTRACT_TIMEOUT_MS = 30_000;
 /** Keep millisecond-level snapshot timing proof without leaking floating-point noise. */
 export function formatSnapshotTimestamp(time: number): string {
   return `${Number(time.toFixed(3))}s`;
+}
+
+/** --keep names a still by its millisecond label, so two distinct times may not share one. */
+function assertDistinctKeepNames(times: number[]): void {
+  const timeByLabel = new Map<string, number>();
+  for (const time of times) {
+    const label = formatSnapshotTimestamp(time);
+    const other = timeByLabel.get(label);
+    if (other !== undefined && other !== time) {
+      throw new Error(
+        `--keep would name both ${other} and ${time} at-${label}.png; pass times at least 1 ms apart`,
+      );
+    }
+    timeByLabel.set(label, time);
+  }
 }
 
 /** Shows media by the runtime's visibility rule. A clip held at the composition end, or past the end of a source
@@ -466,6 +482,8 @@ async function captureSnapshots(
     browserGpuMode?: BrowserGpuMode;
     /** Reference video: save its frame at each captured time plus a render|reference pair. */
     against?: string;
+    /** Add to outputDir without clearing it; name each still by its time, not its place in the run. */
+    keep?: boolean;
   },
 ): Promise<string[]> {
   const { bundleWithLocalizedFonts } = await import("../utils/bundleWithLocalizedFonts.js");
@@ -604,7 +622,7 @@ async function captureSnapshots(
       mkdirSync(snapshotDir, { recursive: true });
       try {
         const { readdirSync } = await import("node:fs");
-        for (const file of readdirSync(snapshotDir)) {
+        for (const file of opts.keep ? [] : readdirSync(snapshotDir)) {
           if (/\.(png|jpg|jpeg)$/i.test(file)) {
             const path = resolve(snapshotDir, file);
             replaced.push(path);
@@ -819,8 +837,10 @@ async function captureSnapshots(
         await recaptureSnapshotComposite(page);
 
         const timeLabel = formatSnapshotTimestamp(time);
-        const index = String(i).padStart(2, "0");
-        const filename = `frame-${index}-at-${timeLabel}.png`;
+        const slot = opts.keep
+          ? `at-${timeLabel}`
+          : `${String(i).padStart(2, "0")}-at-${timeLabel}`;
+        const filename = opts.keep ? `${slot}.png` : `frame-${slot}.png`;
         const framePath = join(snapshotDir, filename);
 
         let crop: { x: number; y: number; width: number; height: number } | undefined;
@@ -845,9 +865,12 @@ async function captureSnapshots(
             region,
             opts.zoomScale ?? DEFAULT_ZOOM_SCALE,
           );
-          writeFileSync(framePath, buffer);
+          writeCaptureFileSync(framePath, buffer);
         } else {
-          await page.screenshot({ path: framePath, type: "png", omitBackground: true });
+          writeCaptureFileSync(
+            framePath,
+            await page.screenshot({ type: "png", omitBackground: true }),
+          );
         }
         artifacts.push({
           id: `${invocation}-${i}`,
@@ -871,9 +894,9 @@ async function captureSnapshots(
               `   ${c.warn("⚠")} --against has no frame at ${timeLabel} — reference pair skipped`,
             );
           } else {
-            const refPath = join(snapshotDir, `ref-${index}-at-${timeLabel}.png`);
-            writeFileSync(refPath, refPng);
-            const pairPath = join(snapshotDir, `pair-${index}-at-${timeLabel}.jpg`);
+            const refPath = join(snapshotDir, `ref-${slot}.png`);
+            writeCaptureFileSync(refPath, refPng);
+            const pairPath = join(snapshotDir, `pair-${slot}.jpg`);
             const { createContactSheet } = await import("../capture/contactSheet.js");
             await createContactSheet([framePath, refPath], pairPath, {
               cols: 2,
@@ -998,6 +1021,12 @@ export default defineCommand({
         "Always include a readable end-of-timeline frame (default: true). Pass --no-end to capture only your exact --at times.",
       default: true,
     },
+    keep: {
+      type: "boolean",
+      description:
+        "Add to --output instead of clearing it, naming each still at-<seconds>s.png (at-0s, at-1.5s, at-12.25s: no trailing zeros), so snapshotting one moment again replaces only that still. Times less than 1 ms apart share a name, so one run may not pass two of them. No contact sheet.",
+      default: false,
+    },
     zoom: {
       type: "string",
       description:
@@ -1074,6 +1103,7 @@ export default defineCommand({
           .map((s) => parseFloat(s.trim()))
           .filter((n) => !isNaN(n))
       : undefined;
+    if (args.keep === true && atTimestamps) assertDistinctKeepNames(atTimestamps);
     // Gemini frame analysis runs by default (silently skipped if
     // GEMINI_API_KEY is not set). `--describe "custom question"` overrides
     // the default prompt with a targeted question. `--describe false` opts
@@ -1122,6 +1152,7 @@ export default defineCommand({
           autoProxy: args.proxy as boolean | undefined,
           browserGpuMode: resolveLocalBrowserGpuMode(args["browser-gpu"] as boolean | undefined),
           against,
+          keep: args.keep === true,
         });
         reportArtifacts(
           "snapshot",
@@ -1146,13 +1177,16 @@ export default defineCommand({
           );
         }
 
-        // Generate contact sheet for quick AI review
+        // Generate contact sheet for quick AI review; a --keep folder mixes runs, so it gets none.
         try {
           const { createSnapshotContactSheet } = await import("../capture/contactSheet.js");
-          const sheets = await createSnapshotContactSheet(
-            snapshotDir,
-            join(snapshotDir, "contact-sheet.jpg"),
-          );
+          const sheets =
+            args.keep === true
+              ? []
+              : await createSnapshotContactSheet(
+                  snapshotDir,
+                  join(snapshotDir, "contact-sheet.jpg"),
+                );
           reportArtifacts("snapshot", "contact-sheet", sheets);
           for (const sheet of sheets) {
             console.log(`   ${resolve(sheet)} (grid view for AI review)`);
