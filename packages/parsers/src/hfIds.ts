@@ -183,10 +183,30 @@ function placeId(html: string, tag: StartTag, id: string, fillEmpty: boolean) {
 }
 
 function emptyHfIdValue(html: string, tag: StartTag): number | null {
-  const open = html.slice(tag.nameEnd, tag.bracket);
+  const open = outsideQuotes(html.slice(tag.nameEnd, tag.bracket));
   const match = /\sdata-hf-id\s*=\s*(["'])\1/i.exec(open);
   if (!match) return null;
   return tag.nameEnd + match.index + match[0].length - 1;
+}
+
+function outsideQuotes(open: string): string {
+  let quote = "";
+  let out = "";
+  for (const c of open) {
+    out += quotedChar(quote, c);
+    quote = quoteOf(quote, c);
+  }
+  return out;
+}
+
+function quoteOf(quote: string, c: string): string {
+  if (quote) return c === quote ? "" : quote;
+  return c === '"' || c === "'" ? c : "";
+}
+
+function quotedChar(quote: string, c: string): string {
+  if (!quote || c === quote) return c;
+  return " ";
 }
 
 function spliceIds(html: string, inserts: Insert[]): string {
