@@ -36,6 +36,9 @@ async function listen(handler: Parameters<typeof createServer>[1]): Promise<[Ser
   return [server, `127.0.0.1:${(server.address() as AddressInfo).port}`];
 }
 
+// A loaded Windows runner can take over 10 s to load one page while sibling suites launch Chrome.
+const LOAD_MS = 30_000;
+
 // Each probe sets document.title once its attempt settled, either way.
 const PROBES: Record<string, string> = {
   fetch: `fetch("http://FOREIGN/x").then((r) => r.text()).then((t) => { document.title = t; }, () => { document.title = "blocked"; });`,
@@ -100,6 +103,7 @@ ${PROBES[probe]!.replaceAll("FOREIGN", foreignHost)}</script></body></html>`;
     let popupSettled: Promise<unknown> = Promise.resolve();
     const { browser, page } = await openSettledCompositionPage(html(), `http://${projectHost}/`, {
       renderReadyTimeoutMs: 2_000,
+      navigationTimeoutMs: LOAD_MS,
       renderReadyWarningSuffix: "local-only test",
       browserGpuMode: "software",
       localOnly,
@@ -108,13 +112,13 @@ ${PROBES[probe]!.replaceAll("FOREIGN", foreignHost)}</script></body></html>`;
         p.on("popup", (popup) => {
           popupSettled =
             popup
-              ?.waitForFunction(() => document.readyState === "complete", { timeout: 10_000 })
+              ?.waitForFunction(() => document.readyState === "complete", { timeout: LOAD_MS })
               .catch(() => undefined) ?? Promise.resolve();
         });
       },
     });
     try {
-      await page.waitForFunction(() => document.title !== "", { timeout: 10_000 });
+      await page.waitForFunction(() => document.title !== "", { timeout: LOAD_MS });
       await popupSettled;
       return { title: await page.title(), failed };
     } finally {
@@ -126,7 +130,7 @@ ${PROBES[probe]!.replaceAll("FOREIGN", foreignHost)}</script></body></html>`;
     const { title, failed } = await run("fetch", true);
     expect(title).toBe("blocked");
     expect(failed).toEqual([`http://${foreignHost}/x net::ERR_BLOCKED_BY_CLIENT.Inspector`]);
-  }, 60_000);
+  }, 90_000);
 
   it("leaves an in-process server origin to the handler that answers it", async () => {
     const origin = "http://hyperframes-test.localhost";
@@ -135,6 +139,7 @@ ${PROBES[probe]!.replaceAll("FOREIGN", foreignHost)}</script></body></html>`;
 <script>window.__timelines={main:{duration:()=>1,seek:()=>{},pause:()=>{}}};</script></body></html>`;
     const session = await openSettledCompositionPage(page, `${origin}/`, {
       renderReadyTimeoutMs: 2_000,
+      navigationTimeoutMs: LOAD_MS,
       renderReadyWarningSuffix: "local-only test",
       browserGpuMode: "software",
       localOnly: true,
@@ -150,7 +155,7 @@ ${PROBES[probe]!.replaceAll("FOREIGN", foreignHost)}</script></body></html>`;
     } finally {
       await closeManagedBrowser(session.browser);
     }
-  }, 60_000);
+  }, 90_000);
 
   it.each(Object.keys(PROBES))(
     "keeps a %s from reaching another host",
@@ -158,7 +163,7 @@ ${PROBES[probe]!.replaceAll("FOREIGN", foreignHost)}</script></body></html>`;
       await run(name, true);
       expect(foreignHits).toBe(0);
     },
-    60_000,
+    90_000,
   );
 
   it.each(Object.keys(PROBES))(
@@ -167,7 +172,7 @@ ${PROBES[probe]!.replaceAll("FOREIGN", foreignHost)}</script></body></html>`;
       await run(name, false);
       expect(foreignHits).toBeGreaterThan(0);
     },
-    60_000,
+    90_000,
   );
 });
 
