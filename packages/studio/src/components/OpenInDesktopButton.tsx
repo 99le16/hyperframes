@@ -289,9 +289,7 @@ export function OpenInDesktopButton() {
   return (
     <Popover
       open={cardOpen}
-      // The popover owns the trigger's press: a press opens the project where the app has it, else shows the card,
-      // also while the card Studio opened is still up (a press would otherwise only close it). A second handler on the
-      // button raced this one.
+      // The popover owns the trigger's press, also while Studio's own card is up (else a press only closes it).
       onOpenChange={(next, details) => {
         if (next || details.reason === "trigger-press") pressHeader();
         else setCardOpen(false);
