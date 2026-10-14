@@ -49,6 +49,33 @@ export function rerenderGsapTimelineAt(
   }
 }
 
+/**
+ * Seeks a timeline to `t`. GSAP skips the render of a seek to the time a timeline already sits at,
+ * so a never-rendered timeline at 0 would keep its pre-timeline styles: redraw it. Returns whether it redrew.
+ */
+export function seekGsapTimeline(
+  timeline: RuntimeTimelineLike,
+  t: number,
+  suppressEvents: boolean,
+): boolean {
+  if (typeof timeline.totalTime !== "function") {
+    timeline.seek(t, suppressEvents);
+    return false;
+  }
+  const stayed = timeline.time() === t;
+  timeline.totalTime(t, suppressEvents);
+  if (!stayed) return false;
+  rerenderGsapTimelineAt(
+    {
+      totalTime: timeline.totalTime.bind(timeline),
+      totalDuration: timeline.totalDuration?.bind(timeline),
+      getChildren: timeline.getChildren?.bind(timeline),
+    },
+    t,
+  );
+  return true;
+}
+
 type GsapParent = {
   _dur: number;
   _tDur: number;

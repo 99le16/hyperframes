@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import gsap from "gsap";
 import { describe, expect, it } from "vitest";
-import { createGsapAdapter, rerenderGsapTimelineAt } from "./gsap";
+import { createGsapAdapter, rerenderGsapTimelineAt, seekGsapTimeline } from "./gsap";
 import type { RuntimeTimelineLike } from "../types";
 
 // Every 0.1 s: hide all three frames, then show one, as frame-by-frame films do.
@@ -529,5 +529,31 @@ describe("gsap adapter just after a tween's start", () => {
       adapter.seek({ time: frame / 30 });
       expect(seeked.box.y, `frame ${frame}`).toBeCloseTo(played.box.y, 6);
     }
+  });
+});
+
+describe("seekGsapTimeline", () => {
+  function hiddenAtZero() {
+    const word = document.body.appendChild(document.createElement("span"));
+    let calls = 0;
+    const timeline = gsap.timeline({ paused: true });
+    timeline.set(word, { visibility: "hidden" }, 0);
+    timeline.call(() => void calls++, [], 0);
+    timeline.set(word, { visibility: "visible" }, 0.5);
+    return { word, timeline: timeline as unknown as RuntimeTimelineLike, calls: () => calls };
+  }
+
+  it("renders a never-rendered timeline seeked to the time it sits at", () => {
+    const film = hiddenAtZero();
+    seekGsapTimeline(film.timeline, 0, false);
+    expect(film.word.style.visibility).toBe("hidden");
+  });
+
+  it("fires a call at that time once across the next seeks", () => {
+    const film = hiddenAtZero();
+    seekGsapTimeline(film.timeline, 0, false);
+    seekGsapTimeline(film.timeline, 0, false);
+    seekGsapTimeline(film.timeline, 0.1, false);
+    expect(film.calls()).toBe(1);
   });
 });
