@@ -48,6 +48,10 @@ describe("formatSnapshotTimestamp", () => {
   it.each([
     [1.12, "1.12s"],
     [0.30000000000000004, "0.3s"],
+    [0, "0s"],
+    [1.5, "1.5s"],
+    [12.25, "12.25s"],
+    [1.5000001, "1.5s"],
   ])("formats %s without discarding useful precision", (time, expected) => {
     expect(formatSnapshotTimestamp(time)).toBe(expected);
   });

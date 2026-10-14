@@ -7,9 +7,9 @@ The person sees the plan as stills on the board, comments or draws on a frame, a
 ## 1. The run
 
 1. **Pose each shot** in the composition the project renders, the root `index.html`, at its key moment: real words, real fonts, real colors, the focal point big enough to read on a phone. A shot posed in its own file (`compositions/frames/NN-*.html`) shows only once it is mounted in `index.html` (`data-composition-src`) at its planned start; `snapshot` renders `index.html` and nothing else.
-2. **Snapshot every still in one run** with your host's snapshot tool when one is offered (each shot's seconds, out `boards/stills`); otherwise `npx hyperframes snapshot --at <every shot's seconds, in film order> --no-end --describe false -o boards/stills`. Each still is named `frame-NN-at-<seconds>s.png`, NN its place in the film. Every `snapshot` run clears its `-o` folder and numbers from `00`, so never snapshot a single moment into `boards/stills/` itself (step 4). Look at every still yourself; fix and snapshot again until each one holds.
+2. **Snapshot the stills** with your host's snapshot tool when one is offered (each shot's seconds, out `boards/stills`); otherwise `npx hyperframes snapshot --keep --at <each shot's seconds> --no-end --describe false -o boards/stills`. Each still is named for its time, `at-<seconds>s.png` with no trailing zeros (`at-0s.png`, `at-1.5s.png`, `at-12.25s.png`), and `--keep` leaves every other still in the folder as it is. Look at every still yourself; fix and snapshot again until each one holds.
 3. **Write `boards/storyboard.html`** (§ 2), styled as a finished board: Inter or the system sans-serif, a light page, each frame a rounded card with its still above its words, even gaps.
-4. **Stop.** Hand the person the board and wait for their go. Notes on frames change only those frames. For each one: re-pose it, snapshot just its moment into `boards/stills/redo/` (`--at <its seconds>`), move that one file over the frame's old still under the old name (its new time in the name if the time changed, and the page's `src` with it), then rewrite the page and stop again. The other stills stay as approved.
+4. **Stop.** Hand the person the board and wait for their go. Notes on frames change only those frames. For each one: re-pose it and snapshot just its moment again (the same command with `--at <its seconds>`), which replaces only its still. If its time moved, point the page's `src` at the new still and delete the old one. Rewrite the page's words if they changed, then stop again.
 5. **Once they say go**, animate from the approved stills.
 
 ## 2. The page
@@ -19,7 +19,7 @@ One `class="frame"` box per still, in film order, holding its image, a `class="t
 ```html
 <section class="act">Act 1: The hook</section>
 <div class="frame">
-  <img src="stills/frame-00-at-1.5s.png" alt="" />
+  <img src="stills/at-1.5s.png" alt="" />
   <div class="title">01: The hook</div>
   <div class="time">0.0 to 3.0s</div>
   <p class="words">The headline pushes in on a dark canvas.</p>

@@ -868,6 +868,7 @@ npx hyperframes snapshot my-project --at 1.5,4.3 --against ref.mp4
 | `--composition <id>`    | Spread `--frames` across the visible interval of the element with this `data-composition-id`. Use one of `--at`, `--range` or `--composition`.                      |
 | `--output, -o`          | Where the PNGs go (default: a new `<project>/.hyperframes/artifacts/snapshots/<id>` per run)                                                                       |
 | `--end` / `--no-end`    | Always add a readable end-of-timeline frame (default: on). `--no-end` captures only your `--at` times.                                                              |
+| `--keep`                | Add to `--output` instead of clearing it, naming each still for its time: `at-0s.png`, `at-1.5s.png`, `at-12.25s.png` (no trailing zeros). Snapshotting one moment again replaces only that still. No contact sheet. |
 | `--zoom`                | Crop to a CSS selector or an exact `x,y,w,h` region, using a raised device scale factor. Layout is untouched — never CSS zoom or a resized viewport. A selector that matches nothing is an error. |
 | `--against`             | A reference video, such as footage you are rebuilding. For every captured time also saves its frame-exact frame (`ref-XX-…png`) and a labelled render / reference pair (`pair-XX-…jpg`). |
 | `--zoom-scale`          | Pixel density for `--zoom` crops (default 3)                                                                                                                        |

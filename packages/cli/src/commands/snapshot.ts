@@ -466,6 +466,8 @@ async function captureSnapshots(
     browserGpuMode?: BrowserGpuMode;
     /** Reference video: save its frame at each captured time plus a render|reference pair. */
     against?: string;
+    /** Add to outputDir without clearing it; name each still by its time, not its place in the run. */
+    keep?: boolean;
   },
 ): Promise<string[]> {
   const { bundleWithLocalizedFonts } = await import("../utils/bundleWithLocalizedFonts.js");
@@ -604,7 +606,7 @@ async function captureSnapshots(
       mkdirSync(snapshotDir, { recursive: true });
       try {
         const { readdirSync } = await import("node:fs");
-        for (const file of readdirSync(snapshotDir)) {
+        for (const file of opts.keep ? [] : readdirSync(snapshotDir)) {
           if (/\.(png|jpg|jpeg)$/i.test(file)) {
             const path = resolve(snapshotDir, file);
             replaced.push(path);
@@ -819,8 +821,10 @@ async function captureSnapshots(
         await recaptureSnapshotComposite(page);
 
         const timeLabel = formatSnapshotTimestamp(time);
-        const index = String(i).padStart(2, "0");
-        const filename = `frame-${index}-at-${timeLabel}.png`;
+        const slot = opts.keep
+          ? `at-${timeLabel}`
+          : `${String(i).padStart(2, "0")}-at-${timeLabel}`;
+        const filename = opts.keep ? `${slot}.png` : `frame-${slot}.png`;
         const framePath = join(snapshotDir, filename);
 
         let crop: { x: number; y: number; width: number; height: number } | undefined;
@@ -871,9 +875,9 @@ async function captureSnapshots(
               `   ${c.warn("⚠")} --against has no frame at ${timeLabel} — reference pair skipped`,
             );
           } else {
-            const refPath = join(snapshotDir, `ref-${index}-at-${timeLabel}.png`);
+            const refPath = join(snapshotDir, `ref-${slot}.png`);
             writeFileSync(refPath, refPng);
-            const pairPath = join(snapshotDir, `pair-${index}-at-${timeLabel}.jpg`);
+            const pairPath = join(snapshotDir, `pair-${slot}.jpg`);
             const { createContactSheet } = await import("../capture/contactSheet.js");
             await createContactSheet([framePath, refPath], pairPath, {
               cols: 2,
@@ -997,6 +1001,12 @@ export default defineCommand({
       description:
         "Always include a readable end-of-timeline frame (default: true). Pass --no-end to capture only your exact --at times.",
       default: true,
+    },
+    keep: {
+      type: "boolean",
+      description:
+        "Add to --output instead of clearing it, naming each still at-<seconds>s.png (at-0s, at-1.5s, at-12.25s: no trailing zeros), so snapshotting one moment again replaces only that still. No contact sheet.",
+      default: false,
     },
     zoom: {
       type: "string",
@@ -1122,6 +1132,7 @@ export default defineCommand({
           autoProxy: args.proxy as boolean | undefined,
           browserGpuMode: resolveLocalBrowserGpuMode(args["browser-gpu"] as boolean | undefined),
           against,
+          keep: args.keep === true,
         });
         reportArtifacts(
           "snapshot",
@@ -1146,13 +1157,16 @@ export default defineCommand({
           );
         }
 
-        // Generate contact sheet for quick AI review
+        // Generate contact sheet for quick AI review; a --keep folder mixes runs, so it gets none.
         try {
           const { createSnapshotContactSheet } = await import("../capture/contactSheet.js");
-          const sheets = await createSnapshotContactSheet(
-            snapshotDir,
-            join(snapshotDir, "contact-sheet.jpg"),
-          );
+          const sheets =
+            args.keep === true
+              ? []
+              : await createSnapshotContactSheet(
+                  snapshotDir,
+                  join(snapshotDir, "contact-sheet.jpg"),
+                );
           reportArtifacts("snapshot", "contact-sheet", sheets);
           for (const sheet of sheets) {
             console.log(`   ${resolve(sheet)} (grid view for AI review)`);
