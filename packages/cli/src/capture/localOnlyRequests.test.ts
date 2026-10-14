@@ -122,6 +122,30 @@ ${PROBES[probe]!.replaceAll("FOREIGN", foreignHost)}</script></body></html>`;
     expect(failed).toEqual([`http://${foreignHost}/x net::ERR_BLOCKED_BY_CLIENT.Inspector`]);
   }, 60_000);
 
+  it("leaves an in-process server origin to the handler that answers it", async () => {
+    const origin = "http://hyperframes-test.localhost";
+    const page = `<!doctype html><html><head><title>in-process</title></head><body>
+<div data-composition-id="main" data-width="320" data-height="180" data-duration="1"></div>
+<script>window.__timelines={main:{duration:()=>1,seek:()=>{},pause:()=>{}}};</script></body></html>`;
+    const session = await openSettledCompositionPage(page, `${origin}/`, {
+      renderReadyTimeoutMs: 2_000,
+      renderReadyWarningSuffix: "local-only test",
+      browserGpuMode: "software",
+      localOnly: true,
+      beforeNavigate: (p) => {
+        p.on("request", (r) => {
+          if (r.isInterceptResolutionHandled() || !r.url().startsWith(origin)) return;
+          void r.respond({ status: 200, contentType: "text/html", body: page }, 0);
+        });
+      },
+    });
+    try {
+      expect(await session.page.title()).toBe("in-process");
+    } finally {
+      await closeManagedBrowser(session.browser);
+    }
+  }, 60_000);
+
   it.each(Object.keys(PROBES))(
     "keeps a %s from reaching another host",
     async (name) => {

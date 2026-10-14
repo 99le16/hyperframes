@@ -47,9 +47,10 @@ export async function guardLocalOnlyRequests(page: Page, serverUrl: string): Pro
   await page.setRequestInterception(true);
   page.on("request", (request) => {
     if (request.isInterceptResolutionHandled()) return;
+    // Priority 0 lets another handler's respond() (an in-process server origin) win over this continue.
     const action = allowedLocalOnlyRequest(request.url(), serverUrl)
-      ? request.continue()
-      : request.abort("blockedbyclient");
+      ? request.continue(request.continueRequestOverrides(), 0)
+      : request.abort("blockedbyclient", 0);
     void action.catch(() => {});
   });
 }
