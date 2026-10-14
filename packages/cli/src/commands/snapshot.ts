@@ -484,6 +484,7 @@ async function captureSnapshots(
     against?: string;
     /** Add to outputDir without clearing it; name each still by its time, not its place in the run. */
     keep?: boolean;
+    localOnly?: boolean;
   },
 ): Promise<string[]> {
   const { bundleWithLocalizedFonts } = await import("../utils/bundleWithLocalizedFonts.js");
@@ -517,6 +518,7 @@ async function captureSnapshots(
       renderReadyTimeoutMs: opts.timeout ?? 5000,
       renderReadyWarningSuffix: "snapshots may be inaccurate",
       browserGpuMode: opts.browserGpuMode,
+      localOnly: opts.localOnly,
     });
 
     try {
@@ -1059,6 +1061,12 @@ export default defineCommand({
         "Use hardware browser GPU capture; pass --no-browser-gpu for deterministic SwiftShader (default: auto-detect, PRODUCER_BROWSER_GPU_MODE overrides)",
       default: undefined,
     },
+    "local-only": {
+      type: "boolean",
+      description:
+        "Load only the project's own files, data:/blob: URLs and the template CDNs (GSAP, Google Fonts); any other host fails to load",
+      default: false,
+    },
   },
   async run({ args }) {
     if ([args.at, args.range, args.composition].filter((value) => value !== undefined).length > 1)
@@ -1153,6 +1161,7 @@ export default defineCommand({
           browserGpuMode: resolveLocalBrowserGpuMode(args["browser-gpu"] as boolean | undefined),
           against,
           keep: args.keep === true,
+          localOnly: args["local-only"] === true,
         });
         reportArtifacts(
           "snapshot",
