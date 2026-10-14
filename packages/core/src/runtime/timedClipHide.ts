@@ -17,7 +17,7 @@ const SKIP_HIDDEN_IMAGES = `${SKIPPED_CLIP} img { display: none !important; }`;
 const STUDIO_PREVIEW_MARK = `meta[name="${STUDIO_PREVIEW_MARK_META}"]`;
 export const CLIP_HIDDEN_ATTR = "data-hf-clip-hidden";
 const CONTENTS_ATTR = "data-hf-hidden-clip-contents";
-const HIDE_HIDDEN_CLIP_CONTENTS = `[${CLIP_HIDDEN_ATTR}] * { visibility: hidden !important; }`;
+const HIDE_HIDDEN_CLIP_CONTENTS = `[${CLIP_HIDDEN_ATTR}][style*="visibility: hidden"] * { visibility: hidden !important; }`;
 
 type FirstPassWindow = Window & {
   __hfFirstPassHidden?: boolean;

@@ -537,6 +537,33 @@ describe("initSandboxRuntimeModular", () => {
       }
     });
 
+    it("shows a hidden scene's contents in a copy a shader transition forces visible", () => {
+      hideTimedClipsUntilFirstPass();
+      try {
+        document.body.innerHTML =
+          `<div data-composition-id="main" data-root="true" data-start="0" data-duration="10" data-width="1920" data-height="1080">` +
+          `<div id="scene" style="position: absolute" data-start="5" data-duration="2"><p id="title">Title</p></div>` +
+          `</div>`;
+        window.__timelines = { main: createMockTimeline(10) };
+        initSandboxRuntimeModular();
+        window.__player?.seek(1);
+        const copy = document.getElementById("scene")!.cloneNode(true) as HTMLElement;
+        document.body.append(copy);
+        // As showSceneAndClips forces a captured scene and its clips visible.
+        copy.style.setProperty("visibility", "visible", "important");
+        expect(copy.hasAttribute("data-hf-clip-hidden")).toBe(true);
+        const sheet = document.querySelector<HTMLStyleElement>(
+          "style[data-hf-hidden-clip-contents]",
+        )!.sheet!;
+        const rule = sheet.cssRules[0] as CSSStyleRule;
+        expect(copy.querySelector("p")!.matches(rule.selectorText)).toBe(false);
+        expect(document.getElementById("title")!.matches(rule.selectorText)).toBe(true);
+      } finally {
+        revealTimedClipsAfterFirstPass();
+        document.head.querySelector("style[data-hf-hidden-clip-contents]")?.remove();
+      }
+    });
+
     it("leaves an image the HDR layer mask shows inside a container the mask hides", () => {
       hideTimedClipsUntilFirstPass();
       try {
