@@ -1,13 +1,12 @@
-import { createServer, Server } from "node:http";
+import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { closeManagedBrowser } from "../browser/launch.js";
-import { openSettledCompositionPage } from "./captureCompositionFrame.js";
+import {
+  _answerPageInProcessForTests,
+  openSettledCompositionPage,
+} from "./captureCompositionFrame.js";
 import { allowedLocalOnlyRequest } from "./localOnlyRequests.js";
-import { serveStaticProjectHtml } from "../utils/staticProjectServer.js";
 
 describe("allowedLocalOnlyRequest", () => {
   const server = "http://127.0.0.1:4100/index.html";
@@ -172,60 +171,39 @@ ${PROBES[probe]!.replaceAll("FOREIGN", foreignHost)}</script></body></html>`;
   );
 });
 
-describe("a --local-only page served in-process, where a sandbox refuses listen()", () => {
-  let foreign: Server;
-  let foreignHost: string;
-  let foreignHits = 0;
+describe("an in-process server's request handler under --local-only", () => {
+  const origin = "http://hyperframes-1.localhost";
 
-  beforeAll(async () => {
-    [foreign, foreignHost] = await listen((_req, res) => {
-      foreignHits++;
-      res.writeHead(200, { "access-control-allow-origin": "*" }).end("FOREIGN TEXT");
+  /** What the handler did with one request: answered in-process, continued, or aborted. */
+  async function handle(url: string, localOnly: boolean): Promise<string> {
+    let onRequest!: (request: unknown) => void;
+    const page = {
+      setRequestInterception: async () => {},
+      on: (_: string, h: typeof onRequest) => (onRequest = h),
+    };
+    const answer = async () => ({ status: 200, headers: {}, body: Buffer.from("ok") });
+    await _answerPageInProcessForTests(page as never, `${origin}/`, answer as never, localOnly);
+    const done: string[] = [];
+    onRequest({
+      url: () => url,
+      method: () => "GET",
+      headers: () => ({}),
+      isInterceptResolutionHandled: () => false,
+      respond: async () => void done.push("respond"),
+      continue: async () => void done.push("continue"),
+      abort: async (code: string) => void done.push(`abort ${code}`),
     });
-  });
-  afterAll(async () => {
-    await new Promise((resolve) => foreign.close(resolve));
-  });
-
-  async function run(): Promise<{ title: string; failed: string[] }> {
-    foreignHits = 0;
-    const failed: string[] = [];
-    const dir = mkdtempSync(join(tmpdir(), "hf-local-only-inprocess-"));
-    const html = `<!doctype html><html><body>
-<div data-composition-id="main" data-width="320" data-height="180" data-duration="1"></div>
-<script>window.__timelines={main:{duration:()=>1,seek:()=>{},pause:()=>{}}};
-fetch("http://${foreignHost}/x").then((r) => r.text()).then((t) => { document.title = t; }, () => { document.title = "blocked"; });</script>
-</body></html>`;
-    const refused = Object.assign(new Error("sandbox refused listen"), { code: "EPERM" });
-    vi.spyOn(Server.prototype, "listen").mockImplementationOnce(function (this: Server) {
-      setImmediate(() => this.emit("error", refused));
-      return this;
-    });
-    const server = await serveStaticProjectHtml(dir, html);
-    expect(server.port).toBe(0);
-    const { browser, page } = await openSettledCompositionPage(html, server.url, {
-      renderReadyTimeoutMs: 2_000,
-      renderReadyWarningSuffix: "local-only test",
-      browserGpuMode: "software",
-      localOnly: true,
-      beforeNavigate: (p) => {
-        p.on("requestfailed", (r) => failed.push(`${r.url()} ${r.failure()?.errorText}`));
-      },
-    });
-    try {
-      await page.waitForFunction(() => document.title !== "", { timeout: 10_000 });
-      return { title: await page.title(), failed };
-    } finally {
-      await closeManagedBrowser(browser);
-      await server.close();
-      rmSync(dir, { recursive: true, force: true });
-    }
+    await vi.waitFor(() => expect(done).toHaveLength(1));
+    return done[0]!;
   }
 
-  it("blocks another host and still loads the project", async () => {
-    const { title, failed } = await run();
-    expect(title).toBe("blocked");
-    expect(foreignHits).toBe(0);
-    expect(failed).toEqual([`http://${foreignHost}/x net::ERR_BLOCKED_BY_CLIENT.Inspector`]);
-  }, 60_000);
+  it.each([
+    [`${origin}/index.html`, true, "respond"],
+    ["http://127.0.0.1:9999/secret", true, "abort blockedbyclient"],
+    ["https://cdn.jsdelivr.net/gh/someone/repo/payload.txt", true, "abort blockedbyclient"],
+    ["https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js", true, "continue"],
+    ["http://127.0.0.1:9999/secret", false, "continue"],
+  ])("%s with localOnly=%s is %s", async (url, localOnly, expected) => {
+    expect(await handle(url, localOnly)).toBe(expected);
+  });
 });

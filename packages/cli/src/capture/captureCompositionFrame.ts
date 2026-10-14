@@ -639,3 +639,5 @@ async function answerPageInProcess(
       .catch(() => request.abort("failed").catch(() => {}));
   });
 }
+
+export const _answerPageInProcessForTests = answerPageInProcess;
