@@ -60,7 +60,7 @@ describe("runEnvironmentChecks", () => {
     expect(runProcess).toHaveBeenCalledWith(
       process.execPath,
       ["-version"],
-      expect.objectContaining({ timeoutMs: 5000 }),
+      expect.objectContaining({ timeoutMs: 60_000 }),
     );
   });
 
@@ -258,7 +258,7 @@ describe("runEnvironmentChecks", () => {
         process.execPath,
         ["--version"],
         expect.objectContaining({
-          timeoutMs: 5000,
+          timeoutMs: 60_000,
           maxBufferBytes: 64 * 1024,
         }),
       );
