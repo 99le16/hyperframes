@@ -27,6 +27,8 @@ import {
   releaseBrowser,
   resolveHeadlessShellPath,
   resolveBrowserGpuMode,
+  resolveCaptureBrowserPath,
+  resolveFullChromePath,
 } from "./browserManager.js";
 
 describe("BeginFrame capability probe", () => {
@@ -481,6 +483,88 @@ describe("resolveBrowserGpuMode", () => {
     };
     const output = (spy: { mock: { calls: unknown[][] } }) =>
       spy.mock.calls.map((call) => String(call[0])).join("\n");
+    const noFullChrome = () => undefined;
+    const FULL_CHROME = "/home/u/.cache/puppeteer/chrome/linux-152/chrome-linux64/chrome";
+    const SHELL_RENDERER = {
+      hasWebGL: false,
+      vendor: "",
+      renderer: "",
+    };
+    const D3D12_RENDERER = {
+      hasWebGL: true,
+      vendor: "Google Inc. (Microsoft Corporation)",
+      renderer:
+        "ANGLE (Microsoft Corporation, D3D12 (NVIDIA GeForce RTX 4070 SUPER), OpenGL ES 3.1)",
+    };
+    /** The headless shell finds no GPU; full Chrome answers with `fullChromeInfo`. */
+    const shellWithoutGpu = (fullChromeInfo: typeof D3D12_RENDERER) => {
+      const launch = vi.fn(async (options: { executablePath?: string }) => ({
+        newPage: vi.fn().mockResolvedValue({
+          evaluate: vi
+            .fn()
+            .mockResolvedValue(
+              options.executablePath === FULL_CHROME ? fullChromeInfo : SHELL_RENDERER,
+            ),
+        }),
+        close: vi.fn().mockResolvedValue(undefined),
+      }));
+      _setPuppeteerForTests({ launch } as unknown as PuppeteerNode);
+      return launch;
+    };
+    const withFullChrome = {
+      platform: "linux" as const,
+      wslHost,
+      chromePath: "/home/u/.cache/hyperframes/chrome/chrome-headless-shell",
+      findFullChrome: () => FULL_CHROME,
+    };
+
+    it("renders on full Chrome when the headless shell finds no GPU", async () => {
+      const launch = shellWithoutGpu(D3D12_RENDERER);
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      expect(await resolveBrowserGpuMode("auto", withFullChrome)).toBe("hardware");
+      expect(await resolveCaptureBrowserPath("hardware", { chromePath: "/shell" })).toBe(
+        FULL_CHROME,
+      );
+      expect(launch.mock.calls.map(([options]) => options.executablePath)).toEqual([
+        withFullChrome.chromePath,
+        FULL_CHROME,
+      ]);
+      const text = output(error);
+      expect(text).toContain("browserGpuMode probe → hardware (full Chrome: WebGL renderer");
+      expect(text).not.toContain("uses software");
+    });
+
+    it("explicit 'hardware' takes the full Chrome route without warning", async () => {
+      shellWithoutGpu(D3D12_RENDERER);
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      expect(await resolveBrowserGpuMode("hardware", withFullChrome)).toBe("hardware");
+      expect(await resolveCaptureBrowserPath("hardware")).toBe(FULL_CHROME);
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("says full Chrome found no GPU either, and names native Windows", async () => {
+      shellWithoutGpu(SHELL_RENDERER);
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      expect(await resolveBrowserGpuMode("auto", withFullChrome)).toBe("software");
+      expect(await resolveCaptureBrowserPath("software", { chromePath: "/shell" })).toBe("/shell");
+      const text = output(error);
+      expect(text).toContain(`Full Chrome (${FULL_CHROME}) found no hardware GPU either.`);
+      expect(text).toContain("native Windows");
+      expect(text).not.toContain("@puppeteer/browsers install chrome");
+    });
+
+    it("without full Chrome, says how to install it", async () => {
+      shellWithoutGpu(D3D12_RENDERER);
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      expect(
+        await resolveBrowserGpuMode("auto", { ...withFullChrome, findFullChrome: noFullChrome }),
+      ).toBe("software");
+      expect(await resolveCaptureBrowserPath("hardware", { chromePath: "/shell" })).toBe("/shell");
+      expect(output(error)).toContain(
+        "npx @puppeteer/browsers install chrome@stable --path ~/.cache/puppeteer",
+      );
+    });
     const neverAnsweringProbe = () => {
       const launch = vi.fn().mockResolvedValue({
         newPage: vi.fn().mockResolvedValue({ evaluate: () => new Promise(() => {}) }),
@@ -494,8 +578,18 @@ describe("resolveBrowserGpuMode", () => {
     it("auto mode says it fell back to software, why, and the fix, once", async () => {
       setMockWebGlProbe({ hasWebGL: false, vendor: "", renderer: "" });
       const error = vi.spyOn(console, "error").mockImplementation(() => {});
-      expect(await resolveBrowserGpuMode("auto", { platform: "linux", wslHost })).toBe("software");
-      await resolveBrowserGpuMode("auto", { platform: "linux", wslHost });
+      expect(
+        await resolveBrowserGpuMode("auto", {
+          platform: "linux",
+          wslHost,
+          findFullChrome: noFullChrome,
+        }),
+      ).toBe("software");
+      await resolveBrowserGpuMode("auto", {
+        platform: "linux",
+        wslHost,
+        findFullChrome: noFullChrome,
+      });
       const text = output(error);
       expect(text).toContain("browserGpuMode probe → software (WebGL unavailable)");
       expect(text).toContain(
@@ -511,7 +605,11 @@ describe("resolveBrowserGpuMode", () => {
       try {
         neverAnsweringProbe();
         const error = vi.spyOn(console, "error").mockImplementation(() => {});
-        const mode = resolveBrowserGpuMode("auto", { platform: "linux", wslHost });
+        const mode = resolveBrowserGpuMode("auto", {
+          platform: "linux",
+          wslHost,
+          findFullChrome: noFullChrome,
+        });
         await vi.advanceTimersByTimeAsync(15_000 + 250);
         await expect(mode).resolves.toBe("software");
         const text = output(error);
@@ -529,7 +627,11 @@ describe("resolveBrowserGpuMode", () => {
         neverAnsweringProbe();
         const error = vi.spyOn(console, "error").mockImplementation(() => {});
         const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-        const mode = resolveBrowserGpuMode("hardware", { platform: "linux", wslHost });
+        const mode = resolveBrowserGpuMode("hardware", {
+          platform: "linux",
+          wslHost,
+          findFullChrome: noFullChrome,
+        });
         await vi.advanceTimersByTimeAsync(15_000 + 250);
         await expect(mode).resolves.toBe("hardware");
         const warning = output(warn);
@@ -549,9 +651,13 @@ describe("resolveBrowserGpuMode", () => {
       } as unknown as PuppeteerNode);
       const error = vi.spyOn(console, "error").mockImplementation(() => {});
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      expect(await resolveBrowserGpuMode("hardware", { platform: "linux", wslHost })).toBe(
-        "hardware",
-      );
+      expect(
+        await resolveBrowserGpuMode("hardware", {
+          platform: "linux",
+          wslHost,
+          findFullChrome: noFullChrome,
+        }),
+      ).toBe("hardware");
       const warning = output(warn);
       expect(warning).toContain("GPU probe could not run");
       expect(warning).toContain("hyperframes doctor");
@@ -563,9 +669,13 @@ describe("resolveBrowserGpuMode", () => {
       setMockWebGlProbe({ hasWebGL: false, vendor: "", renderer: "" });
       const error = vi.spyOn(console, "error").mockImplementation(() => {});
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      expect(await resolveBrowserGpuMode("hardware", { platform: "linux", wslHost })).toBe(
-        "hardware",
-      );
+      expect(
+        await resolveBrowserGpuMode("hardware", {
+          platform: "linux",
+          wslHost,
+          findFullChrome: noFullChrome,
+        }),
+      ).toBe("hardware");
       const warning = output(warn);
       expect(warning).toContain("sudo usermod -aG render $USER");
       expect(warning).not.toContain("--gpus all");
@@ -579,9 +689,40 @@ describe("resolveBrowserGpuMode", () => {
         renderer: "ANGLE (Microsoft Corporation, D3D12 (Intel(R) Graphics), OpenGL ES 3.0)",
       });
       const error = vi.spyOn(console, "error").mockImplementation(() => {});
-      expect(await resolveBrowserGpuMode("auto", { platform: "linux", wslHost })).toBe("hardware");
+      expect(
+        await resolveBrowserGpuMode("auto", {
+          platform: "linux",
+          wslHost,
+          findFullChrome: noFullChrome,
+        }),
+      ).toBe("hardware");
       expect(output(error)).not.toContain("WSL");
     });
+  });
+
+  it("finds no full Chrome, without throwing, when its cache cannot be read", () => {
+    const home = mkdtempSync(join(tmpdir(), "hf-full-chrome-cache-"));
+    const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+    try {
+      mkdirSync(join(home, ".cache", "puppeteer"), { recursive: true });
+      writeFileSync(join(home, ".cache", "puppeteer", "chrome"), "not a folder");
+      Object.assign(process.env, { HOME: home, USERPROFILE: home });
+      expect(resolveFullChromePath()).toBeUndefined();
+    } finally {
+      Object.assign(process.env, saved);
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("never swaps the browser outside WSL", async () => {
+    setMockWebGlProbe({ hasWebGL: false, vendor: "", renderer: "" });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const findFullChrome = vi.fn(() => "/full/chrome");
+    expect(
+      await resolveBrowserGpuMode("auto", { platform: "linux", wslHost: notWsl, findFullChrome }),
+    ).toBe("software");
+    expect(findFullChrome).not.toHaveBeenCalled();
+    expect(await resolveCaptureBrowserPath("hardware", { chromePath: "/shell" })).toBe("/shell");
   });
 
   it("falls back to 'software' within the probe budget when the probe page never answers", async () => {

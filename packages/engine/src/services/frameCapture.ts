@@ -49,6 +49,7 @@ import {
   forceReleaseBrowser,
   buildChromeArgs,
   resolveBrowserGpuMode,
+  resolveCaptureBrowserPath,
   resolveHeadlessShellPath,
   compositionRequiresWebGpu,
   assertWebGpuAdapterAvailable,
@@ -1306,8 +1307,11 @@ export async function createCaptureSession(
     resolvedGpuMode,
     config,
   );
+  const browserPath = await resolveCaptureBrowserPath(resolvedGpuMode, config);
+  const wslFullChromeHasNoBeginFrame = browserPath !== headlessShell;
   const preMode: CaptureMode =
     headlessShell &&
+    !wslFullChromeHasNoBeginFrame &&
     isLinux &&
     !effectiveForceScreenshot &&
     !supersampling &&
@@ -1330,7 +1334,7 @@ export async function createCaptureSession(
     gpuConfig,
   );
 
-  const browserLease = await acquireBrowser(chromeArgs, config);
+  const browserLease = await acquireBrowser(chromeArgs, { ...config, chromePath: browserPath });
   return constructCaptureSessionWithRollback({
     browserLease,
     serverUrl,
