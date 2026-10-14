@@ -50,6 +50,7 @@ import { normalizeErrorMessage } from "../utils/errorMessage.js";
 import { serveStaticProjectHtml } from "../utils/staticProjectServer.js";
 import { c } from "../ui/colors.js";
 import { writeCaptureFileSync } from "../capture/captureFile.js";
+import { isLocalOnlyBlock } from "../capture/localOnlyRequests.js";
 import { runCancellableProcess } from "../utils/cancellableProcess.js";
 import { findFFmpeg, findFFprobe, getFFmpegInstallHint } from "../browser/ffmpeg.js";
 import { parseAngle, type Camera } from "./motionShotLayout.js";
@@ -519,6 +520,14 @@ async function captureSnapshots(
       renderReadyWarningSuffix: "snapshots may be inaccurate",
       browserGpuMode: opts.browserGpuMode,
       localOnly: opts.localOnly,
+      beforeNavigate: (page) => {
+        if (!opts.localOnly) return;
+        page.on("requestfailed", (request) => {
+          if (!isLocalOnlyBlock(request.failure()?.errorText)) return;
+          warnings.push(`Blocked by --local-only: ${request.url()}`);
+          console.warn(`   ${c.warn("⚠")} ${request.url()} was blocked by --local-only`);
+        });
+      },
     });
 
     try {
@@ -1064,7 +1073,7 @@ export default defineCommand({
     "local-only": {
       type: "boolean",
       description:
-        "Load only the project's own files, data:/blob: URLs and the template CDNs (GSAP, Google Fonts); any other host fails to load",
+        "Load only the project's own files, data:/blob: URLs and the template CDNs (GSAP, Google Fonts); anything else, from the page, workers, popups or WebSocket, fails and is printed. Workers and popups get CDN hosts by host only",
       default: false,
     },
   },

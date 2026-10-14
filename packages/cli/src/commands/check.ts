@@ -218,7 +218,7 @@ const CHECK_COMMAND_ARGS = {
   "local-only": {
     type: "boolean",
     description:
-      "Load only the project's own files, data:/blob: URLs and the template CDNs (GSAP, Google Fonts); any other host fails as a failed load",
+      "Load only the project's own files, data:/blob: URLs and the template CDNs (GSAP, Google Fonts); anything else, from the page, workers, popups or WebSocket, fails and is reported. Workers and popups get CDN hosts by host only",
     default: false,
   },
   "browser-gpu": {

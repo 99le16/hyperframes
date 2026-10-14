@@ -6,7 +6,11 @@ import {
 import { spawn } from "node:child_process";
 import type { Browser, Page } from "puppeteer-core";
 import type { InProcessRequest, InProcessResponse } from "../utils/staticProjectServer.js";
-import { allowedLocalOnlyRequest, guardLocalOnlyRequests } from "./localOnlyRequests.js";
+import {
+  allowedLocalOnlyRequest,
+  guardLocalOnlyRequests,
+  localOnlyChromeArgs,
+} from "./localOnlyRequests.js";
 import { c } from "../ui/colors.js";
 import {
   assertWebGpuAdapterAvailable,
@@ -217,10 +221,13 @@ export async function openSettledCompositionPage(
     options.signal?.throwIfAborted();
     const webGpu = resolveLocalWebGpu(resolvedGpuMode, requiresWebGpu);
     softwareWebGpu = webGpu.softwareWebGpu;
-    const args = buildChromeArgs(
-      { ...viewport, captureMode: "screenshot", requiresWebGpu },
-      webGpu.gpuConfig,
-    );
+    const args = [
+      ...buildChromeArgs(
+        { ...viewport, captureMode: "screenshot", requiresWebGpu },
+        webGpu.gpuConfig,
+      ),
+      ...(options.localOnly ? localOnlyChromeArgs(url) : []),
+    ];
     return launchManagedBrowser(puppeteer.default, {
       headless: true,
       signal: options.signal,
