@@ -300,6 +300,7 @@ const RUNTIME_MEDIA_ATTRS = new Set([
   "src",
   COLOR_GRADING_AUTHORED_OPACITY_ATTR,
   EDIT_ORIGINAL_TRANSLATE_ATTR,
+  CLIP_HIDDEN_ATTR,
   ...PREVIEW_ONLY_ATTRS,
 ]);
 const ownClasses = (value: string) =>
