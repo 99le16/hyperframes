@@ -3031,15 +3031,17 @@ describe("layout-audit.browser occlusion", () => {
   });
 
   it("does not treat a sparse dot grid as an opaque cover", () => {
-    const issues = auditOcclusionScene({
-      overlayStyle: {
-        backgroundImage: "radial-gradient(#d4d5d8 1.6px, transparent 1.7px)",
-        backgroundSize: "38px 38px",
-        opacity: "0.7",
-      },
-      topmostId: "overlay",
-    });
-    expect(issues.some((issue) => issue.code === "text_occluded")).toBe(false);
+    for (const backgroundImage of [
+      "radial-gradient(#d4d5d8 1.6px, transparent 1.7px)",
+      "radial-gradient(#fff 1.6px, transparent 1.7px)",
+      "radial-gradient(rgba(255,255,255,.9) 1px, transparent 1px)",
+    ]) {
+      const issues = auditOcclusionScene({
+        overlayStyle: { backgroundImage, backgroundSize: "38px 38px", opacity: "0.7" },
+        topmostId: "overlay",
+      });
+      expect(issues.some((issue) => issue.code === "text_occluded")).toBe(false);
+    }
   });
 
   it("still treats a solid gradient overlay as text occlusion", () => {

@@ -881,7 +881,7 @@
   // Share of a radial dot's tile. A linear fill, or an opaque stop after a
   // transparent one, stays fully painted. A 1.6px dot on a 38px tile does not.
   function gradientStopCoverage(layer, backgroundSize) {
-    if (!/radial-gradient/i.test(layer) || namesAColor(layer)) return 1;
+    if (!/radial-gradient/i.test(layer) || namesAColor(withoutScoredColors(layer))) return 1;
     const stops = [
       ...layer.matchAll(/(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|transparent)\s+([\d.]+)(px|%)/gi),
     ];
@@ -975,6 +975,10 @@
       }
     }
     return max;
+  }
+
+  function withoutScoredColors(layer) {
+    return layer.replace(/rgba?\([^)]*\)|#[0-9a-fA-F]{3,8}\b/g, " ");
   }
 
   function namesAColor(known) {
