@@ -250,15 +250,15 @@ export class Sources {
     };
   }
   markup(element: ElementRef, target: number) {
-    const tags = this.htmlTags.filter(
-      (tag) =>
-        tag.tag === element.tag &&
-        (element.hfId
-          ? tag.hfId === element.hfId
-          : element.id
+    const sameTag = this.htmlTags.filter((tag) => tag.tag === element.tag);
+    const byHfId = element.hfId ? sameTag.filter((tag) => tag.hfId === element.hfId) : [];
+    const tags = byHfId.length
+      ? byHfId
+      : sameTag.filter((tag) =>
+          element.id
             ? tag.id === element.id
-            : element.classes.length > 0 && element.classes.every((c) => tag.classes.includes(c))),
-    );
+            : element.classes.length > 0 && element.classes.every((c) => tag.classes.includes(c)),
+        );
     return tags.length === 1
       ? this.slice(tags[0].file, tags[0].start, tags[0].end, "html opening tag", target)
       : null;
