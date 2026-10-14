@@ -6,7 +6,8 @@ import { processCompositionAudio, type AudioFailureDiagnostic } from "@hyperfram
 import { applyDistributedAudioWarningPolicy } from "../../../producer/src/services/distributed/plan.js";
 import { buildSyntheticRenderJob } from "../../../producer/src/services/distributed/shared.js";
 import { createRenderJob, executeRenderJob, type RenderJob } from "@hyperframes/producer";
-import { renderMachineDiagnostic } from "./renderDiagnostic.js";
+import { runAudioStage } from "../../../producer/src/services/render/stages/audioStage.js";
+import { renderFailureDiagnostic, renderMachineDiagnostic } from "./renderDiagnostic.js";
 
 const roots: string[] = [];
 const originalIsTTY = process.stdout.isTTY;
@@ -17,14 +18,15 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function capture(values: readonly unknown[], terminal = false): string {
+function capture(values: readonly unknown[] | (() => void), terminal = false): string {
   Object.defineProperty(process.stdout, "isTTY", { value: terminal, configurable: true });
   let output = "";
   vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
     output += String(chunk);
     return true;
   });
-  renderMachineDiagnostic(values);
+  if (typeof values === "function") values();
+  else renderMachineDiagnostic(values);
   return output;
 }
 
@@ -231,3 +233,64 @@ it("carries a local render audio failure through the real orchestration warning 
   ]);
   for (const secret of [root, "private.wav", "private-cue"]) expect(line).not.toContain(secret);
 });
+
+it.skipIf(process.platform === "win32")(
+  "keeps the triggering seventeenth interruption in the final bounded record",
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), "hf-audio-mixed-failure-"));
+    roots.push(root);
+    const executable = join(root, "ffmpeg");
+    writeFileSync(executable, `#!${process.execPath}\nprocess.kill(process.pid, "SIGTERM");\n`);
+    chmodSync(executable, 0o755);
+    vi.stubEnv("HYPERFRAMES_FFMPEG_PATH", executable);
+    writeFileSync(join(root, "private.wav"), "RIFF0000WAVEfmt ");
+    const track = {
+      id: "private-cue",
+      src: "private.wav",
+      type: "audio" as const,
+      start: 0,
+      end: 1,
+      mediaStart: 0,
+      volume: 1,
+      layer: 0,
+    };
+    let interrupted: unknown;
+    try {
+      await runAudioStage({
+        projectDir: root,
+        compiledDir: root,
+        workDir: join(root, "work"),
+        duration: 1,
+        ffmpegProcessTimeout: 5_000,
+        audioGain: 1,
+        abortSignal: undefined,
+        assertNotAborted: () => {},
+        audios: [
+          ...Array.from({ length: 16 }, (_, i) => ({
+            ...track,
+            id: `private-missing-${i}`,
+            src: `private-missing-${i}.wav`,
+          })),
+          track,
+        ],
+      });
+    } catch (error) {
+      interrupted = error;
+    }
+    expect(interrupted).toBeInstanceOf(Error);
+    const line = capture(() => renderFailureDiagnostic(undefined, interrupted, false));
+    const records = JSON.parse(line.slice("@hf-diagnostic ".length)).audioFailures;
+    expect(records).toHaveLength(16);
+    expect(records[0]).toEqual({
+      stage: "prepare",
+      reason: "external_interruption",
+      owner: "system",
+      retryable: true,
+      subprocess: { signal: "SIGTERM", terminationReason: "exit" },
+    });
+    expect(
+      records.slice(1).every((entry: { reason: string }) => entry.reason === "source_not_found"),
+    ).toBe(true);
+    expect(line).not.toMatch(/private-|secret/);
+  },
+);

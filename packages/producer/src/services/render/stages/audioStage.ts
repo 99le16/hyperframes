@@ -64,6 +64,13 @@ export interface AudioStageResult {
   audioFailures?: AudioProcessingFailure[];
 }
 
+function triggerFirst(
+  failures: readonly AudioProcessingFailure[] | undefined,
+  trigger: AudioProcessingFailure,
+): AudioProcessingFailure[] {
+  return [trigger, ...(failures ?? []).filter((failure) => failure !== trigger)];
+}
+
 export async function runAudioStage(input: AudioStageInput): Promise<AudioStageResult> {
   const {
     projectDir,
@@ -140,7 +147,7 @@ export async function runAudioStage(input: AudioStageInput): Promise<AudioStageR
       throw encoderFailureError("Audio processing failed", {
         error: interrupted.detail,
         failureReason: "external_interruption",
-        audioFailures: audioResult.failures,
+        audioFailures: triggerFirst(audioResult.failures, interrupted),
       });
     }
 
