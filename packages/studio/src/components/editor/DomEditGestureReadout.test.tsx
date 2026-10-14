@@ -16,6 +16,7 @@ vi.mock("./overlayFrameLoop", () => ({
   },
 }));
 vi.mock("./rotationDraft", () => ({ readRotationBase: vi.fn(() => 0) }));
+// React needs its runtime test flag, which the global typings do not declare.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | undefined;
 afterEach(() => {
