@@ -1,7 +1,12 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { rhythm, signalProvider, type AudioSignal } from "@hyperframes/core/audio-analysis";
+import {
+  rhythm,
+  signalProvider,
+  type AudioSignal,
+  type AudioCapability,
+} from "@hyperframes/core/audio-analysis";
 import { analyzeSignal } from "../analyze.js";
 import { apiProvider, type AudioApiRequest, type AudioApiResponse } from "./api.js";
 
@@ -135,6 +140,44 @@ describe("apiProvider", () => {
     );
     expect((analysis.values.bpm as { value: number }).value).toBeCloseTo(120, 0);
   });
+
+  it.each<{ capabilities: AudioCapability[] }>([
+    { capabilities: ["bpm"] },
+    { capabilities: ["beats", "bpm"] },
+    { capabilities: ["bpm", "beats"] },
+  ])("keeps a BPM signal pin local for $capabilities", async ({ capabilities }) => {
+    configure();
+    reply = () => ({ status: 200, body: { version: 1, beats: { times: [0.5, 1, 1.5] } } });
+    const analysis = await analyzeSignal(clicks(8), {
+      capabilities,
+      provider: { bpm: "signal" },
+    });
+    expect(received).toHaveLength(0);
+    expect(analysis.provenance.bpm).toBe("signal");
+    expect(analysis.values.bpm).toMatchObject({ value: expect.any(Number) });
+    if (capabilities.includes("beats")) expect(analysis.provenance.beats).toBe("signal");
+  });
+
+  it.each([
+    { beats: "api", bpm: "signal" },
+    { beats: "signal", bpm: "api" },
+  ])(
+    "rejects conflicting beats/BPM pins before any capability uploads audio: %j",
+    async (provider) => {
+      configure();
+      reply = () => ({
+        status: 200,
+        body: { version: 1, describe: { tags: [] }, beats: { times: [0.5, 1] } },
+      });
+      await expect(
+        analyzeSignal(clicks(8), {
+          capabilities: ["describe", "beats", "bpm"],
+          provider,
+        }),
+      ).rejects.toThrow("beats and bpm must use the same provider");
+      expect(received).toHaveLength(0);
+    },
+  );
 
   it("asks for sections and describe on their own, and moves inner section boundaries onto beats", async () => {
     configure();

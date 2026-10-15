@@ -103,6 +103,9 @@ export async function analyzeSignal(
   request: AnalyzeOptions,
   providers: readonly AudioAnalysisProvider<AudioSignal>[] = audioAnalysisProviders(),
 ): Promise<Analysis> {
+  const { beats, bpm } = request.provider ?? {};
+  if (beats && bpm && beats !== bpm) throw new Error("beats and bpm must use the same provider");
+  const beatProvider = beats ?? bpm;
   const framing = frame(signal, request.context);
   const analysis: Analysis = {
     analyzed: round(signalDuration(framing.windowed)),
@@ -118,7 +121,7 @@ export async function analyzeSignal(
       const withContext = capability === "onsets" && framing.cut;
       result = runLadder(capability, withContext ? signal : framing.windowed, providers, {
         quality: request.quality,
-        provider: request.provider?.[capability],
+        provider: capability === "beats" ? beatProvider : request.provider?.[capability],
         options: optionsFor(capability, request, analysis.analyzed),
       });
       ladders.set(capability, result);
