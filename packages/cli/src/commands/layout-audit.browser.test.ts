@@ -945,6 +945,139 @@ describe("layout-audit.browser invisible text", () => {
       flagged(invisibleTextScene(style({ webkitTextFillColor: "rgba(0, 0, 0, 0)" }), "")),
     ).toBe(false);
   });
+
+  function ancestorGradientScene(
+    ancestorStyle: Partial<CSSStyleDeclaration> = {},
+    headlineStyle: Partial<CSSStyleDeclaration> = {},
+    chromiumVersion = 152,
+    outsideBackground = false,
+    viewportTop?: number,
+  ): AuditIssue[] {
+    vi.spyOn(window.navigator, "userAgent", "get").mockReturnValue(
+      `Mozilla/5.0 HeadlessChrome/${chromiumVersion}.0.0.0 Safari/537.36`,
+    );
+    document.body.innerHTML = `
+      <div id="root" data-composition-id="main" data-width="640" data-height="360">
+        <div id="gradient"><div id="wrapper"><span id="headline">Headline copy</span></div></div>
+      </div>
+    `;
+    const gradient = document.getElementById("gradient");
+    const headline = document.getElementById("headline");
+    if (!gradient || !headline) throw new Error("Missing gradient text fixture");
+    Object.defineProperties(gradient, {
+      offsetLeft: { configurable: true, value: 40 },
+      offsetTop: { configurable: true, value: 140 },
+      offsetWidth: { configurable: true, value: 400 },
+      offsetHeight: { configurable: true, value: 80 },
+    });
+    Object.defineProperties(headline, {
+      offsetParent: { configurable: true, value: gradient },
+      offsetLeft: { configurable: true, value: 0 },
+      offsetTop: { configurable: true, value: outsideBackground ? 110 : 10 },
+      offsetWidth: { configurable: true, value: 300 },
+      offsetHeight: { configurable: true, value: 56 },
+    });
+    const textRect = rect({
+      left: 40,
+      top: viewportTop ?? (outsideBackground ? 250 : 150),
+      width: 300,
+      height: 56,
+    });
+    installGeometry(
+      {
+        root: rect({ left: 0, top: 0, width: 640, height: 360 }),
+        gradient: rect({ left: 40, top: 140, width: 400, height: 80 }),
+        wrapper: textRect,
+        headline: textRect,
+        text: textRect,
+      },
+      {
+        gradient: {
+          backgroundClip: "text",
+          backgroundImage: "linear-gradient(90deg, rgb(255, 0, 0), rgb(0, 0, 255))",
+          ...ancestorStyle,
+        },
+        headline: { webkitTextFillColor: "rgba(0, 0, 0, 0)", ...headlineStyle },
+      },
+    );
+    installAuditScript();
+    return runAudit();
+  }
+
+  it.each([
+    { name: "plain nested text", css: {} },
+    { name: "transformed text", css: { transform: "matrix(1, 0, 0, 1, 0, 0)" } },
+    { name: "positioned text", css: { position: "relative" } },
+    { name: "faded text", css: { opacity: "0.9" } },
+    { name: "filtered text", css: { filter: "blur(0px)" } },
+    { name: "text with its own empty mask", css: { backgroundClip: "text" } },
+  ])("accepts $name painted by an ancestor gradient", ({ css }) => {
+    expect(flagged(ancestorGradientScene({}, css))).toBe(false);
+  });
+
+  it("accepts text painted by an ancestor's solid clipped background", () => {
+    expect(
+      flagged(
+        ancestorGradientScene({ backgroundImage: "none", backgroundColor: "rgb(255, 0, 0)" }),
+      ),
+    ).toBe(false);
+  });
+
+  it("matches a text clip to the background layer that paints it", () => {
+    expect(
+      flagged(
+        ancestorGradientScene({
+          backgroundClip: "border-box, text",
+          backgroundImage: "none, linear-gradient(rgb(255, 0, 0), rgb(0, 0, 255))",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it.each([
+    { name: "absent background", css: { backgroundImage: "none" } },
+    {
+      name: "transparent gradient",
+      css: { backgroundImage: "linear-gradient(transparent, rgba(0, 0, 0, 0))" },
+    },
+    { name: "unclipped background", css: { backgroundClip: "border-box" } },
+    { name: "image with unknown transparency", css: { backgroundImage: 'url("missing.png")' } },
+    {
+      name: "gradient on a different background layer",
+      css: {
+        backgroundClip: "border-box, text",
+        backgroundImage: "linear-gradient(rgb(255, 0, 0), rgb(0, 0, 255)), none",
+      },
+    },
+    {
+      name: "unclipped solid background",
+      css: {
+        backgroundClip: "text, border-box",
+        backgroundImage: "none, none",
+        backgroundColor: "rgb(255, 0, 0)",
+      },
+    },
+  ])("keeps reporting invisible text beneath an $name", ({ css }) => {
+    expect(flagged(ancestorGradientScene(css))).toBe(true);
+  });
+
+  it("keeps reporting text outside the ancestor's background box", () => {
+    expect(flagged(ancestorGradientScene({}, {}, 152, true))).toBe(true);
+  });
+
+  it("keeps reporting independently painted descendants on Chrome 148", () => {
+    expect(flagged(ancestorGradientScene({}, { transform: "matrix(1, 0, 0, 1, 0, 0)" }, 148))).toBe(
+      true,
+    );
+  });
+
+  it("uses the untransformed layout position for a translated child", () => {
+    expect(
+      flagged(
+        ancestorGradientScene({}, { transform: "matrix(1, 0, 0, 1, 0, 150)" }, 152, false, 300),
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("layout-audit.browser coordinate-frame findings", () => {
@@ -2140,6 +2273,7 @@ describe("layout-audit.browser content overlap", () => {
       b: { textRect: rect({ left: 300, top: 120, width: 400, height: 100 }) },
     }).find((issue) => issue.code === "content_overlap");
     expect(overlap).toMatchObject({ selector: "#a", containerSelector: "#b" });
+    expect(overlap?.fixHint).toContain("container inside the scene");
   });
 
   it("ignores blocks that overlap by less than a fifth of the smaller box", () => {
@@ -2180,6 +2314,50 @@ describe("layout-audit.browser content overlap", () => {
     });
 
     expect(issues.some((issue) => issue.code === "content_overlap")).toBe(true);
+  });
+
+  it("honors data-layout-allow-overlap on a container inside the scene", () => {
+    document.body.innerHTML = `
+      <div id="root" data-composition-id="main" data-width="1920" data-height="1080">
+        <div id="card" data-layout-allow-overlap><div id="a">Block A copy</div></div>
+        <div id="b">Block B copy</div>
+      </div>
+    `;
+    installOverlapStyles({ a: "rgb(0, 0, 0)", b: "rgb(0, 0, 0)" }, { a: "none", b: "none" });
+    installOverlapGeometry({
+      a: [rect({ left: 100, top: 100, width: 400, height: 100 })],
+      b: [rect({ left: 300, top: 120, width: 400, height: 100 })],
+    });
+    installAuditScript();
+
+    expect(runAudit().some((issue) => issue.code === "content_overlap")).toBe(false);
+  });
+
+  it("names a visibility:visible descendant of a hidden ancestor instead of an unrelated overlap", () => {
+    document.body.innerHTML = `
+      <div id="root" data-composition-id="main" data-width="1920" data-height="1080">
+        <div id="host"><div id="a">Leftover line</div></div>
+        <div id="b">Next scene line</div>
+      </div>
+    `;
+    installOverlapStyles(
+      { a: "rgb(0, 0, 0)", b: "rgb(0, 0, 0)" },
+      { a: "none", b: "none" },
+      {},
+      { host: "hidden", a: "visible", b: "visible" },
+    );
+    installOverlapGeometry({
+      a: [rect({ left: 100, top: 100, width: 400, height: 100 })],
+      b: [rect({ left: 300, top: 120, width: 400, height: 100 })],
+    });
+    installAuditScript();
+
+    const issues = runAudit();
+    expect(issues.some((issue) => issue.code === "content_overlap")).toBe(false);
+    expect(issues.find((issue) => issue.code === "visibility_escapes_segment")).toMatchObject({
+      selector: "#a",
+      containerSelector: "#host",
+    });
   });
 
   // A typewriter span clipped to nothing (clip-path: inset(0 100% 0 0)) keeps a
@@ -2579,6 +2757,47 @@ describe("contrast-audit.browser background sampling", () => {
     });
   });
 
+  it("uses an element's own opaque background instead of the panel pixels around a circular avatar", async () => {
+    document.body.innerHTML = `
+      <div id="root" data-composition-id="main" data-width="640" data-height="360">
+        <span id="avatar">M</span>
+      </div>
+    `;
+
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      () =>
+        ({
+          display: "block",
+          visibility: "visible",
+          opacity: "1",
+          color: "rgb(20, 21, 26)",
+          backgroundColor: "rgb(255, 0, 91)",
+          backgroundImage: "none",
+          fontSize: "18px",
+          fontWeight: "700",
+          clipPath: "none",
+        }) as unknown as CSSStyleDeclaration,
+    );
+    vi.spyOn(document.getElementById("avatar")!, "getBoundingClientRect").mockReturnValue(
+      rect({ left: 50, top: 50, width: 46, height: 46 }),
+    );
+    (document as unknown as { elementFromPoint: () => Element | null }).elementFromPoint = () =>
+      null;
+
+    installContrastScript(
+      pixelsWithRegion({ left: 0, top: 0, width: 640, height: 360 }, [28, 30, 33], [28, 30, 33]),
+    );
+
+    const result = await runContrastAudit();
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      selector: "#avatar",
+      text: "M",
+      bg: "rgb(255,0,91)",
+      wcagAA: true,
+    });
+  });
+
   it("skips text whose sampled backdrop remains transparent", async () => {
     document.body.innerHTML = `
       <div id="root" data-composition-id="overlay" data-width="640" data-height="360">
@@ -2677,12 +2896,13 @@ function installOverlapStyles(
   colors: Record<string, string>,
   clipPaths: Record<string, string>,
   overflows: Record<string, string> = {},
+  visibilities: Record<string, string> = {},
 ): void {
   vi.spyOn(window, "getComputedStyle").mockImplementation((element) => {
     const id = (element as Element).id;
     return {
       display: "block",
-      visibility: "visible",
+      visibility: visibilities[id] ?? "visible",
       opacity: "1",
       color: colors[id] ?? "rgb(0, 0, 0)",
       clipPath: clipPaths[id] ?? "none",
@@ -2775,6 +2995,63 @@ describe("layout-audit.browser occlusion", () => {
       topmostId: "headline",
     });
     expect(issues.some((issue) => issue.code === "text_occluded")).toBe(false);
+  });
+
+  it("still treats a linear fill that starts transparent as text occlusion", () => {
+    const occluded = auditOcclusionScene({
+      overlayStyle: {
+        backgroundImage: "linear-gradient(transparent 10px, #000 10px)",
+        backgroundSize: "400px 400px",
+      },
+      topmostId: "overlay",
+    }).find((issue) => issue.code === "text_occluded");
+    expect(occluded).toMatchObject({ selector: "#headline", containerSelector: "#overlay" });
+  });
+
+  it("still treats a named-color linear fill as text occlusion", () => {
+    const occluded = auditOcclusionScene({
+      overlayStyle: {
+        backgroundImage: "linear-gradient(transparent 50%, black 50%)",
+        backgroundSize: "100px 100px",
+      },
+      topmostId: "overlay",
+    }).find((issue) => issue.code === "text_occluded");
+    expect(occluded).toMatchObject({ selector: "#headline", containerSelector: "#overlay" });
+  });
+
+  it("still treats a radial cover after a clear stop as text occlusion", () => {
+    const occluded = auditOcclusionScene({
+      overlayStyle: {
+        backgroundImage: "radial-gradient(circle, #fff 1px, transparent 1px, #000 2px)",
+        backgroundSize: "400px 400px",
+      },
+      topmostId: "overlay",
+    }).find((issue) => issue.code === "text_occluded");
+    expect(occluded).toMatchObject({ selector: "#headline", containerSelector: "#overlay" });
+  });
+
+  it("does not treat a sparse dot grid as an opaque cover", () => {
+    for (const backgroundImage of [
+      "radial-gradient(#d4d5d8 1.6px, transparent 1.7px)",
+      "radial-gradient(#fff 1.6px, transparent 1.7px)",
+      "radial-gradient(rgba(255,255,255,.9) 1px, transparent 1px)",
+    ]) {
+      const issues = auditOcclusionScene({
+        overlayStyle: { backgroundImage, backgroundSize: "38px 38px", opacity: "0.7" },
+        topmostId: "overlay",
+      });
+      expect(issues.some((issue) => issue.code === "text_occluded")).toBe(false);
+    }
+  });
+
+  it("still treats a solid gradient overlay as text occlusion", () => {
+    const occluded = auditOcclusionScene({
+      overlayStyle: {
+        backgroundImage: "linear-gradient(rgb(10, 10, 10), rgb(10, 10, 10))",
+      },
+      topmostId: "overlay",
+    }).find((issue) => issue.code === "text_occluded");
+    expect(occluded).toMatchObject({ selector: "#headline", containerSelector: "#overlay" });
   });
 
   it("ignores low-opacity overlays such as scrims and grain", () => {
