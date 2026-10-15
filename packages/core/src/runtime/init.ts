@@ -53,6 +53,7 @@ import {
   resolveNaturalMediaTimelineDuration,
   resolveRuntimeMediaClipDuration,
   syncRuntimeMedia,
+  VIDEO_PRESEEK_SECONDS,
   type RuntimeMediaClip,
 } from "./media";
 import {
@@ -3040,6 +3041,17 @@ export function initSandboxRuntimeModular(): void {
     }
     for (const clip of clipsWithEndpointBetween(index.byEnd, (c) => c.end, lo, hi)) {
       visiting.add(clip.el);
+    }
+    if (state.isPlaying && !window.__HF_EXPORT_RENDER_SEEK_CONFIG) {
+      // An endpoint-only pass reaches trimmed video too late: its first visible tick starts a seek.
+      for (const clip of clipsWithEndpointBetween(
+        index.byStart,
+        (c) => c.start,
+        toSeconds,
+        toSeconds + VIDEO_PRESEEK_SECONDS * state.playbackRate,
+      )) {
+        if (clip.el.tagName === "VIDEO") visiting.add(clip.el);
+      }
     }
     return [...visiting];
   };
