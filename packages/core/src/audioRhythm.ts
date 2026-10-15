@@ -40,10 +40,10 @@ export interface Rhythm {
   downbeats: Downbeats;
 }
 
+/** Log energy per frame in log-spaced bands, `fps` frames per second, and a slower pitch-class profile. */
 export interface BandFrames {
   fps: number;
   bands: Float64Array[];
-  /** Twelve pitch-class magnitudes per frame, `chromaFps` frames per second. */
   chroma: Float64Array[];
   chromaFps: number;
 }
@@ -217,7 +217,6 @@ function autocorrelation(curve: Float64Array, maxLag: number): Float64Array {
   return ac.map((v) => v / zero);
 }
 
-/** Log-normal around 120 BPM, 0.8 octave wide. */
 const tempoPrior = (lag: number, fps: number) =>
   Math.exp(-0.5 * (Math.log2(60 / (lag / fps) / 120) / 0.8) ** 2);
 
@@ -450,6 +449,7 @@ export const STEADY_BEAT_CONFIDENCE = 0.15;
 const beatConfidence = (clarity: number, lift: number) =>
   round(Math.max(0, Math.min(1, clarity)) * Math.max(0, Math.min(1, lift / 3)));
 
+/** Beats and downbeats of `frames`, a signal's band energies and chroma. */
 function rhythmOf(frames: BandFrames): Rhythm {
   const curves = onsetCurves(frames);
   const { period, clarity } = beatPeriod(curves.broad, curves.fps);

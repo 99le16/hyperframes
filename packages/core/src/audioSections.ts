@@ -59,7 +59,6 @@ function blockParts({ fps, bands, chroma, chromaFps }: BandFrames): number[][] {
   return blocks;
 }
 
-/** Timbre and harmony each contribute half the block's squared length. */
 function blockFeatures(frames: BandFrames): number[][] {
   const blocks = blockParts(frames);
   standardizeBands(blocks);
