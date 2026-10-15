@@ -262,6 +262,7 @@ jobs:
               - "packages/{studio,studio-server,core,parsers,player,sdk,lint,cli,engine,producer}/{package.json,tsconfig.json,tsup.config.ts}"
               - "packages/*/package-subpaths.json"
               - "scripts/package-subpaths.mjs"
+              - "scripts/rewrite-relative-import-extensions.mjs"
               - "scripts/ci/base-file.sh"
               - "scripts/ci/install-workspace-dependencies.sh"
               - ".github/actions/prepare-ffmpeg-bin/**"
