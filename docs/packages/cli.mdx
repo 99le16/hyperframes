@@ -483,8 +483,8 @@ npx hyperframes beats [dir] --json   # { ok, file, count, bpm }
 
 `beats` finds the music track — an `<audio>` element with
 `data-timeline-role="music"`, or an id like `music`, `bgm`, or `soundtrack` —
-runs the same decode and BPM analysis Studio uses inside headless Chrome, and
-writes `beats/<audio-path>.json`:
+decodes it with ffmpeg, runs the same beat tracker Studio uses, and writes
+`beats/<audio-path>.json`:
 
 ```json
 {
@@ -499,10 +499,10 @@ loads this file as-is and only generates one when none exists. `time` is seconds
 into the audio; `strength` (0–1) is relative loudness. Beats you add, move, or
 delete in Studio save back to the same file.
 
-Needs a local Chrome, the same one `render` uses. Run
-`npx hyperframes browser ensure` if it is missing. Results match Studio's to
-within a frame or two — a different headless-Chrome audio sample rate can shift
-a beat slightly.
+A track without a steady beat (ambient, rubato, too short) gets no beat file:
+the command fails and writes nothing rather than inventing a grid. Results
+match Studio's to within a frame or two — Studio decodes in the browser, often
+at a different sample rate, which can shift a beat slightly.
 
 ### `audio`
 
@@ -566,7 +566,12 @@ answers:
 | describe | `api`, `apple-sound` |
 
 - `api` is an audio analysis service, used when `HYPERFRAMES_AUDIO_API_URL` and
-  `HYPERFRAMES_AUDIO_API_KEY` are both set. The audio is uploaded. Every beat,
+  `HYPERFRAMES_AUDIO_API_KEY` are both set. The audio is uploaded as 16 kHz mono
+  WAV through the same origin’s public asset direct-upload and completion endpoints.
+  Each decoded signal is uploaded once; analysis requests send its finalized asset ID as JSON.
+  The API key needs asset upload and audio-analysis permissions. Channels are averaged unless cancellation removes over 90% of the loudest
+  channel’s energy, in which case that channel is used. Requests carry the key in an `x-api-key` header and a new `Idempotency-Key` on each
+  request; the answer may come wrapped in `{ "data": … }`. Every beat,
   downbeat or section boundary it answers moves onto the nearest beat signal
   processing measured, when one is within a quarter beat; the rest are listed in
   `snap.unsnapped`, and `snap.medianShiftMs` says how far the moved ones went.

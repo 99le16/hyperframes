@@ -9,6 +9,49 @@ Recent HyperFrames releases, including user-facing features, fixes, and migratio
 {/* New release entries are prepended by `bun run changelog:draft <version> --write`. */}
 
 <Update
+  label="HyperFrames v0.8.161"
+  description="Released - 2026-10-15"
+  tags={["Release", "CLI", "Build"]}
+>
+Find music beats without launching Chrome. TypeScript projects using NodeNext can now resolve the published package declarations.
+
+## Features
+
+- `hyperframes beats` uses the TypeScript beat tracker through FFmpeg decoding, without Chrome. Studio shares the tracker; low-confidence audio returns no beat grid. The saved beat-file format is unchanged. ([#5634](https://github.com/heygen-com/hyperframes/pull/5634))
+
+## Fixes
+
+- Resolve published TypeScript declarations with NodeNext module resolution across packages. ([#5532](https://github.com/heygen-com/hyperframes/pull/5532))
+
+## Full changelog
+
+https://github.com/heygen-com/hyperframes/compare/ec97816a921649fb0c0f43959e0db23d2fc039e2...v0.8.161
+
+</Update>
+
+<Update
+  label="HyperFrames v0.8.160"
+  description="Released - 2026-10-15"
+  tags={["Release", "CLI", "Runtime", "Studio"]}
+>
+Measure sound timing with the new audio command. This release also improves trimmed-video previews, Windows rendering, Claude usage reporting, history saves, and element picking.
+
+## Features
+
+- Measure audio onsets, peaks, pauses, and loudness with `hyperframes audio`. Project queries report film time, including clip trims and playback rates. Timeline rows now expose `mediaStart` for consumers that map file timestamps into the film. ([#5602](https://github.com/heygen-com/hyperframes/pull/5602))
+
+## Fixes
+
+- Prepare trimmed video frames before preview cuts, reducing flashes of the wrong frame. ([#5633](https://github.com/heygen-com/hyperframes/pull/5633))
+- Keep history saves moving when a file changes while it is being copied. ([#5627](https://github.com/heygen-com/hyperframes/pull/5627))
+- Show Claude plan spending even when the usage response has no rate windows. ([#5629](https://github.com/heygen-com/hyperframes/pull/5629))
+- Let the first Windows render wait for newly installed browser and FFmpeg files to become accessible. ([#5625](https://github.com/heygen-com/hyperframes/pull/5625))
+- Select content beneath faint SVG grain and keep page-wide CSS resets out of an element's inspected styles. ([#5628](https://github.com/heygen-com/hyperframes/pull/5628))
+
+[View the full commit range](https://github.com/heygen-com/hyperframes/compare/v0.8.159...v0.8.160)
+</Update>
+
+<Update
   label="HyperFrames v0.8.159"
   description="Released - 2026-10-14"
   tags={["Release", "CLI"]}
