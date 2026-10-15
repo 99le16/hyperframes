@@ -23,7 +23,6 @@ export interface SourceMutationTarget {
   selectorIndex?: number;
 }
 
-/** The data-hf-ids each parsed document's source already carried, before parsing stamped the rest. */
 const pinnedInSource = new WeakMap<Document, ReadonlySet<string>>();
 
 export function parseSourceDocument(raw: string): {
@@ -127,21 +126,19 @@ export function findTargetElement(
     const el = findByHfId(document, target.hfId);
     if (el) return el;
   }
-  // A data-hf-id the source already carried is identity: a fallback hit pinned to another id is another element,
-  // e.g. an audio group sharing a clip's id. An id minted by this parse may be a stale copy's, so it still matches.
   const pinned = pinnedInSource.get(document);
-  const same = (el: Element | null | undefined) =>
+  const unlessPinnedElsewhere = (el: Element | null | undefined) =>
     el && !(target.hfId && pinned?.has(el.getAttribute("data-hf-id") ?? "")) ? el : null;
 
   if (target.id) {
-    const byId = same(document.getElementById(target.id));
+    const byId = unlessPinnedElsewhere(document.getElementById(target.id));
     if (byId) return byId;
   }
 
   if (!target.selector) return null;
   try {
     const matches = querySelectorAllWithTemplates(document, target.selector);
-    return same(matches[target.selectorIndex ?? 0]);
+    return unlessPinnedElsewhere(matches[target.selectorIndex ?? 0]);
   } catch {
     return null;
   }
