@@ -125,6 +125,7 @@ describe("compileForRender media-type ownership", () => {
       expect(sparseWarning).toContain("max interval: 10s");
       expect(sparseWarning).not.toMatch(/causes seek failures|frame freezing/);
       expect(sparseWarning).toContain("If preview seeking is slow");
+      expect(sparseWarning).toContain("rendering is unaffected");
       expect(sparseWarning).toContain('ffmpeg -i "single-gop.mp4"');
     } finally {
       warnings.mockRestore();
