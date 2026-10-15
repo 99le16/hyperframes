@@ -77,6 +77,21 @@ function handleRequest(request: IncomingMessage, response: ServerResponse) {
     path: request.url,
     servername: typeof servername === "string" ? servername : undefined,
   });
+  if (request.url === "/slow-transfer") {
+    streams.add(response);
+    response.writeHead(200, { "content-type": "video/mp4", "content-length": 35 * 1024 * 1024 });
+    response.flushHeaders();
+    let remaining = 35;
+    const interval = setInterval(() => {
+      response.write(Buffer.alloc(1024 * 1024));
+      if (--remaining === 0) response.end();
+    }, 1000);
+    response.once("close", () => {
+      clearInterval(interval);
+      streams.delete(response);
+    });
+    return;
+  }
   if (request.url === "/stream") {
     streams.add(response);
     response.writeHead(200, { "content-type": "application/octet-stream" });
@@ -257,6 +272,46 @@ describe("publicRequest controlled socket integration", () => {
     await waitForStreamClose();
     expect(receipts).toHaveLength(1);
   });
+
+  it("finishes a 35-second HTTPS body within the caller's 120-second deadline", async () => {
+    const response = await publicRequest(
+      `https://assets.capture-fixture.com:${httpsPort}/slow-transfer`,
+      { signal: AbortSignal.timeout(120_000) },
+    );
+    expect((await response.arrayBuffer()).byteLength).toBe(35 * 1024 * 1024);
+    await waitForStreamClose();
+  }, 60_000);
+
+  it.each([true, false])(
+    "uses the caller deadline when supplied, otherwise the default (%s)",
+    async (explicitDeadline) => {
+      const deadline = new AbortController();
+      const caller = new AbortController();
+      const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(deadline.signal);
+      let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+      try {
+        const response = await publicRequest(
+          `https://assets.capture-fixture.com:${httpsPort}/stream`,
+          explicitDeadline ? { signal: caller.signal } : {},
+        );
+        reader = response.body!.getReader();
+        await reader.read();
+        // Advance only the transport's default deadline; real TLS/body I/O stays active.
+        deadline.abort(new Error("default deadline reached"));
+        if (explicitDeadline) {
+          expect((await reader.read()).value?.byteLength).toBeGreaterThan(0);
+          caller.abort();
+          await expect(reader.read()).rejects.toThrow();
+        } else {
+          await expect(reader.read()).rejects.toThrow();
+        }
+      } finally {
+        timeout.mockRestore();
+        await reader?.cancel().catch(() => {});
+        await waitForStreamClose();
+      }
+    },
+  );
 
   it("propagates caller abort after HTTPS response headers and closes the socket", async () => {
     const controller = new AbortController();

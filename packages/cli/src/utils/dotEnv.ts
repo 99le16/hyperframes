@@ -1,5 +1,20 @@
 import { FEEDBACK_EMAIL_ENV } from "./feedbackSource.js";
 
+// Capture project dotenv is data: only vision configuration may enter the process.
+// Browser discovery, executable lookup and runtime/preload settings stay launcher-controlled.
+export const CAPTURE_ENV_KEYS = [
+  "OPENROUTER_API_KEY",
+  "GEMINI_API_KEY",
+  "GOOGLE_API_KEY",
+  "HYPERFRAMES_VERTEX_PROJECT_ID",
+  "HYPERFRAMES_VERTEX_SERVICE_ACCOUNT",
+  "HYPERFRAMES_VERTEX_LOCATION",
+  "HYPERFRAMES_VERTEX_MODEL",
+  "HYPERFRAMES_OPENROUTER_MODEL",
+  "HYPERFRAMES_GEMINI_MODEL",
+  "HYPERFRAMES_VISION_TIMEOUT_MS",
+];
+
 // A quoted value ends at its closing quote; unquoted, `#` starts a comment only after whitespace, so `pass#word` stays.
 function valueOf(raw: string): string {
   const quote = raw.charAt(0);

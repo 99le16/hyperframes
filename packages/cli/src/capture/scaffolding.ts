@@ -7,25 +7,10 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { applyDotEnv } from "../utils/dotEnv.js";
+import { applyDotEnv, CAPTURE_ENV_KEYS } from "../utils/dotEnv.js";
 import { writeNewFileSync } from "../utils/writeNewFile.js";
 import type { CatalogedAsset } from "./assetCataloger.js";
 import type { CaptureResult, DesignTokens } from "./types.js";
-
-// Output ancestors are project data: only vision configuration may enter the process.
-// Browser discovery, executable lookup and runtime/preload settings stay launcher-controlled.
-const CAPTURE_ENV_KEYS = [
-  "OPENROUTER_API_KEY",
-  "GEMINI_API_KEY",
-  "GOOGLE_API_KEY",
-  "HYPERFRAMES_VERTEX_PROJECT_ID",
-  "HYPERFRAMES_VERTEX_SERVICE_ACCOUNT",
-  "HYPERFRAMES_VERTEX_LOCATION",
-  "HYPERFRAMES_VERTEX_MODEL",
-  "HYPERFRAMES_OPENROUTER_MODEL",
-  "HYPERFRAMES_GEMINI_MODEL",
-  "HYPERFRAMES_VISION_TIMEOUT_MS",
-];
 
 /**
  * Load supported vision settings from .env by walking up from startDir (up to 5 levels).

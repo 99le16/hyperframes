@@ -83,10 +83,8 @@ export async function publicRequest(url: string | URL, init: RequestInit = {}): 
   if (!["GET", "HEAD"].includes(method) || init.body != null) {
     throw new Error("Capture asset requests support only GET and HEAD without a body");
   }
-  const signal = AbortSignal.any([
-    AbortSignal.timeout(30_000),
-    ...(init.signal ? [init.signal] : []),
-  ]);
+  // Video callers budget the entire body transfer; a default must not shorten it.
+  const signal = init.signal ?? AbortSignal.timeout(30_000);
   signal.throwIfAborted();
   const address = await new Promise<string>((resolve, reject) => {
     const onAbort = () => reject(signal.reason);
