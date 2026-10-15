@@ -3,7 +3,12 @@ import { platform } from "node:os";
 import { findFfBinary } from "@hyperframes/parsers/ff-binaries";
 import { ensureBrowser, findBrowser, type BrowserResult } from "./manager.js";
 import { describeBrowserInstall, type BrowserInstallFacts } from "./installFacts.js";
-import { FFMPEG_PATH_ENV, FFPROBE_PATH_ENV, getFFmpegInstallHint } from "./ffmpeg.js";
+import {
+  FFMPEG_PATH_ENV,
+  FFPROBE_PATH_ENV,
+  FIRST_LAUNCH_TIMEOUT_MS,
+  getFFmpegInstallHint,
+} from "./ffmpeg.js";
 import {
   chromeDepsInstallCommand,
   detectLinuxDistro,
@@ -78,7 +83,7 @@ async function readToolVersion(
     const output = (
       await runCancellableProcess(binaryPath, ["-version"], {
         signal,
-        timeoutMs: 5000,
+        timeoutMs: FIRST_LAUNCH_TIMEOUT_MS,
       })
     ).stdout;
     const raw = output.split("\n")[0] ?? "";
@@ -260,7 +265,7 @@ async function chromeLaunchOutcome(
   try {
     const { stdout } = await runCancellableProcess(executablePath, ["--version"], {
       signal,
-      timeoutMs: 5000,
+      timeoutMs: FIRST_LAUNCH_TIMEOUT_MS,
       maxBufferBytes: 64 * 1024,
     });
     return { ...found, versionMajor: extractMajorVersion(stdout) };
