@@ -1,5 +1,10 @@
 import { existsSync } from "node:fs";
-import type { AudioCapability, LadderStep } from "@hyperframes/core/audio-analysis";
+import {
+  envelope,
+  type AudioCapability,
+  type AudioSignal,
+  type LadderStep,
+} from "@hyperframes/core/audio-analysis";
 import { analyzeSignal, type AnalyzeOptions } from "./analyze.js";
 import { decodeAudio, probeAudio, type AudioStreamInfo } from "./decode.js";
 import type { AudioTarget, Placement } from "./targets.js";
@@ -42,6 +47,10 @@ export async function previewTarget(
 ): Promise<AudioTarget> {
   if (at === null) return { path, file, ref: null, kind: "file", placement: null };
   const stream = existsSync(path) ? await probeAudio(path) : null;
+  if (stream && mediaStart >= stream.duration)
+    throw new Error(
+      `skipping ${mediaStart} s leaves nothing of ${file}, which is ${round(stream.duration)} s long`,
+    );
   const length = stream ? stream.duration - mediaStart : 0;
   return {
     path,
@@ -93,6 +102,20 @@ function decodeSpan(target: AudioTarget, stream: AudioStreamInfo) {
   };
 }
 
+const loudest = (signal: AudioSignal) =>
+  Math.max(0, ...envelope(signal, { hopMs: 10, scale: "linear" }).values);
+
+/** A file placed after cutting its head says so when the cut part held its loudest moment. */
+async function skippedPeak(target: AudioTarget, kept: AudioSignal, stream: AudioStreamInfo) {
+  const skipped = target.kind === "file" ? (target.window?.from ?? 0) : 0;
+  if (skipped <= 0) return [];
+  const head = await decodeAudio(target.path, { from: 0, seconds: skipped }, stream);
+  if (!head || loudest(head.signal) <= loudest(kept)) return [];
+  return [
+    `the loudest part of ${target.file} is in the first ${round(skipped)} s, which is skipped`,
+  ];
+}
+
 async function analyzeTarget(
   target: AudioTarget,
   request: AnalyzeOptions,
@@ -116,7 +139,7 @@ async function analyzeTarget(
     ...analysis.values,
     provenance: analysis.provenance,
     ...(full ? { ladder: analysis.ladder } : {}),
-    warnings: analysis.warnings,
+    warnings: [...analysis.warnings, ...(await skippedPeak(target, decoded.signal, stream))],
   };
 }
 

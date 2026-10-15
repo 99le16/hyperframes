@@ -509,7 +509,7 @@ Measure how sound moves in time, so a cut or an animation can land on it.
 
 ```bash
 npx hyperframes audio sfx/whoosh.mp3                  # one file, in file seconds
-npx hyperframes audio sfx/hit.wav --start 4.2         # where it would land at 4.2 s in the film
+npx hyperframes audio sfx/hit.wav --place-at 4.2      # not in the film yet: where it lands if it starts at 4.2 s
 npx hyperframes audio --element '#riser'              # one clip of the film, in film seconds
 npx hyperframes audio --at 12                         # every sound playing at 12 s
 npx hyperframes audio --range 10,14 --only onsets     # every hit between 10 and 14 s
@@ -527,13 +527,17 @@ Each sound reports:
 - **kind**: a first guess of `sfx`, `voice` or `music`, with the features behind it.
 - **envelope**: the level over time, about 2,000 values per sound.
 
-A film query (`--element`, `--at`, `--range`, `--boundary`) reads the project in
+A film query (`--element`, `--at`, `--range`) reads the project in
 the current directory or `--dir`, finds the `<audio>` and `<video>` clips it
 covers — nested compositions included — and analyzes only the part of each file
 that plays. `--json` returns times in file seconds with each clip's placement
 (`start`, `mediaStart`, `playbackRate`, and `dataStart`, the element's own
 `data-start`, local to its composition), so film time is
 `start + (t − mediaStart) / playbackRate`; the text output prints film time.
+
+For a file not in the film yet, `--place-at <s>` answers as if it started at that
+film second; `--skip-file-seconds <s>` cuts that much from the start of the file
+first, and the result warns when the cut part held the file's loudest moment.
 
 Every measurement comes from a provider ladder. Today the only provider is
 local signal processing; `--quality fast|local|best` limits which providers may

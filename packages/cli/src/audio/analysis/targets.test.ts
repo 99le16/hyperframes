@@ -99,11 +99,10 @@ describe("filmTargets", () => {
     expect(ids({ by: "all" })).toEqual(["#clip", "#score", "#hit", "#fast"]);
   });
 
-  it("picks the clips playing at a second, in a range, or starting or ending at a boundary", () => {
+  it("picks the clips playing at a second or in a range", () => {
     expect(ids({ by: "at", t: 4.5 })).toEqual(["#clip", "#score", "#hit"]);
     expect(ids({ by: "at", t: 5 })).toEqual(["#clip", "#score"]);
     expect(ids({ by: "range", start: 5.5, end: 8.5 })).toEqual(["#clip", "#score", "#fast"]);
-    expect(ids({ by: "boundary", t: 4.22 })).toEqual(["#hit"]);
   });
 
   it("reads only the part of the file a range plays, through the in-point and rate", () => {

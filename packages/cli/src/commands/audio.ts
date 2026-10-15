@@ -19,7 +19,10 @@ import { withMeta } from "../utils/updateCheck.js";
 
 export const examples: Example[] = [
   ["Where a sound effect lands, its hits and loudness", "hyperframes audio sfx/whoosh.mp3"],
-  ["Preview a file placed at 4.2 s, in film time", "hyperframes audio sfx/hit.wav --start 4.2"],
+  [
+    "Where a file not in the film yet would land if it started at 4.2 s",
+    "hyperframes audio sfx/hit.wav --place-at 4.2",
+  ],
   ["Every sound playing at 12 s in the film", "hyperframes audio --at 12"],
   ["One clip of the film, as JSON", "hyperframes audio --element '#riser' --json"],
   [
@@ -79,13 +82,10 @@ function pins(raw: string | undefined): AnalyzeOptions["provider"] {
 }
 
 function filmQuery(args: AudioFlags): FilmQuery | null {
-  const given = (["element", "at", "range", "boundary"] as const).filter(
-    (k) => args[k] !== undefined,
-  );
-  if (given.length > 1) throw new CliUsageError(`use one of --element, --at, --range, --boundary`);
+  const given = (["element", "at", "range"] as const).filter((k) => args[k] !== undefined);
+  if (given.length > 1) throw new CliUsageError(`use one of --element, --at, --range`);
   if (args.element) return { by: "element", ref: args.element };
   if (args.at !== undefined) return { by: "at", t: number("at", args.at)! };
-  if (args.boundary !== undefined) return { by: "boundary", t: number("boundary", args.boundary)! };
   const range = pair("range", args.range);
   return range ? { by: "range", start: range[0], end: range[1] } : null;
 }
@@ -95,9 +95,8 @@ interface AudioFlags {
   element?: string;
   at?: string;
   range?: string;
-  boundary?: string;
-  start?: string;
-  "media-start"?: string;
+  "place-at"?: string;
+  "skip-file-seconds"?: string;
   only?: string;
   quality?: string;
   provider?: string;
@@ -134,10 +133,13 @@ function analyzeRequest(flags: AudioFlags): AnalyzeOptions {
 }
 
 async function fileTargets(files: string[], flags: AudioFlags): Promise<AudioTarget[]> {
-  const start = number("start", flags.start);
+  const start = number("place-at", flags["place-at"]);
   if (start !== undefined && files.length !== 1)
-    throw new CliUsageError("--start previews exactly one file");
-  const mediaStart = number("media-start", flags["media-start"]) ?? 0;
+    throw new CliUsageError("--place-at places exactly one file");
+  const skip = number("skip-file-seconds", flags["skip-file-seconds"]);
+  if (skip !== undefined && start === undefined)
+    throw new CliUsageError("--skip-file-seconds only works with --place-at");
+  const mediaStart = skip ?? 0;
   const cwd = process.cwd();
   return Promise.all(
     files.map((file) => previewTarget(resolve(cwd, file), file, start ?? null, mediaStart)),
@@ -165,11 +167,13 @@ export default defineCommand({
     },
     at: { type: "string", description: "Every sound playing at this film second" },
     range: { type: "string", description: "Every sound playing in start,end film seconds" },
-    boundary: { type: "string", description: "Every sound starting or ending at this film second" },
-    start: { type: "string", description: "Preview a file placed at this film second" },
-    "media-start": {
+    "place-at": {
       type: "string",
-      description: "With --start: seconds into the file the clip begins",
+      description: "For one file not in the film yet: the film second it would start at",
+    },
+    "skip-file-seconds": {
+      type: "string",
+      description: "With --place-at: seconds cut from the start of the file",
     },
     only: {
       type: "string",

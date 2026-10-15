@@ -28,11 +28,7 @@ export type FilmQuery =
   | { by: "all" }
   | { by: "element"; ref: string }
   | { by: "at"; t: number }
-  | { by: "range"; start: number; end: number }
-  | { by: "boundary"; t: number };
-
-/** A cut and a sound that starts on it are one boundary when they are this close, in seconds. */
-const BOUNDARY_TOLERANCE = 0.05;
+  | { by: "range"; start: number; end: number };
 
 const round = (t: number) => Math.round(t * 1000) / 1000;
 
@@ -71,11 +67,6 @@ function matches(row: TimelineRow, query: FilmQuery): boolean {
       return row.absStart <= query.t && query.t < row.absEnd;
     case "range":
       return row.absStart < query.end && query.start < row.absEnd;
-    case "boundary":
-      return (
-        Math.abs(row.absStart - query.t) <= BOUNDARY_TOLERANCE ||
-        Math.abs(row.absEnd - query.t) <= BOUNDARY_TOLERANCE
-      );
   }
 }
 

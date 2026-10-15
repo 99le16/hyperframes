@@ -13,6 +13,7 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 /** A stereo 32-bit float WAV of `seconds`, each sample from `fill`. */
 function wav(name: string, seconds: number, fill: (t: number) => number): string {
+  seed = 3;
   const frames = Math.round(seconds * RATE);
   const data = Buffer.alloc(frames * 8);
   for (let i = 0; i < frames; i++) {
@@ -38,7 +39,7 @@ function wav(name: string, seconds: number, fill: (t: number) => number): string
   return path;
 }
 
-let seed = 3;
+let seed = 3; // every file starts the same noise, so no test depends on which ran before it
 const noise = () =>
   ((seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648) / 2_147_483_648) * 2 - 1;
 const hit = (at: number) => (t: number) =>
@@ -75,8 +76,27 @@ describe.skipIf(!ffmpeg)("analyzeTargets", () => {
     expect(formatReport(report)).toMatch(/onset 4\.1[45]\d/);
   });
 
+  it("warns when the seconds skipped from a placed file held its loudest moment, and refuses to skip all of it", async () => {
+    const path = wav("late-cut.wav", 1, hit(0.1));
+    const report = await analyzeTargets([await previewTarget(path, "late-cut.wav", 2, 0.3)], {
+      capabilities: ["moments"],
+    });
+    expect(report.items[0]!.warnings).toEqual([
+      "the loudest part of late-cut.wav is in the first 0.3 s, which is skipped",
+    ]);
+    const kept = await analyzeTargets([await previewTarget(path, "late-cut.wav", 2, 0.05)], {
+      capabilities: ["moments"],
+    });
+    expect(kept.items[0]!.warnings).toEqual([]);
+    await expect(previewTarget(path, "late-cut.wav", 2, 1)).rejects.toThrow(/leaves nothing/);
+  });
+
   it("finds no hit where a window cuts into a sound that is already playing", async () => {
-    const path = wav("bed.wav", 3, (t) => 0.3 * noise() + hit(2)(t));
+    const chord = (t: number) =>
+      Array.from({ length: 40 }, (_, k) => Math.sin(2 * Math.PI * 110 * (k + 1) * t + k)).reduce(
+        (a, b) => a + b,
+      ) / 40;
+    const path = wav("bed.wav", 3, (t) => 0.9 * chord(t) + 0.125 * hit(2)(t));
     const report = await analyzeTargets(
       [
         {
@@ -92,7 +112,7 @@ describe.skipIf(!ffmpeg)("analyzeTargets", () => {
     );
     const hits = (report.items[0]!.onsets as Onsets).events.map((e) => e.t);
     expect(hits.some((t) => Math.abs(t - 2) < 0.01)).toBe(true);
-    expect(hits.some((t) => t < 1.05 || t > 2.45)).toBe(false);
+    expect(hits.filter((t) => Math.abs(t - 2) >= 0.01)).toEqual([]);
   });
 
   it("reports a file it cannot read on that item and goes on to the next", async () => {
