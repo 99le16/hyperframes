@@ -15,10 +15,11 @@ export function rerenderGsapTimelineAt(
     getChildren?: RuntimeTimelineLike["getChildren"];
   },
   t: number,
+  structure?: GsapStructureKey,
 ): void {
   timeline.totalDuration?.();
   const children = timeline.getChildren?.(false, true, true) ?? [];
-  const marked = childrenWithLandingMarksIn(timeline).map(
+  const marked = landingMarksOf(timeline, structure, t).map(
     (child) => [child, child.ratio, child._zTime, child._act] as const,
   );
   const skipped = childrenStartingAfter(children, t).map((child) => [child, child._ts] as const);
@@ -52,7 +53,15 @@ export function rerenderGsapTimelineAt(
 type GsapRenderState = { _initted?: number };
 
 function gsapNeverRendered(timeline: RuntimeTimelineLike): boolean {
-  const [child] = (timeline.getChildren?.(false, true, true) ?? []) as { parent?: unknown }[];
+  // GSAP keeps the first child on the timeline: no array of every child, which a paused part of a
+  // long caption track was asked for every frame.
+  const own = timeline as { _first?: { parent?: unknown } | null };
+  const [child] =
+    "_first" in own
+      ? own._first
+        ? [own._first]
+        : []
+      : ((timeline.getChildren?.(false, true, true) ?? []) as { parent?: unknown }[]);
   const rendered = child?.parent as GsapRenderState | undefined;
   return rendered !== undefined && !rendered._initted;
 }
@@ -119,6 +128,94 @@ function childrenWithLandingMarksIn(timeline: {
     const animation = child as { totalDuration?: () => number; getChildren?: unknown };
     return typeof animation.getChildren === "function" || animation.totalDuration?.() === 0;
   }) as unknown as GsapLandingMarks[];
+}
+
+/**
+ * Names a timeline's structure: the same `owner` at the same `version` has the same children. Lets a
+ * caller that re-renders every frame skip the walk of every nested child, which on a film of a hundred
+ * thousand tweens was most of a frame. Without one, every call walks.
+ */
+export type GsapStructureKey = { owner: object; version: string };
+
+type PlacedMarks = {
+  version: string;
+  /** Marks the re-render may touch at any time: nested timelines, and points it cannot place. */
+  always: GsapLandingMarks[];
+  /** Zero-duration tweens by their time on the owner, ascending. */
+  points: { at: number; mark: GsapLandingMarks }[];
+};
+
+const landingMarksCache = new WeakMap<object, PlacedMarks>();
+
+/** Past this distance from `t` a zero-duration tween renders the same at `t` and just below it: fifty
+ *  REDRAW_STEPs, the step the re-render takes. */
+const LANDING_MARK_REACH = 0.05;
+
+type GsapPlaced = {
+  _start?: number;
+  _ts?: number;
+  _repeat?: number;
+  parent?: GsapPlaced | null;
+  getChildren?: unknown;
+};
+
+/** A child's start on `owner`'s clock, or null when a repeating or stopped parent makes it ambiguous. */
+function startOnOwner(child: GsapPlaced, owner: object): number | null {
+  let at = Number(child._start);
+  for (let parent = child.parent; parent && parent !== owner; parent = parent.parent) {
+    if (parent._repeat || !parent._ts) return null;
+    at = Number(parent._start) + at / parent._ts;
+  }
+  return Number.isFinite(at) ? at : null;
+}
+
+function placeLandingMarks(
+  timeline: { getChildren?: RuntimeTimelineLike["getChildren"] },
+  structure: GsapStructureKey,
+): PlacedMarks {
+  const placed: PlacedMarks = { version: structure.version, always: [], points: [] };
+  for (const mark of childrenWithLandingMarksIn(timeline)) {
+    const child = mark as unknown as GsapPlaced;
+    const at =
+      typeof child.getChildren === "function" ? null : startOnOwner(child, structure.owner);
+    if (at === null) placed.always.push(mark);
+    else placed.points.push({ at, mark });
+  }
+  placed.points.sort((a, b) => a.at - b.at);
+  return placed;
+}
+
+/** The first point at or after `time`. */
+function firstPointFrom(points: PlacedMarks["points"], time: number): number {
+  let lo = 0;
+  let hi = points.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (points[mid]!.at < time) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+function landingMarksOf(
+  timeline: { getChildren?: RuntimeTimelineLike["getChildren"] },
+  structure: GsapStructureKey | undefined,
+  t: number,
+): GsapLandingMarks[] {
+  if (!structure) return childrenWithLandingMarksIn(timeline);
+  let placed = landingMarksCache.get(structure.owner);
+  if (placed?.version !== structure.version) {
+    placed = placeLandingMarks(timeline, structure);
+    landingMarksCache.set(structure.owner, placed);
+  }
+  const { points } = placed;
+  const near = [...placed.always];
+  const last = t + LANDING_MARK_REACH;
+  for (let i = firstPointFrom(points, t - LANDING_MARK_REACH); i < points.length; i++) {
+    if (points[i]!.at > last) break;
+    near.push(points[i]!.mark);
+  }
+  return near;
 }
 
 type GsapAnimation = {
