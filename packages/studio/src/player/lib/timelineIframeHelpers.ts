@@ -498,7 +498,13 @@ export function buildMissingCompositionElements(
   const hosts = doc.querySelectorAll("[data-composition-id][data-start]");
   const missing: TimelineElement[] = [];
 
-  const resolveEnd = createReferenceEndResolver(createTimedElementLookup(doc), iframeWin);
+  // Built on first use: it indexes every timed node, and only a missing composition asks.
+  let resolveEndOnce: ReturnType<typeof createReferenceEndResolver> | undefined;
+  const resolveEnd: ReturnType<typeof createReferenceEndResolver> = (refId, visiting) =>
+    (resolveEndOnce ??= createReferenceEndResolver(createTimedElementLookup(doc), iframeWin))(
+      refId,
+      visiting,
+    );
   const masterTime = createRuntimeStartTimeResolver({
     timelineRegistry: iframeWin.__timelines,
     includeAuthoredTimingAttrs: true,
