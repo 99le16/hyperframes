@@ -122,7 +122,7 @@ a `TRANSLATION_NOTES.md` next to the output:
 The following Remotion patterns were translated with caveats:
 
 - `<Audio volume={(f) => ...}>` (line 15): volume ramp written as a
-  `data-automation` volume lane (see `creator-editing-recipes.md`); the
+  `data-automation` volume lane (see the media-use skill's mixing reference); the
   ffmpeg `afade` bake-in is the alternative.
 - `<HeavyChart>` (line 30): translated as inline HTML. The original
   React.lazy boundary was dropped — bundle size unchanged because HF

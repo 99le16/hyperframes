@@ -23,16 +23,16 @@ Set `duration` when the storyboard is first written. It is an expectation, not a
 
 One `## Frame N — Title` heading per frame (`Frame` / `Beat` / `Scene` accepted at H2/H3). Metadata as `- key: value` bullets; everything below them until the next heading is the free-form **narrative**.
 
-| Key             | Meaning                                                                                           |
-| --------------- | ------------------------------------------------------------------------------------------------- |
-| `status`        | `outline` → `built` → `animated` (defaults `outline`)                                             |
-| `src`           | project-relative path to the frame's HTML sub-composition (the tile poster renders from it)       |
-| `duration`      | e.g. `4s`                                                                                         |
-| `transition_in` | `crossfade` / `cut` / `wipe` … (alias `transition`)                                               |
-| `scene`         | one-line contact-sheet caption (aliases `description` / `summary` / `caption`)                    |
-| `voiceover`     | the frame's narration _guide_ (aliases `vo` / `voice_over` / `narration`)                         |
-| `poster`        | seconds to seek for the tile poster (past the intro animation)                                    |
-| _any other key_ | kept verbatim under the frame's `extra` — carry your own per-frame data (effects, assets, …) here |
+| Key             | Meaning                                                                                                             |
+| --------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `status`        | `outline` → `built` → `animated` (defaults `outline`)                                                               |
+| `src`           | project-relative path to the frame's HTML sub-composition (the tile poster renders from it)                         |
+| `duration`      | e.g. `4s`                                                                                                           |
+| `transition_in` | `crossfade` / `cut` / `wipe` … (alias `transition`); a note only, build it yourself (overlap clips for a crossfade) |
+| `scene`         | one-line contact-sheet caption (aliases `description` / `summary` / `caption`)                                      |
+| `voiceover`     | the frame's narration _guide_ (aliases `vo` / `voice_over` / `narration`)                                           |
+| `poster`        | seconds to seek for the tile poster (past the intro animation)                                                      |
+| _any other key_ | kept verbatim under the frame's `extra` — carry your own per-frame data (effects, assets, …) here                   |
 
 ## Parsed manifest
 
