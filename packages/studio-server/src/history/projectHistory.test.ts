@@ -2635,7 +2635,6 @@ describe("the history's copy of a file", () => {
     expect(statSync(join(dir, "blobs", String(stored))).mode & 0o777).toBe(0o755);
   });
 
-
   it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
     "leaves no partial copy in the store",
     async () => {

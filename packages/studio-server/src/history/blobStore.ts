@@ -34,8 +34,7 @@ async function hashFile(path: string): Promise<string> {
   return hash.digest("hex");
 }
 
-/** A clone is one snapshot; else a stream stops at the file's real end, where fs.copyFile loops once it shrinks. */
-async function snapshot(from: string, to: string): Promise<void> {
+async function cloneOrStream(from: string, to: string): Promise<void> {
   try {
     await copyFile(from, to, constants.COPYFILE_FICLONE_FORCE);
   } catch {
@@ -72,7 +71,7 @@ export async function openBlobStore(dir: string): Promise<BlobStore> {
       const temp = join(dir, `incoming-${randomUUID()}`);
       // Recreated if removed while open, so a missing folder is never mistaken for a deleted project file.
       await mkdir(dir, { recursive: true });
-      await snapshot(absPath, temp).catch(async (error) => {
+      await cloneOrStream(absPath, temp).catch(async (error) => {
         await rm(temp, { force: true });
         throw error;
       });
