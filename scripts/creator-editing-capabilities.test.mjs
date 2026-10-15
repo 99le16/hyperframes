@@ -117,7 +117,7 @@ test("keyframes states truthful creator capabilities and ownership boundaries", 
 test("CLI sends `hyperframes keyframes` to the keyframes guide and creator edits to the router", async () => {
   const cli = await read(files.cli);
   assert.match(cli, /Read the row before running its command/);
-  assert.match(cli, /\| `keyframes` \| `\.\.\/hyperframes\/keyframes\/GUIDE\.md` \|/);
+  assert.match(cli, /\| `keyframes` \| `\.\.\/hyperframes\/references\/motion\.md`/);
 });
 
 test("audio skill owns placed-track fades, automation, ducking, and effects", async () => {

@@ -12,7 +12,7 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 // Every installed skill's description is listed on every turn; an entry is read in full when it opens.
 export const DESCRIPTION_MAX = 320;
 export const CORE_SKILLS = {
-  hyperframes: 8192,
+  hyperframes: 7168,
   "hyperframes-cli": 7168,
   "hyperframes-registry": 5120,
   "media-use": 5120,

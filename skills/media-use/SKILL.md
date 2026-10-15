@@ -39,7 +39,7 @@ It prints one line, `resolved <id> → <path> (<type>, <metadata>)`. List reusab
 
 ## Looks on real footage
 
-Feedback that footage is dark, flat or dull, should feel retro or printed, needs a face hidden, or needs a reveal is media intent: read `references/media-treatments.md`. Inspect the real `<img>`/`<video>`, pick one intent, start from `npx hyperframes media-treatment --capabilities --json`, then `--capability <id>`; never `--all`. Persist the final treatment with `npx hyperframes media-treatment`; no CSS or SVG stand-ins for supported effects, and no generated `.cube` just to encode exposure or warmth. Judge video from one early/middle/late contact sheet before and after.
+Feedback that footage is dark, flat or dull, should feel retro or printed, needs a face hidden, or needs a reveal is media intent: read `references/media-treatments.md`. Inspect the real `<img>`/`<video>`, pick one intent, start from `npx hyperframes media-treatment --capabilities --json`, then `--capability <id>`; never `--all`. Persist the final treatment with `npx hyperframes media-treatment`; no CSS or SVG stand-ins for supported effects, and no generated `.cube` just to encode exposure or warmth.
 
 ## Offer once, never add silently
 
@@ -55,5 +55,6 @@ When you build or review a piece, scan once for concrete gaps (on-screen text wi
 | Cut, reframe or transform media; HeyGen recipes | `references/operations.md` |
 | Treatments, realtime effects, overlays, reveals | `references/media-treatments.md` |
 | Install, sign-in, providers, RAM ladders | `references/setup-providers.md` |
-| Fades, gain, ducking, automation, effects, buses on placed tracks | `mix/GUIDE.md` |
-| Remembered preferences and recipes | `references/memory.md` |
+| Fades, gain, ducking, automation, effects, buses on placed tracks | `references/mixing.md` |
+| Local commands: grade, cutout, loudness, beats | `references/local.md` |
+| Remembered preferences | `references/memory.md` |
