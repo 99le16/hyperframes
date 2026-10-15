@@ -829,6 +829,23 @@ export function initSandboxRuntimeModular(): void {
     }
   };
 
+  // What applyClipLayout read and wrote for each clip, when it last laid that clip out. It runs on every
+  // timeline post, and a clip whose layout inputs have not moved would get the same answer: skipping it saves
+  // a display flip and a style read per clip, which on a film of thousands of clips was most of playback.
+  const clipLayoutInputs = new WeakMap<Element, string>();
+  const clipLayoutKey = (el: HTMLElement) =>
+    [
+      el.className,
+      el.style.position,
+      el.style.top,
+      el.style.left,
+      el.style.width,
+      el.style.height,
+      el.style.transform,
+      el.getAttribute("data-width"),
+      el.getAttribute("data-height"),
+    ].join("|");
+
   const applyClipLayout = () => {
     const rootEl = resolveRootCompositionElement();
     if (!rootEl) return;
@@ -852,7 +869,8 @@ export function initSandboxRuntimeModular(): void {
       // `justify-content: space-between` clusters in the top-left. Leave them in
       // flow so the preview matches the rendered video, which never stamps
       // (production renders run as the top-level page, not in an iframe).
-      return !el.hasAttribute(RUNTIME_STAMPED_ATTR);
+      if (el.hasAttribute(RUNTIME_STAMPED_ATTR)) return false;
+      return clipLayoutInputs.get(el) !== clipLayoutKey(el);
     });
     const displayNoneLiftedToMeasureShown = clips
       .filter((el) => el.style.getPropertyValue("display") === "none")
@@ -928,6 +946,7 @@ export function initSandboxRuntimeModular(): void {
     for (const { el, priority } of displayNoneLiftedToMeasureShown) {
       el.style.setProperty("display", "none", priority);
     }
+    for (const el of clips) clipLayoutInputs.set(el, clipLayoutKey(el));
   };
 
   const createTimingResolver = (includeAuthoredTimingAttrs: boolean) =>
