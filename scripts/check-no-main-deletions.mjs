@@ -52,6 +52,14 @@ const INSPECTOR_TOOLS_REASON =
   "the inspector ships the capability, not agent tools; each harness defines its own tool names, descriptions and schemas";
 
 export const ALLOWED_DELETIONS = new Map([
+  [
+    "packages/cli/src/beats/headlessAnalyzer.ts",
+    "the TypeScript beat tracker replaces the Chrome analyzer; the beats command decodes with ffmpeg directly",
+  ],
+  [
+    "packages/cli/scripts/build-beat-analyzer.mjs",
+    "the TypeScript beat tracker needs no browser bundle; its build step and only consumer are removed together",
+  ],
   ["packages/inspector/src/mcp.ts", INSPECTOR_TOOLS_REASON],
   ["packages/inspector/src/outputSchemas.ts", INSPECTOR_TOOLS_REASON],
   ["packages/inspector/src/tools.ts", INSPECTOR_TOOLS_REASON],

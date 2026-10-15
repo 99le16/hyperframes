@@ -483,8 +483,8 @@ npx hyperframes beats [dir] --json   # { ok, file, count, bpm }
 
 `beats` finds the music track — an `<audio>` element with
 `data-timeline-role="music"`, or an id like `music`, `bgm`, or `soundtrack` —
-runs the same decode and BPM analysis Studio uses inside headless Chrome, and
-writes `beats/<audio-path>.json`:
+decodes it with ffmpeg, runs the same beat tracker Studio uses, and writes
+`beats/<audio-path>.json`:
 
 ```json
 {
@@ -499,10 +499,10 @@ loads this file as-is and only generates one when none exists. `time` is seconds
 into the audio; `strength` (0–1) is relative loudness. Beats you add, move, or
 delete in Studio save back to the same file.
 
-Needs a local Chrome, the same one `render` uses. Run
-`npx hyperframes browser ensure` if it is missing. Results match Studio's to
-within a frame or two — a different headless-Chrome audio sample rate can shift
-a beat slightly.
+A track without a steady beat (ambient, rubato, too short) gets no beat file:
+the command fails and writes nothing rather than inventing a grid. Results
+match Studio's to within a frame or two — Studio decodes in the browser, often
+at a different sample rate, which can shift a beat slightly.
 
 ### `audio`
 
