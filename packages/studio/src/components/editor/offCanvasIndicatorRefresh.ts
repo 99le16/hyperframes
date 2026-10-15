@@ -71,9 +71,13 @@ function observeDoc(
  */
 export const RECOMPUTE_INTERVAL_MS = 100;
 
+/** A rebuild's share of the main thread at most: the wait after one grows with what it cost, so a film of
+ *  thousands of elements, where one rebuild outlasts the interval, does not spend playback on them. */
+const MAX_REBUILD_SHARE = 0.1;
+
 /** Dirty, and far enough past the last rebuild to be worth paying for another. */
-export function rebuildDue(dirty: boolean, lastAt: number, now: number): boolean {
-  return dirty && now - lastAt >= RECOMPUTE_INTERVAL_MS;
+export function rebuildDue(dirty: boolean, lastAt: number, now: number, lastCostMs = 0): boolean {
+  return dirty && now - lastAt >= Math.max(RECOMPUTE_INTERVAL_MS, lastCostMs / MAX_REBUILD_SHARE);
 }
 
 export function startOffCanvasIndicatorRefresh(
@@ -81,6 +85,7 @@ export function startOffCanvasIndicatorRefresh(
 ): () => void {
   let lastCompSig = "";
   let lastRecomputeAt = Number.NEGATIVE_INFINITY;
+  let lastRecomputeCostMs = 0;
   const walkCache = createDomEditLayerWalkCache();
   const markDirty = () => {
     options.dirtyRef.current = true;
@@ -121,7 +126,7 @@ export function startOffCanvasIndicatorRefresh(
     }
     // Staying dirty while throttled is what makes the next eligible frame rebuild.
     const now = performance.now();
-    if (!rebuildDue(options.dirtyRef.current, lastRecomputeAt, now)) return;
+    if (!rebuildDue(options.dirtyRef.current, lastRecomputeAt, now, lastRecomputeCostMs)) return;
     lastRecomputeAt = now;
     options.dirtyRef.current = false;
     drainPendingLayerMutations(options.observerRef.current, walkCache);
@@ -136,6 +141,7 @@ export function startOffCanvasIndicatorRefresh(
       options.setRects,
       walkCache,
     );
+    lastRecomputeCostMs = performance.now() - now;
   };
   const unsubscribe = subscribeOverlayFrame(update);
   return () => {
