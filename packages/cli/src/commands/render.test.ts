@@ -261,6 +261,22 @@ vi.mock("../utils/orphanCleanup.js", () => ({
   processParentPid: vi.fn((pid: number) => orphanCleanupState.parentPid(pid)),
 }));
 
+const cpuSamplerState = vi.hoisted(() => ({
+  samplers: [] as { requesterOptedIn: boolean; stopped: boolean }[],
+}));
+vi.mock("../telemetry/renderCpu.js", () => ({
+  startRenderCpuSampler: (requesterOptedIn = true) => {
+    const sampler = { requesterOptedIn, stopped: false };
+    cpuSamplerState.samplers.push(sampler);
+    return {
+      stop: () => {
+        sampler.stopped = true;
+        return { cpuBusyAvgPct: 57, cpuBusyPeakPct: 90 };
+      },
+    };
+  },
+}));
+
 // Collect the heavy render module once, after Vitest has hoisted the mocks
 // above. Keeping this import out of a hook means parallel monorepo contention
 // cannot turn module collection into a `beforeAll` timeout.
@@ -469,6 +485,36 @@ describe("renderLocal browser GPU config", () => {
     delete process.env.HYPERFRAMES_FFPROBE_PATH;
     delete process.env.PRODUCER_HEADLESS_SHELL_PATH;
     delete process.env.HF_DE_PARALLEL_ROUTER;
+  });
+
+  it("reports the render's CPU use on render_complete and render_error and stops measuring", async () => {
+    const { trackRenderComplete, trackRenderError } = await import("../telemetry/events.js");
+    vi.mocked(trackRenderComplete).mockClear();
+    vi.mocked(trackRenderError).mockClear();
+    cpuSamplerState.samplers = [];
+    const options = {
+      fps: { num: 30, den: 1 },
+      quality: "standard",
+      format: "mp4",
+      gpu: false,
+      browserGpuMode: "software",
+      hdrMode: "auto",
+      quiet: true,
+      throwOnError: true,
+    } as const;
+
+    await renderLocal("/tmp/project", "/tmp/out.mp4", options);
+    producerState.executeImpl = async () => {
+      throw new Error("capture failed");
+    };
+    await expect(renderLocal("/tmp/project", "/tmp/out.mp4", options)).rejects.toThrow(
+      "capture failed",
+    );
+
+    const cpu = { cpuBusyAvgPct: 57, cpuBusyPeakPct: 90 };
+    expect(vi.mocked(trackRenderComplete).mock.calls[0]?.[0]).toMatchObject(cpu);
+    expect(vi.mocked(trackRenderError).mock.calls[0]?.[0]).toMatchObject(cpu);
+    expect(cpuSamplerState.samplers.map((s) => s.stopped)).toEqual([true, true]);
   });
 
   it("cleans orphaned browser trees before starting a local render", async () => {
