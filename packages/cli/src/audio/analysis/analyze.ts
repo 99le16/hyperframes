@@ -115,7 +115,6 @@ export async function analyzeSignal(
   const ladderFor = (capability: AudioCapability) => {
     let result = ladders.get(capability);
     if (!result) {
-      // Onsets see the context, so a window's edge is not mistaken for a hit, then keep only the window's own.
       const withContext = capability === "onsets" && framing.cut;
       result = runLadder(capability, withContext ? signal : framing.windowed, providers, {
         quality: request.quality,
