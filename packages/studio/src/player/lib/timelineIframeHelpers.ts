@@ -482,6 +482,8 @@ function buildMissingCompositionEntry(params: {
  * are silently dropped from `__clipManifest`.  This pass reads the DOM +
  * GSAP timeline registry directly to fill the gaps.
  */
+const MEDIA_TAGS = new Set(["video", "audio", "img"]);
+
 export function buildMissingCompositionElements(
   doc: Document,
   iframeWin: IframeWindow,
@@ -523,9 +525,12 @@ export function buildMissingCompositionElements(
 
   // Patch existing elements that are missing compositionSrc
   let patched = false;
-  const findHost = previewElementFinder(doc);
+  // Built on first use: this runs on every preview state message, and the index reads every id in the film.
+  let findHost: ReturnType<typeof previewElementFinder> | undefined;
   const updatedEls = (currentEls as TimelineElement[]).map((existing) => {
-    if (existing.compositionSrc) return existing;
+    // A media element is never a composition host.
+    if (existing.compositionSrc || MEDIA_TAGS.has(existing.tag.toLowerCase())) return existing;
+    findHost ??= previewElementFinder(doc);
     const host =
       findHost(existing) ?? doc.querySelector(`[data-composition-id="${CSS.escape(existing.id)}"]`);
     if (!host) return existing;
