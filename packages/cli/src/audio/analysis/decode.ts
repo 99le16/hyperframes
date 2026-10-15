@@ -21,7 +21,18 @@ function requiredBinary(name: "ffmpeg" | "ffprobe"): string {
 export async function probeAudio(file: string): Promise<AudioStreamInfo | null> {
   const { stdout } = await run(
     requiredBinary("ffprobe"),
-    ["-v", "error", "-select_streams", "a:0", "-show_streams", "-show_format", "-of", "json", file],
+    [
+      "-v",
+      "error",
+      "-select_streams",
+      "a:0",
+      "-show_streams",
+      "-show_format",
+      "-of",
+      "json",
+      "--",
+      file,
+    ],
     { maxBuffer: 8 * 1024 * 1024, windowsHide: true },
   );
   const parsed = JSON.parse(stdout) as {

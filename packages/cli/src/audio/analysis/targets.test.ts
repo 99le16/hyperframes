@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ProjectTimeline, TimelineRow } from "../../timeline/describeProject.js";
 import { fileTime, filmTargets, filmTime, type Placement } from "./targets.js";
@@ -114,7 +115,7 @@ describe("filmTargets", () => {
 
   it("resolves a source against the file that declares the clip, and keeps its local data-start", () => {
     const [fast] = filmTargets("/p", timeline, { by: "element", ref: "#fast" });
-    expect(fast!.path).toBe("/p/shared/riser.wav");
+    expect(fast!.path).toBe(resolve("/p/shared/riser.wav"));
     expect(fast!.placement).toEqual({
       start: 8,
       end: 10,

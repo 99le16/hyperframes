@@ -71,7 +71,6 @@ export interface TimelineRow extends ClipFact {
   children: RowPointer[];
   /** Signed frames from its `data-sync-origin` partner (+ = late); `null` unpaired or rates differ. */
   syncOffsetFrames: number | null;
-  /** Seconds into the media file where the played part begins; `null` for a row that is not media. */
   mediaStart: number | null;
 }
 
