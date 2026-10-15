@@ -1,6 +1,8 @@
+import * as fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import {
   existsSync,
+  linkSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -24,11 +26,24 @@ import * as atomicFile from "@hyperframes/core/atomic-file";
 import { finishSnapshotRun } from "./videoState.js";
 import type { ArtifactRecord, VideoState } from "./videoState.js";
 
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    openSync: vi.fn(actual.openSync),
+    ftruncateSync: vi.fn(actual.ftruncateSync),
+  };
+});
+
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 const now = Date.now();
+function ageRun(path: string): void {
+  const time = new Date(now - SNAPSHOT_GRACE_MS * 3);
+  utimesSync(path, time, time);
+}
 function fixture() {
   const project = mkdtempSync(join(tmpdir(), "hf-run-retention-"));
   roots.push(project);
@@ -119,11 +134,7 @@ it.each(["frame.png", "derived/description.md"])(
     retainSnapshotOutput(f.project, dirname(output));
     retainSnapshotOutput(f.project, dirname(output));
     writeFileSync(output, "new pixels or words");
-    utimesSync(
-      old.path,
-      new Date(now - SNAPSHOT_GRACE_MS * 3),
-      new Date(now - SNAPSHOT_GRACE_MS * 3),
-    );
+    ageRun(old.path);
     f.collect();
     expect(existsSync(old.path)).toBe(true);
   },
@@ -180,36 +191,39 @@ it("protects live captures then releases completed runs in the same long-lived p
   const path = join(f.root, randomUUID());
   ownSnapshotRun(f.project, path);
   writeFileSync(join(path, "frame.png"), "capture");
-  utimesSync(path, new Date(now - SNAPSHOT_GRACE_MS * 3), new Date(now - SNAPSHOT_GRACE_MS * 3));
+  ageRun(path);
   f.fill();
   f.collect();
   expect(existsSync(path)).toBe(true);
   releaseSnapshotRun(f.project, path);
-  // Removing the lease starts the grace period again.
-  utimesSync(path, new Date(now - SNAPSHOT_GRACE_MS * 3), new Date(now - SNAPSHOT_GRACE_MS * 3));
+  expect(JSON.parse(readFileSync(join(path, ".capture-owner.json"), "utf8")).released).toBe(true);
+  ageRun(path);
   f.collect();
   expect(existsSync(path)).toBe(false);
 });
-it("reclaims crashed captures but preserves malformed owner metadata", () => {
-  const f = fixture();
-  const crashed = f.run();
-  const malformed = f.run();
-  writeFileSync(
-    join(crashed.path, ".capture-owner.json"),
-    JSON.stringify({ version: 1, pid: 2147483647 }),
-  );
-  writeFileSync(join(malformed.path, ".capture-owner.json"), "broken");
-  for (const item of [crashed, malformed])
-    utimesSync(
-      item.path,
-      new Date(now - SNAPSHOT_GRACE_MS * 3),
-      new Date(now - SNAPSHOT_GRACE_MS * 3),
+it.each(["broken", '{"released":true}'])(
+  "reclaims crashed captures but preserves malformed owner metadata %s",
+  (metadata) => {
+    const f = fixture();
+    const crashed = f.run();
+    const malformed = f.run();
+    writeFileSync(
+      join(crashed.path, ".capture-owner.json"),
+      JSON.stringify({ version: 1, pid: 2147483647 }),
     );
-  f.fill();
-  f.collect();
-  expect(existsSync(crashed.path)).toBe(false);
-  expect(existsSync(malformed.path)).toBe(true);
-});
+    writeFileSync(join(malformed.path, ".capture-owner.json"), metadata);
+    for (const item of [crashed, malformed])
+      utimesSync(
+        item.path,
+        new Date(now - SNAPSHOT_GRACE_MS * 3),
+        new Date(now - SNAPSHOT_GRACE_MS * 3),
+      );
+    f.fill();
+    f.collect();
+    expect(existsSync(crashed.path)).toBe(false);
+    expect(existsSync(malformed.path)).toBe(true);
+  },
+);
 it("does not traverse directory symlinks or delete arbitrary output directories", () => {
   const f = fixture();
   const outside = mkdtempSync(join(tmpdir(), "hf-external-"));
@@ -219,11 +233,7 @@ it("does not traverse directory symlinks or delete arbitrary output directories"
   mkdirSync(join(f.root, "custom-output"));
   const old = f.run();
   symlinkSync(outside, join(old.path, "external"), "dir");
-  utimesSync(
-    old.path,
-    new Date(now - SNAPSHOT_GRACE_MS * 3),
-    new Date(now - SNAPSHOT_GRACE_MS * 3),
-  );
+  ageRun(old.path);
   f.fill();
   f.collect();
   expect(existsSync(old.path)).toBe(false);
@@ -252,4 +262,75 @@ it("treats a disappearing managed root as best-effort cleanup", () => {
   const f = fixture();
   rmSync(f.root, { recursive: true });
   expect(f.collect()).toEqual([]);
+});
+
+it.each(["symlink", "replacement"])("does not release a lease swapped for a %s", async (kind) => {
+  const f = fixture();
+  const path = join(f.root, randomUUID());
+  ownSnapshotRun(f.project, path);
+  const marker = join(path, ".capture-owner.json");
+  const replacement = join(f.project, "replacement.json");
+  writeFileSync(replacement, JSON.stringify({ pid: process.pid }));
+  const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+  vi.mocked(fs.openSync).mockImplementationOnce((...args) => {
+    rmSync(marker);
+    if (kind === "symlink") symlinkSync(replacement, marker);
+    else actual.renameSync(replacement, marker);
+    return actual.openSync(...args);
+  });
+  releaseSnapshotRun(f.project, path);
+  expect(existsSync(marker)).toBe(true);
+  expect(JSON.parse(readFileSync(marker, "utf8"))).toEqual({ pid: process.pid });
+});
+
+it("keeps a run when its owner is swapped for a symlink during cleanup", async () => {
+  const f = fixture();
+  const old = f.run();
+  const marker = join(old.path, ".capture-owner.json");
+  const replacement = join(f.project, "other-owner.json");
+  writeFileSync(marker, JSON.stringify({ pid: 2147483647 }));
+  writeFileSync(replacement, JSON.stringify({ pid: 2147483647 }));
+  ageRun(old.path);
+  f.fill();
+  const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+  vi.mocked(fs.openSync).mockImplementationOnce((...args) => {
+    rmSync(marker);
+    symlinkSync(replacement, marker);
+    return actual.openSync(...args);
+  });
+  f.collect();
+  expect(existsSync(old.path)).toBe(true);
+  expect(old.record.status).not.toBe("cleaned");
+});
+
+it("releases its open file without deleting a replacement owner's marker", async () => {
+  const f = fixture();
+  const path = join(f.root, randomUUID());
+  ownSnapshotRun(f.project, path);
+  const marker = join(path, ".capture-owner.json");
+  const previous = join(path, "previous-owner.json");
+  const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+  vi.mocked(fs.ftruncateSync).mockImplementationOnce((...args) => {
+    actual.renameSync(marker, previous);
+    writeFileSync(marker, JSON.stringify({ version: 1, pid: 1 }));
+    return actual.ftruncateSync(...args);
+  });
+  releaseSnapshotRun(f.project, path);
+  expect(JSON.parse(readFileSync(marker, "utf8")).pid).toBe(1);
+  expect(JSON.parse(readFileSync(previous, "utf8")).released).toBe(true);
+});
+
+it("does not modify a hard-linked owner file outside snapshot storage", () => {
+  const f = fixture();
+  const old = f.run();
+  const outside = join(f.project, "external-owner.json");
+  const contents = JSON.stringify({ version: 1, pid: process.pid });
+  writeFileSync(outside, contents);
+  linkSync(outside, join(old.path, ".capture-owner.json"));
+  releaseSnapshotRun(f.project, old.path);
+  expect(readFileSync(outside, "utf8")).toBe(contents);
+  ageRun(old.path);
+  f.fill();
+  f.collect();
+  expect(existsSync(old.path)).toBe(true);
 });

@@ -1,10 +1,16 @@
 import {
+  type Stats,
+  closeSync,
+  constants,
+  fstatSync,
   lstatSync,
+  openSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   rmSync,
-  unlinkSync,
+  ftruncateSync,
+  writeSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
@@ -85,12 +91,56 @@ function ownerPid(owner: unknown): number | null {
   return typeof pid === "number" && Number.isSafeInteger(pid) && pid > 0 ? pid : null;
 }
 
+function sameOwnerFile(before: Stats, current: Stats): boolean {
+  return (
+    current.isFile() &&
+    current.nlink === 1 &&
+    current.dev === before.dev &&
+    current.ino === before.ino
+  );
+}
+
+function openOwner(marker: string, access: number): number {
+  const before = lstatSync(marker);
+  if (!before.isFile() || before.nlink !== 1)
+    throw new Error("Snapshot owner must be a regular file.");
+  const fd = openSync(marker, access | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+  try {
+    const current = fstatSync(fd);
+    if (!sameOwnerFile(before, current)) throw new Error("Snapshot owner changed while opening.");
+    return fd;
+  } catch (error) {
+    closeSync(fd);
+    throw error;
+  }
+}
+
+function readOwner(marker: string): unknown {
+  const fd = openOwner(marker, constants.O_RDONLY);
+  try {
+    return JSON.parse(readFileSync(fd, "utf8"));
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function releasedOwner(owner: unknown): boolean {
+  return (
+    !!owner &&
+    typeof owner === "object" &&
+    "released" in owner &&
+    owner.released === true &&
+    ownerPid(owner) !== null
+  );
+}
+
 function liveOwner(path: string): boolean {
   if (retainedOutput(path)) return true;
   try {
     const marker = join(path, OWNER);
-    if (lstatSync(marker).isSymbolicLink()) return true;
-    const pid = ownerPid(JSON.parse(readFileSync(marker, "utf8")));
+    const owner = readOwner(marker);
+    if (releasedOwner(owner)) return false;
+    const pid = ownerPid(owner);
     return pid === null || processIsAlive(pid);
   } catch (error) {
     return !missingFile(error);
@@ -216,10 +266,15 @@ export function releaseSnapshotRun(project: string, path: string): void {
   if (dirname(path) !== rootOf(project) || !ordinaryPath(project, path)) return;
   try {
     const marker = join(path, OWNER);
-    if (lstatSync(marker).isSymbolicLink()) return;
-    const owner: unknown = JSON.parse(readFileSync(marker, "utf8"));
-    if (owner && typeof owner === "object" && "pid" in owner && owner.pid === process.pid)
-      unlinkSync(marker);
+    const fd = openOwner(marker, constants.O_RDWR);
+    try {
+      const owner: unknown = JSON.parse(readFileSync(fd, "utf8"));
+      if (ownerPid(owner) !== process.pid) return;
+      ftruncateSync(fd, 0);
+      writeSync(fd, JSON.stringify({ version: 1, pid: process.pid, released: true }), 0, "utf8");
+    } finally {
+      closeSync(fd);
+    }
   } catch {
     // A missing or unreadable lease must not fail a successful capture.
   }
