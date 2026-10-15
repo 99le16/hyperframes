@@ -10,6 +10,8 @@ import { captureArtifactRevision } from "../utils/artifactCapture.js";
 import { randomUUID } from "node:crypto";
 import {
   artifactDirectory,
+  finishSnapshotRun,
+  retainSnapshotOutput,
   forgetRecordedArtifacts,
   recordArtifacts,
   type ArtifactCapture,
@@ -1133,10 +1135,13 @@ export default defineCommand({
         : "";
     console.log(`${c.accent("◆")}  Capturing ${label} from ${c.accent(project.name)}${angleLabel}`);
 
+    let managedSnapshotDir: string | undefined;
     try {
       const snapshotDir = args.output
         ? resolve(String(args.output))
         : artifactDirectory(project.dir, "snapshots");
+      if (!args.output) managedSnapshotDir = snapshotDir;
+      if (args.output) retainSnapshotOutput(project.dir, snapshotDir);
       await withProjectLock(project.dir, "snapshot", async () => {
         const paths = await captureSnapshots(project.dir, {
           frames,
@@ -1304,6 +1309,9 @@ export default defineCommand({
       const msg = normalizeErrorMessage(err);
       console.error(`\n${c.error("✗")} Snapshot failed: ${msg}`);
       failCommand();
+    } finally {
+      if (managedSnapshotDir)
+        await finishSnapshotRun(project.dir, managedSnapshotDir).catch(warnSnapshotsNotRecorded);
     }
   },
 });
