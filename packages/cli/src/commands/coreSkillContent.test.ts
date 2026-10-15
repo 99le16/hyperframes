@@ -35,9 +35,10 @@ describe("hyperframes/core contract docs", () => {
   });
 
   it("requires actionable reproduction packets in CLI defect feedback", () => {
-    const skill = read("skills", "hyperframes-cli", "SKILL.md");
+    const skill = read("skills", "hyperframes-cli", "references", "feedback.md");
     const renderReference = read("skills", "hyperframes-cli", "references", "preview-render.md");
 
+    expect(read("skills", "hyperframes-cli", "SKILL.md")).toContain("`references/feedback.md`");
     expect(skill).toContain("reproduction packet");
     expect(renderReference).toContain("REPRO COMMAND:");
     expect(renderReference).toContain("EXPECTED / ACTUAL:");
@@ -47,7 +48,7 @@ describe("hyperframes/core contract docs", () => {
   });
 
   it("sends missing features and host-app friction as ratingless comments", () => {
-    const skill = read("skills", "hyperframes-cli", "SKILL.md");
+    const skill = read("skills", "hyperframes-cli", "references", "feedback.md");
 
     expect(skill).toContain(
       'npx hyperframes feedback --comment "MISSING FEATURE: <what the person asked for, in their words, with names, clients, figures and paths left out> | WORKAROUND:',
@@ -56,7 +57,7 @@ describe("hyperframes/core contract docs", () => {
   });
 
   it("mandates a composition-structure block for visual-defect feedback", () => {
-    const skill = read("skills", "hyperframes-cli", "SKILL.md");
+    const skill = read("skills", "hyperframes-cli", "references", "feedback.md");
     const renderReference = read("skills", "hyperframes-cli", "references", "preview-render.md");
 
     // Skill teaches the mandate at a high level.
@@ -70,7 +71,7 @@ describe("hyperframes/core contract docs", () => {
   });
 
   it("teaches safe cloud archive size remediation", () => {
-    const skill = read("skills", "hyperframes-cli", "SKILL.md");
+    const skill = read("skills", "hyperframes-cli", "references", "conventions.md");
     const cloudReference = read("skills", "hyperframes-cli", "references", "cloud.md");
 
     expect(skill).toContain("cloud render --dry-run --json");
@@ -102,7 +103,7 @@ describe("media treatment routing documentation", () => {
     expect(router).toContain("dark/flat/boring footage");
     expect(router).toContain("`/media-use`");
     expect(mediaUse).toContain("references/media-treatments.md");
-    expect(mediaUse).toContain("`hyperframes media-treatment`");
+    expect(mediaUse).toContain("`npx hyperframes media-treatment`");
     expect(treatments).toContain("Persist pixel settings with `hyperframes media-treatment`");
     expect(treatments).toContain("apply to the entire selected real `<img>` or");
     expect(treatments).toContain("external segmentation/tracking tool");

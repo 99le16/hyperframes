@@ -49,3 +49,9 @@ skills/talking-head-recut/references/frames/polaroid.html
 # explicitly (not registry/examples/**/*.html) so hand-authored example HTML still
 # gets formatted.
 registry/examples/warm-grain/compositions/captions.html
+
+# Core skill entries: agents read each one whole on every run, so table padding costs tokens every time.
+skills/hyperframes/SKILL.md
+skills/hyperframes-cli/SKILL.md
+skills/hyperframes-registry/SKILL.md
+skills/media-use/SKILL.md

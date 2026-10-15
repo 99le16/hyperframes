@@ -6,6 +6,7 @@ const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
 const files = {
   router: "skills/hyperframes/SKILL.md",
+  routing: "skills/hyperframes/references/routing.md",
   keyframes: "skills/hyperframes/keyframes/GUIDE.md",
   cli: "skills/hyperframes-cli/SKILL.md",
   audio: "skills/media-use/mix/GUIDE.md",
@@ -33,7 +34,12 @@ function requiresAll(text, patterns, surface) {
 }
 
 test("router loads the owning skills for creator picture and sound edits", async () => {
-  const router = await read(files.router);
+  const entry = await read(files.router);
+  assert.match(entry, /Creator edits[\s\S]{0,120}references\/routing\.md/);
+  assert.match(entry, /cut, trim, splice, reorder[\s\S]{0,120}core\/GUIDE\.md/i);
+  assert.match(entry, /zoom, punch-in[\s\S]{0,120}keyframes\/GUIDE\.md/i);
+  assert.match(entry, /fade, crossfade[\s\S]{0,120}media-use\/mix\/GUIDE\.md/i);
+  const router = await read(files.routing);
   requiresAll(
     router,
     [
@@ -54,15 +60,15 @@ test("router loads the owning skills for creator picture and sound edits", async
   );
   assert.match(
     router,
-    /cut.*trim.*splice.*reorder[\s\S]{0,500}(?:hyperframes-core|hyperframes\/core)/i,
+    /cut.*trim.*splice.*reorder[\s\S]{0,500}(?:hyperframes-core|hyperframes\/core|\/core\/GUIDE)/i,
   );
   assert.match(
     router,
-    /zoom.*punch.*reframe.*Ken Burns.*camera move[\s\S]{0,500}(?:hyperframes-keyframes|hyperframes\/keyframes)/i,
+    /zoom.*punch.*reframe.*Ken Burns.*camera move[\s\S]{0,500}(?:hyperframes-keyframes|hyperframes\/keyframes|\/keyframes\/GUIDE)/i,
   );
   assert.match(
     router,
-    /match cut.*whip pan[\s\S]{0,500}(?:hyperframes-animation|hyperframes\/animation)[\s\S]{0,300}(?:hyperframes-keyframes|hyperframes\/keyframes)[\s\S]{0,300}hyperframes-registry/i,
+    /match cut.*whip pan[\s\S]{0,500}(?:hyperframes-animation|hyperframes\/animation|\/animation\/GUIDE)[\s\S]{0,300}(?:hyperframes-keyframes|hyperframes\/keyframes|\/keyframes\/GUIDE)[\s\S]{0,300}hyperframes-registry/i,
   );
   assert.match(
     router,
@@ -70,7 +76,7 @@ test("router loads the owning skills for creator picture and sound edits", async
   );
   assert.match(
     router,
-    /picture and sound[\s\S]{0,700}(?:hyperframes-core|hyperframes\/core)[\s\S]{0,300}(?:hyperframes-audio|media-use\/mix)/i,
+    /picture and sound[\s\S]{0,700}(?:hyperframes-core|hyperframes\/core|\/core\/GUIDE)[\s\S]{0,300}(?:hyperframes-audio|media-use\/mix)/i,
   );
   assert.match(router, /media-use[\s\S]{0,180}sourc|sourc[\s\S]{0,180}media-use/i);
 });
@@ -108,24 +114,10 @@ test("keyframes states truthful creator capabilities and ownership boundaries", 
   assert.doesNotMatch(keyframes, /keyframe(?:d|ing)?\s+(?:the\s+)?data-playback-rate/i);
 });
 
-test("CLI requires domain skills before authoring or diagnosing creator edits", async () => {
+test("CLI sends `hyperframes keyframes` to the keyframes guide and creator edits to the router", async () => {
   const cli = await read(files.cli);
-  assert.match(
-    cli,
-    /before[\s\S]{0,120}(zoom|punch-in)[\s\S]{0,180}(reframe|camera)[\s\S]{0,180}keyframe[\s\S]{0,220}read `?\/?(?:hyperframes-keyframes|hyperframes\/keyframes)/i,
-  );
-  assert.match(
-    cli,
-    /before `?hyperframes keyframes`?[\s\S]{0,180}read `?\/?(?:hyperframes-keyframes|hyperframes\/keyframes)/i,
-  );
-  assert.match(
-    cli,
-    /cut.*trim.*splice.*source timing[\s\S]{0,250}(?:hyperframes-core|hyperframes\/core)/i,
-  );
-  assert.match(
-    cli,
-    /fade[\s\S]{0,100}crossfade[\s\S]{0,100}volume automation[\s\S]{0,100}carve[\s\S]{0,100}FX[\s\S]{0,300}(?:hyperframes-audio|media-use\/mix)/i,
-  );
+  assert.match(cli, /Read the row before running its command/);
+  assert.match(cli, /\| `keyframes` \| `\.\.\/hyperframes\/keyframes\/GUIDE\.md` \|/);
 });
 
 test("audio skill owns placed-track fades, automation, ducking, and effects", async () => {
@@ -175,10 +167,10 @@ test("keyframes routes visual crop and mask handoffs without claiming temporal s
 });
 
 test("core and general-video author temporal edits as duplicated source-range clips", async () => {
-  const [coreClips, generalVideo, router, keyframes] = await Promise.all([
+  const [coreClips, generalVideo, routing, keyframes] = await Promise.all([
     read(files.coreClips),
     read(files.generalVideo),
-    read(files.router),
+    read(files.routing),
     read(files.keyframes),
   ]);
   for (const [surface, text] of [
@@ -197,7 +189,7 @@ test("core and general-video author temporal edits as duplicated source-range cl
       surface,
     );
   }
-  assert.match(router, /cut this footage[\s\S]{0,300}(?:hyperframes-core|hyperframes\/core)/i);
+  assert.match(routing, /cut this footage[\s\S]{0,300}\/core\/GUIDE/i);
   requiresAll(keyframes, [/zoom/i, /punch/i, /pan/i, /crop|mask|clip-path/i], files.keyframes);
   assert.match(keyframes, /inner[\s\S]{0,80}wrapper/i);
   assert.match(keyframes, /not a temporal source trim or[\s\S]{0,40}splice/i);
