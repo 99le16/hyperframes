@@ -2,6 +2,7 @@
 // fallow-ignore-file code-duplication
 import {
   appendFileSync,
+  chmodSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -29,6 +30,7 @@ import {
   type ProjectHistory,
 } from "./projectHistory";
 import { START, type HistoryWho } from "./historyLog";
+import { openBlobStore } from "./blobStore";
 
 // A test can hold a media copy, and run work after its blob is stored but before history records it.
 const mediaCopy = vi.hoisted(() => ({
@@ -842,7 +844,7 @@ describe("openProjectHistory", () => {
       try {
         const window = await history.beginWindow(agent, "Agent turn", { idleMs: 50 });
         writeFileSync(join(staged, "b.html"), "b");
-        for (const until = Date.now() + 150; Date.now() < until;);
+        for (const until = Date.now() + 150; Date.now() < until; );
         rmSync(join(projectDir, file));
         renameSync(staged, join(projectDir, "a"));
         await window.close();
@@ -1386,7 +1388,7 @@ describe("openProjectHistory", () => {
       const window = await history.beginWindow(agent, "Retitle", { idleMs: 50 });
       write("index.html", "A2");
       await history.claim(you, "Nothing", []); // a claim scans first: the agent's write is seen
-      for (const until = Date.now() + 150; Date.now() < until;);
+      for (const until = Date.now() + 150; Date.now() < until; );
       write("index.html", "A3");
       await history.claim(you, "Dragged Title", ["index.html"], {
         overwrote: { "index.html": fileContentVersion("A2") },
@@ -2617,4 +2619,34 @@ describe("a file shortened while the history copies it in", () => {
     await within(swept, "the sweep");
     await within(history.step("back", you), "the undo");
   });
+});
+
+describe("the history's copy of a file", () => {
+  it.skipIf(process.platform === "win32")("keeps the file's mode", async () => {
+    const dir = tempDir("hf-history-blobs-");
+    const store = await openBlobStore(join(dir, "blobs"));
+    const script = join(dir, "build.sh");
+    writeFileSync(script, "echo hi\n");
+    chmodSync(script, 0o755);
+    const hash = await store.put(script);
+    const [stored] = readdirSync(join(dir, "blobs"), { recursive: true }).filter((name) =>
+      String(name).endsWith(hash),
+    );
+    expect(statSync(join(dir, "blobs", String(stored))).mode & 0o777).toBe(0o755);
+  });
+
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "leaves no partial copy in the store",
+    async () => {
+      const dir = tempDir("hf-history-blobs-");
+      const store = await openBlobStore(join(dir, "blobs"));
+      const locked = join(dir, "locked.html");
+      writeFileSync(locked, "<h1>Hello</h1>");
+      chmodSync(locked, 0o000);
+      await expect(store.put(join(dir, "gone.html"))).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(store.put(locked)).rejects.toMatchObject({ code: "EACCES" });
+      expect(readdirSync(join(dir, "blobs"))).toEqual([]);
+    },
+  );
 });

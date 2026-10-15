@@ -34,13 +34,13 @@ async function hashFile(path: string): Promise<string> {
   return hash.digest("hex");
 }
 
-/** Copies a file another writer may be changing: a clone is one snapshot, else a stream read to the file's real end.
- * fs.copyFile's own byte copy never returns when a writer shortens the file under it. */
+/** A clone is one snapshot; else a stream stops at the file's real end, where fs.copyFile loops once it shrinks. */
 async function snapshot(from: string, to: string): Promise<void> {
   try {
     await copyFile(from, to, constants.COPYFILE_FICLONE_FORCE);
   } catch {
-    await pipeline(createReadStream(from), createWriteStream(to));
+    const { mode } = await stat(from);
+    await pipeline(createReadStream(from), createWriteStream(to, { mode }));
   }
 }
 
@@ -72,7 +72,10 @@ export async function openBlobStore(dir: string): Promise<BlobStore> {
       const temp = join(dir, `incoming-${randomUUID()}`);
       // Recreated if removed while open, so a missing folder is never mistaken for a deleted project file.
       await mkdir(dir, { recursive: true });
-      await snapshot(absPath, temp);
+      await snapshot(absPath, temp).catch(async (error) => {
+        await rm(temp, { force: true });
+        throw error;
+      });
       const hash = await hashFile(temp);
       if (sizes.has(hash)) {
         await rm(temp, { force: true });
