@@ -38,10 +38,48 @@ describe("analyzeSignal", () => {
     expect(analysis.values.moments).toEqual({ onset: 1.1, steepest: 1.1, peak: 1.1, tailEnd: 1.2 });
   });
 
-  it("warns, and answers nothing, for a capability no provider offers yet", async () => {
-    const analysis = await analyzeSignal(tone, { capabilities: ["beats"] });
-    expect(analysis.values.beats).toBeNull();
-    expect(analysis.warnings).toEqual(["beats: no provider answered (none offers it)"]);
+  it("warns, and answers nothing, for a capability no provider offers", async () => {
+    const analysis = await analyzeSignal(tone, { capabilities: ["describe"] }, [signalProvider]);
+    expect(analysis.values.describe).toBeNull();
+    expect(analysis.warnings).toEqual(["describe: no provider answered (none offers it)"]);
+  });
+
+  it("reads tempo off the beats of whichever provider placed them, in file seconds", async () => {
+    const grid: AudioAnalysisProvider<AudioSignal> = {
+      id: "grid",
+      local: true,
+      capabilities: ["beats"],
+      analyze: async () => ({ times: [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4] }),
+    };
+    const analysis = await analyzeSignal(tone, { capabilities: ["bpm", "beats"], fileOffset: 10 }, [
+      grid,
+      signalProvider,
+    ]);
+    expect(analysis.provenance).toEqual({ bpm: "grid", beats: "grid" });
+    expect(analysis.values.bpm).toEqual({
+      value: 120,
+      curve: [
+        { t: 10, bpm: 120 },
+        { t: 14, bpm: 120 },
+      ],
+    });
+    expect((analysis.values.beats as { times: number[] }).times[0]).toBe(10);
+  });
+
+  it("keeps a service off the ladder at quality fast", async () => {
+    const service: AudioAnalysisProvider<AudioSignal> = {
+      id: "service",
+      local: false,
+      capabilities: ["beats"],
+      analyze: async () => ({ times: [1] }),
+    };
+    const analysis = await analyzeSignal(
+      tone,
+      { capabilities: ["beats"], quality: "fast", options: {} },
+      [service, signalProvider],
+    );
+    expect(analysis.provenance.beats).toBe("signal");
+    expect(analysis.warnings).toEqual([]);
   });
 });
 

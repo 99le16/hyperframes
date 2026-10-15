@@ -12,12 +12,16 @@ export type AudioCapability =
   | "silence"
   | "kind"
   | "beats"
+  | "downbeats"
+  | "bpm"
   | "sections"
-  | "words"
   | "describe";
 
 /** `best` may use any provider; `local` none that sends audio off the machine; `fast` only signal processing. */
 export type AnalysisQuality = "best" | "local" | "fast";
+
+/** Whether a provider can run here now, and if not, what is missing. */
+export type Availability = { ok: true } | { ok: false; reason: string };
 
 export interface AudioAnalysisProvider<Input = unknown> {
   id: string;
@@ -27,7 +31,7 @@ export interface AudioAnalysisProvider<Input = unknown> {
   signal?: boolean;
   capabilities: readonly AudioCapability[];
   /** Whether it can run here now: a key, a platform, a model on disk. Missing means always. */
-  available?: () => boolean | Promise<boolean>;
+  available?: () => Availability | Promise<Availability>;
   analyze: (
     capability: AudioCapability,
     input: Input,
@@ -78,6 +82,18 @@ export function exclusion<Input>(
   return null;
 }
 
+const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+async function availabilityOf<Input>(
+  provider: AudioAnalysisProvider<Input>,
+): Promise<Availability> {
+  try {
+    return provider.available ? await provider.available() : { ok: true };
+  } catch (error) {
+    return { ok: false, reason: message(error) };
+  }
+}
+
 /** Why a provider cannot take this step, or null when it can. */
 async function blocked<Input>(
   id: string,
@@ -89,9 +105,20 @@ async function blocked<Input>(
     return { provider: id, outcome: "unavailable", reason: `no provider ${id} for ${capability}` };
   const excluded = exclusion(candidate, quality);
   if (excluded) return { provider: id, outcome: "excluded", reason: excluded };
-  if (candidate.available && !(await candidate.available()))
-    return { provider: id, outcome: "unavailable" };
+  const availability = await availabilityOf(candidate);
+  if (!availability.ok)
+    return { provider: id, outcome: "unavailable", reason: availability.reason };
   return null;
+}
+
+/** One line naming the providers above `answered` that could not answer, and why; null when none was passed over. */
+function passedOver(capability: AudioCapability, steps: LadderStep[], answered: string | null) {
+  const skipped = steps.filter((s) => s.outcome === "unavailable" || s.outcome === "failed");
+  if (!skipped.length) return null;
+  const why = skipped
+    .map((s) => `${s.provider} ${s.outcome}${s.reason ? ` (${s.reason})` : ""}`)
+    .join("; ");
+  return answered ? `${capability}: used ${answered}; ${why}` : `${capability}: ${why}`;
 }
 
 export async function runLadder<Input, Value = unknown>(
@@ -112,21 +139,19 @@ export async function runLadder<Input, Value = unknown>(
     }
     try {
       const value = (await candidate!.analyze(capability, input, options)) as Value;
+      const warning = passedOver(capability, steps, id);
       steps.push({ provider: id, outcome: "answered" });
-      const warnings = steps
-        .filter((step) => step.outcome === "failed")
-        .map((step) => `${capability}: ${step.provider} failed (${step.reason}); used ${id}`);
-      return { value, provenance: id, steps, warnings };
+      return { value, provenance: id, steps, warnings: warning ? [warning] : [] };
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      steps.push({ provider: id, outcome: "failed", reason });
+      steps.push({ provider: id, outcome: "failed", reason: message(error) });
     }
   }
   const none = order.length ? "" : " (none offers it)";
+  const why = passedOver(capability, steps, null)?.slice(capability.length + 2);
   return {
     value: null,
     provenance: null,
     steps,
-    warnings: [`${capability}: no provider answered${none}`],
+    warnings: [`${capability}: no provider answered${none}${why ? `; ${why}` : ""}`],
   };
 }

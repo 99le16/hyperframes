@@ -540,9 +540,57 @@ For a file not in the film yet, `--place-at <s>` answers as if it started at tha
 film second; `--skip-file-seconds <s>` cuts that much from the start of the file
 first, and the result warns when the cut part held the file's loudest moment.
 
-Every measurement comes from a provider ladder. Today the only provider is
-local signal processing; `--quality fast|local|best` limits which providers may
-run, `--provider onsets=signal` pins one, and `--full` shows each ladder step.
+`--only` also asks for the music's structure, which is not measured unless asked:
+
+- **beats**: beat times, or none with a `reason` (`no steady beat`, or too short
+  to tell) when the music has no beat to follow.
+- **downbeats**: the first beat of each bar, with the `meter` (3 or 4). From
+  signal processing these are a guess (`confidence: "low"`).
+- **bpm**: the tempo read off the beats (median interval), with a `curve` every
+  4 s for music that speeds up or slows down. It always comes from the provider
+  that answered `beats`.
+- **sections**: spans where the sound stays alike, each with a letter; a part
+  that returns gets its earlier letter.
+- **describe**: labels for what the audio holds, each with a score.
+
+Word timing is not here: use [`transcribe`](#transcribe).
+
+Every measurement comes from a provider ladder, tried in this order until one
+answers:
+
+| Capability | Ladder |
+| --- | --- |
+| moments, onsets, loudness, silence, envelope, kind | `signal` |
+| beats, downbeats (and so bpm) | `api`, `apple-mu`, `beat-this`, `signal` |
+| sections | `api`, `apple-mu`, `signal` |
+| describe | `api`, `apple-sound` |
+
+- `api` is an audio analysis service, used when `HYPERFRAMES_AUDIO_API_URL` and
+  `HYPERFRAMES_AUDIO_API_KEY` are both set. The audio is uploaded. Every beat,
+  downbeat or section boundary it answers moves onto the nearest beat signal
+  processing measured, when one is within a quarter beat; the rest are listed in
+  `snap.unsnapped`, and `snap.medianShiftMs` says how far the moved ones went.
+- `apple-mu` is Apple's Music Understanding, which needs macOS 27. It is not
+  available yet.
+- `beat-this` is [Beat This!](https://github.com/CPJKU/beat_this), used when
+  `HYPERFRAMES_BEAT_THIS_PYTHON` names a Python with `beat-this` installed and
+  its `small0` weights are on disk (`HYPERFRAMES_BEAT_THIS_CHECKPOINT`, or
+  `beat_this-small0.ckpt` in the Torch hub cache). The CLI never downloads them;
+  to set it up once:
+
+  ```bash
+  uv init --bare ~/.beat-this
+  uv add --project ~/.beat-this "beat-this @ git+https://github.com/CPJKU/beat_this" torch torchaudio soundfile
+  ~/.beat-this/.venv/bin/python -c "from beat_this.inference import load_checkpoint; load_checkpoint('small0')"
+  export HYPERFRAMES_BEAT_THIS_PYTHON=~/.beat-this/.venv/bin/python
+  ```
+- `apple-sound` is macOS's built-in sound classifier, through a small Swift
+  helper compiled once with the Xcode command line tools.
+
+A provider that cannot run, or fails, is passed over with a warning that says
+why. `--quality fast|local|best` limits which providers may run (`local` keeps
+the audio on this machine, `fast` allows only signal processing),
+`--provider beats=signal` pins one, and `--full` shows each ladder step.
 Tune the analysis with `--onset-method`, `--threshold`, `--band lo,hi`,
 `--hop-ms`, `--onset-ratio`, `--tail-db` and `--silence-db`. Decoding needs
 FFmpeg.

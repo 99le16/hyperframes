@@ -1,10 +1,15 @@
 import type {
+  Beats,
+  Downbeats,
   Envelope,
   KindGuess,
   Loudness,
   Moments,
   Onsets,
+  Sections,
+  SnapReport,
   Span,
+  Tempo,
 } from "@hyperframes/core/audio-analysis";
 import type { AudioItem, AudioReport } from "./run.js";
 import { filmTime } from "./targets.js";
@@ -60,6 +65,50 @@ function silenceLine(silence: Span[], at: At): string | null {
     : null;
 }
 
+function snapNote(snap: SnapReport | undefined): string {
+  if (!snap) return "";
+  const total = snap.snapped + snap.unsnapped.length;
+  const median = snap.medianShiftMs === null ? "" : `, median ${snap.medianShiftMs} ms`;
+  return `; ${snap.snapped}/${total} snapped to ${snap.reference}${median}`;
+}
+
+const listed = (times: number[], at: At) => {
+  const shown = times.slice(0, ONSETS_SHOWN).map(at).join(" ");
+  return times.length > ONSETS_SHOWN ? `${shown} +${times.length - ONSETS_SHOWN}` : shown;
+};
+
+function beatsLine(beats: Beats & { snap?: SnapReport }, at: At): string {
+  if (!beats.times.length) return `  beats none${beats.reason ? ` (${beats.reason})` : ""}`;
+  return `  beats ${beats.times.length}: ${listed(beats.times, at)}${snapNote(beats.snap)}`;
+}
+
+function downbeatsLine(downbeats: Downbeats & { snap?: SnapReport }, at: At): string | null {
+  if (!downbeats.times.length) return null;
+  const meter = downbeats.meter ? ` in ${downbeats.meter}` : "";
+  const low = downbeats.confidence === "low" ? ", a guess" : "";
+  return `  downbeats${meter}${low}: ${listed(downbeats.times, at)}${snapNote(downbeats.snap)}`;
+}
+
+function tempoLine(tempo: Tempo): string | null {
+  if (tempo.value === null) return null;
+  const bpms = tempo.curve.map((p) => p.bpm);
+  const spread =
+    bpms.length && Math.max(...bpms) - Math.min(...bpms) >= 2
+      ? ` (${Math.min(...bpms)}–${Math.max(...bpms)})`
+      : "";
+  return `  tempo ${tempo.value} BPM${spread}`;
+}
+
+function sectionsLine(sections: Sections, at: At): string {
+  const spans = sections.spans.map((s) => `${s.label} ${at(s.start)}–${at(s.end)}`).join("  ");
+  return `  sections ${spans}${snapNote(sections.snap)}`;
+}
+
+function describeLine(description: { text?: string; tags: { label: string; score: number }[] }) {
+  const tags = description.tags.map((t) => `${t.label} ${t.score.toFixed(2)}`).join(", ");
+  return `  sounds like ${[description.text, tags].filter(Boolean).join(" — ")}`;
+}
+
 /** One line per measurement the item holds, in reading order. */
 const LINES: [string, (value: never, at: At) => string | null][] = [
   ["moments", momentsLine],
@@ -67,6 +116,11 @@ const LINES: [string, (value: never, at: At) => string | null][] = [
   ["loudness", loudnessLine],
   ["silence", silenceLine],
   ["envelope", (envelope: Envelope) => `  ${sparkline(envelope)}`],
+  ["describe", describeLine],
+  ["bpm", tempoLine],
+  ["beats", beatsLine],
+  ["downbeats", downbeatsLine],
+  ["sections", sectionsLine],
 ];
 
 function headline(item: AudioItem, where: string): string {

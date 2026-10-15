@@ -26,6 +26,10 @@ export const examples: Example[] = [
   ["Every sound playing at 12 s in the film", "hyperframes audio --at 12"],
   ["One clip of the film, as JSON", "hyperframes audio --element '#riser' --json"],
   [
+    "The beat grid, tempo and sections of a music bed",
+    "hyperframes audio music.mp3 --only beats,downbeats,bpm,sections",
+  ],
+  [
     "Only onsets, from 60–200 Hz, finer",
     "hyperframes audio drums.wav --only onsets --band 60,200 --hop-ms 2",
   ],
@@ -34,8 +38,9 @@ export const examples: Example[] = [
 const CAPABILITIES = new Set<string>([
   ...DEFAULT_CAPABILITIES,
   "beats",
+  "downbeats",
+  "bpm",
   "sections",
-  "words",
   "describe",
 ]);
 const QUALITIES = new Set<AnalysisQuality>(["best", "local", "fast"]);
@@ -61,6 +66,8 @@ function capabilities(raw: string | undefined): AudioCapability[] {
     .split(",")
     .map((c) => c.trim())
     .filter(Boolean);
+  if (asked.includes("words"))
+    throw new CliUsageError("words come from hyperframes transcribe, not hyperframes audio");
   const unknown = asked.filter((c) => !CAPABILITIES.has(c));
   if (unknown.length)
     throw new CliUsageError(
@@ -177,7 +184,7 @@ export default defineCommand({
     },
     only: {
       type: "string",
-      description: `Capabilities to measure (default ${DEFAULT_CAPABILITIES.join(",")})`,
+      description: `Capabilities to measure (default ${DEFAULT_CAPABILITIES.join(",")}; also beats,downbeats,bpm,sections,describe)`,
     },
     quality: {
       type: "string",
