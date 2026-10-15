@@ -37,6 +37,23 @@ function byStableId(a: TimelineElement, b: TimelineElement): number {
 }
 
 /**
+ * Whether first-fit would put every clip on the first lane: no two clips overlap except a transition
+ * pair. A sweep in start order visits only the pairs that overlap, so a long sequential track costs
+ * one sort, where first-fit compares each clip with every clip already placed.
+ */
+function sharesOneLane(clips: TimelineElement[]): boolean {
+  const byStart = [...clips].sort((a, b) => a.start - b.start);
+  for (let i = 0; i < byStart.length; i++) {
+    const a = byStart[i];
+    const end = a.start + a.duration;
+    for (let j = i + 1; j < byStart.length && byStart[j].start < end; j++) {
+      if (overlaps(a, byStart[j]) && !isTransitionPair(a, byStart[j])) return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Pack ONE authored track's clips onto sub-lanes so no two time-overlapping clips
  * share a lane. Clips are ordered by their STABLE id (a function of the input, not
  * of the lane being computed — the historical oscillation bug tie-broke on the
@@ -62,6 +79,10 @@ function packTrackLanes(
   base: number,
   laneOf: Map<string, number>,
 ): number {
+  if (sharesOneLane(clips)) {
+    for (const el of clips) laneOf.set(keyOf(el), base);
+    return 1;
+  }
   const ordered = [...clips].sort(byStableId);
   const lanes: TimelineElement[][] = [];
   for (const el of ordered) {
