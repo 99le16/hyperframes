@@ -369,7 +369,6 @@ export function rhythmOf(frames: BandFrames, sampleRate: number): Rhythm {
 
 const TEMPO_STEP_SECONDS = 4;
 
-/** The mean of the intervals within 10% of the median: as robust as the median, without its frame-sized steps. */
 function steadyInterval(times: readonly number[]): number | null {
   const median = medianInterval(times);
   if (!median) return null;
