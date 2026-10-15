@@ -158,6 +158,7 @@ async function ask(analyzed: AudioSignal, capabilities: AudioApiCapability[]) {
   );
   const response = await fetch(url, {
     method: "POST",
+    redirect: "error",
     headers: { "x-api-key": key, "idempotency-key": randomUUID() },
     body: form,
     signal: AbortSignal.timeout(timeoutMs),

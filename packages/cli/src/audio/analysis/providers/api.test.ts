@@ -104,6 +104,34 @@ describe("apiProvider", () => {
     expect(apiProvider.available!()).toEqual({ ok: true });
   });
 
+  it("refuses redirects without sending the API key to another origin", async () => {
+    const forwarded: string[] = [];
+    const destination = createServer((req, res) => {
+      forwarded.push(req.headers["x-api-key"]?.toString() ?? "");
+      res.writeHead(200).end("{}");
+    });
+    await new Promise<void>((done) => destination.listen(0, "127.0.0.1", done));
+    const address = destination.address();
+    if (!address || typeof address === "string") throw new Error("No destination port");
+    const redirect = createServer((_req, res) => {
+      res.writeHead(307, { location: `http://127.0.0.1:${address.port}/` }).end();
+    });
+    await new Promise<void>((done) => redirect.listen(0, "127.0.0.1", done));
+    try {
+      const source = redirect.address();
+      if (!source || typeof source === "string") throw new Error("No redirect port");
+      process.env.HYPERFRAMES_AUDIO_API_URL = `http://127.0.0.1:${source.port}/`;
+      process.env.HYPERFRAMES_AUDIO_API_KEY = "test-key";
+      await expect(apiProvider.analyze("beats", clicks(1), {})).rejects.toThrow();
+      expect(forwarded).toEqual([]);
+    } finally {
+      await Promise.all([
+        new Promise<void>((done) => redirect.close(() => done())),
+        new Promise<void>((done) => destination.close(() => done())),
+      ]);
+    }
+  });
+
   it("posts the audio and the capabilities, and snaps each answered beat onto the signal's own", async () => {
     configure();
     const signal = clicks(12);
