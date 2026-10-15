@@ -23,19 +23,23 @@ export interface SourceMutationTarget {
   selectorIndex?: number;
 }
 
+/** The data-hf-ids each parsed document's source already carried, before parsing stamped the rest. */
+const pinnedInSource = new WeakMap<Document, ReadonlySet<string>>();
+
 export function parseSourceDocument(raw: string): {
   document: Document;
   wrappedFragment: boolean;
 } {
   const source = ensureHfIds(raw);
   const hasDocumentShell = /<!doctype|<html[\s>]/i.test(source);
-  if (hasDocumentShell) {
-    return { document: parseHTML(source).document, wrappedFragment: false };
-  }
-  return {
-    document: parseHTML(`<!DOCTYPE html><html><head></head><body>${source}</body></html>`).document,
-    wrappedFragment: true,
-  };
+  const document = hasDocumentShell
+    ? parseHTML(source).document
+    : parseHTML(`<!DOCTYPE html><html><head></head><body>${source}</body></html>`).document;
+  pinnedInSource.set(
+    document,
+    new Set(Array.from(raw.matchAll(/\bdata-hf-id\s*=\s*["']?([^"'\s>]+)/gi), (m) => m[1]!)),
+  );
+  return { document, wrappedFragment: !hasDocumentShell };
 }
 
 function duplicateCssRulesForId(document: Document, originalId: string, newId: string): void {
@@ -123,16 +127,21 @@ export function findTargetElement(
     const el = findByHfId(document, target.hfId);
     if (el) return el;
   }
+  // A data-hf-id the source already carried is identity: a fallback hit pinned to another id is another element,
+  // e.g. an audio group sharing a clip's id. An id minted by this parse may be a stale copy's, so it still matches.
+  const pinned = pinnedInSource.get(document);
+  const same = (el: Element | null | undefined) =>
+    el && !(target.hfId && pinned?.has(el.getAttribute("data-hf-id") ?? "")) ? el : null;
 
   if (target.id) {
-    const byId = document.getElementById(target.id);
+    const byId = same(document.getElementById(target.id));
     if (byId) return byId;
   }
 
   if (!target.selector) return null;
   try {
     const matches = querySelectorAllWithTemplates(document, target.selector);
-    return matches[target.selectorIndex ?? 0] ?? null;
+    return same(matches[target.selectorIndex ?? 0]);
   } catch {
     return null;
   }
