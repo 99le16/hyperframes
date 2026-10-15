@@ -642,10 +642,14 @@ export interface RenderPerfSummary {
     fallbackReason?: string;
     /** The failing PSNR (dB) when `fallbackReason === "psnr"`; undefined for every other reason (no score exists). */
     fallbackFailedDb?: number;
-    /** Frame index the verification failure was detected at; set for both "psnr" and "blank" fallback reasons. */
+    /** Frame index the verification failure was detected at; set for "psnr", "shift", and "blank" fallback reasons. */
     fallbackFrameIndex?: number;
     /** The HF_DE_VERIFY_MIN_DB threshold the failing dB breached; only set alongside fallbackFailedDb (psnr reason). */
     fallbackThresholdDb?: number;
+    /** The failing worst-region mean shift (1/255) when `fallbackReason === "shift"`; undefined for every other reason (no score exists). */
+    fallbackFailedShift?: number;
+    /** The HF_DE_VERIFY_MAX_SHIFT ceiling the failing shift breached; only set alongside fallbackFailedShift (shift reason). */
+    fallbackMaxShift?: number;
     /** Blank-guard counters. */
     blankSuspects: number;
     blankDeterministicAccepts: number;
@@ -2816,6 +2820,8 @@ function deVerifyFallbackTelemetry(err: unknown): {
   failedDb?: number;
   frameIndex?: number;
   thresholdDb?: number;
+  failedShift?: number;
+  verifyMaxShift?: number;
 } {
   const details = getDrawElementVerificationDetails(err);
   return {
@@ -2823,6 +2829,8 @@ function deVerifyFallbackTelemetry(err: unknown): {
     failedDb: roundDb(details?.failedDb),
     frameIndex: details?.frameIndex,
     thresholdDb: roundDb(details?.verifyThresholdDb),
+    failedShift: details?.failedShift,
+    verifyMaxShift: details?.verifyMaxShift,
   };
 }
 
@@ -3186,6 +3194,8 @@ async function executeRenderPipeline(input: {
     let deFallbackFailedDb: number | undefined;
     let deFallbackFrameIndex: number | undefined;
     let deFallbackThresholdDb: number | undefined;
+    let deFallbackFailedShift: number | undefined;
+    let deFallbackMaxShift: number | undefined;
     let deDrainStats: import("./render/stages/captureStreamingStage.js").DeDrainStats | undefined;
     updateCaptureObservability({ forceScreenshot: captureForceScreenshot });
     observability.checkpoint("compile", "composition metadata resolved", {
@@ -4754,6 +4764,8 @@ async function executeRenderPipeline(input: {
             deFallbackFailedDb = t.failedDb;
             deFallbackFrameIndex = t.frameIndex;
             deFallbackThresholdDb = t.thresholdDb;
+            deFallbackFailedShift = t.failedShift;
+            deFallbackMaxShift = t.verifyMaxShift;
           } else {
             deFallbackReason = isMemoryExhaustion
               ? "oom"
@@ -4809,6 +4821,8 @@ async function executeRenderPipeline(input: {
             deFallbackFailedDb,
             deFallbackFrameIndex,
             deFallbackThresholdDb,
+            deFallbackFailedShift,
+            deFallbackMaxShift,
             workerCount: capturePlan.workerCount,
             useStreamingEncode: capturePlan.kind === "sdr_streaming",
             deWorkerInversion,
@@ -4960,6 +4974,8 @@ async function executeRenderPipeline(input: {
           deFallbackFailedDb = t.failedDb;
           deFallbackFrameIndex = t.frameIndex;
           deFallbackThresholdDb = t.thresholdDb;
+          deFallbackFailedShift = t.failedShift;
+          deFallbackMaxShift = t.verifyMaxShift;
           log.warn(
             "[Render] drawElement capture failed on the parallel disk path; " +
               "re-rendering via screenshot",
@@ -4999,6 +5015,8 @@ async function executeRenderPipeline(input: {
             deFallbackFailedDb,
             deFallbackFrameIndex,
             deFallbackThresholdDb,
+            deFallbackFailedShift,
+            deFallbackMaxShift,
           });
           if (capturePlan.kind !== "sdr_disk") {
             throw new Error(`Disk verify retry requires sdr_disk plan; got ${capturePlan.kind}`);
@@ -5197,6 +5215,8 @@ async function executeRenderPipeline(input: {
         fallbackFailedDb: deFallbackFailedDb,
         fallbackFrameIndex: deFallbackFrameIndex,
         fallbackThresholdDb: deFallbackThresholdDb,
+        fallbackFailedShift: deFallbackFailedShift,
+        fallbackMaxShift: deFallbackMaxShift,
         drainStats: deDrainStats,
       },
       hdrDiagnostics,

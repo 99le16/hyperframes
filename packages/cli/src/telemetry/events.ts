@@ -98,6 +98,8 @@ export interface RenderObservabilityTelemetryPayload {
   captureDeFallbackFailedDb?: number;
   captureDeFallbackFrameIndex?: number;
   captureDeFallbackThresholdDb?: number;
+  captureDeFallbackFailedShift?: number;
+  captureDeFallbackMaxShift?: number;
   /** Non-DE parallel-streaming router outcome ("screenshot" | "beginframe" —
    * routed; "eligible_off" — would route but the kill switch is off). */
   captureParallelStream?: string;
@@ -181,6 +183,8 @@ function renderObservabilityEventProperties(props: RenderObservabilityTelemetryP
     de_fallback_failed_db: props.captureDeFallbackFailedDb,
     de_fallback_frame_index: props.captureDeFallbackFrameIndex,
     de_fallback_threshold_db: props.captureDeFallbackThresholdDb,
+    de_fallback_failed_shift: props.captureDeFallbackFailedShift,
+    de_fallback_max_shift: props.captureDeFallbackMaxShift,
     capture_parallel_stream: props.captureParallelStream,
     chrome_browser_rss_peak_mb: props.captureChromeBrowserRssPeakMb,
     chrome_renderer_rss_peak_mb: props.captureChromeRendererRssPeakMb,
@@ -410,6 +414,8 @@ export function trackRenderComplete(
     deFallbackFailedDb?: number;
     deFallbackFrameIndex?: number;
     deFallbackThresholdDb?: number;
+    deFallbackFailedShift?: number;
+    deFallbackMaxShift?: number;
     deBlankSuspects?: number;
     deBlankDeterministicAccepts?: number;
     deBlankRecaptures?: number;
@@ -581,6 +587,14 @@ export function trackRenderComplete(
       de_fallback_threshold_db: directOrCapture(
         props.deFallbackThresholdDb,
         props.captureDeFallbackThresholdDb,
+      ),
+      de_fallback_failed_shift: directOrCapture(
+        props.deFallbackFailedShift,
+        props.captureDeFallbackFailedShift,
+      ),
+      de_fallback_max_shift: directOrCapture(
+        props.deFallbackMaxShift,
+        props.captureDeFallbackMaxShift,
       ),
       de_blank_suspects: props.deBlankSuspects,
       de_blank_deterministic_accepts: props.deBlankDeterministicAccepts,

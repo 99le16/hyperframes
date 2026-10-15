@@ -123,10 +123,14 @@ export interface DrawElementPerfInput {
   fallbackReason?: string;
   /** The failing PSNR (dB) when `fallbackReason === "psnr"`; undefined for blank/oom/capture_error. */
   fallbackFailedDb?: number;
-  /** Frame index the verification failure was detected at; set for both "psnr" and "blank". */
+  /** Frame index the verification failure was detected at; set for "psnr", "shift", and "blank". */
   fallbackFrameIndex?: number;
   /** The HF_DE_VERIFY_MIN_DB threshold the failing dB breached; only set alongside fallbackFailedDb. */
   fallbackThresholdDb?: number;
+  /** The failing worst-region mean shift (1/255) when `fallbackReason === "shift"`; undefined otherwise. */
+  fallbackFailedShift?: number;
+  /** The HF_DE_VERIFY_MAX_SHIFT ceiling the failing shift breached; only set alongside fallbackFailedShift. */
+  fallbackMaxShift?: number;
   drainStats?: {
     verifyChecked: number;
     verifyMinDb?: number;
@@ -189,6 +193,8 @@ function aggregateDrawElement(
     fallbackFailedDb: roundDb(de.fallbackFailedDb),
     fallbackFrameIndex: de.fallbackFrameIndex,
     fallbackThresholdDb: roundDb(de.fallbackThresholdDb),
+    fallbackFailedShift: de.fallbackFailedShift,
+    fallbackMaxShift: de.fallbackMaxShift,
     blankSuspects: drain?.blankSuspects ?? 0,
     blankDeterministicAccepts: drain?.blankDeterministicAccepts ?? 0,
     blankRecaptures: drain?.blankRecaptures ?? 0,
