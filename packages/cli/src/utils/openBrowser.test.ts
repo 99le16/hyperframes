@@ -12,7 +12,7 @@ import {
 } from "./openBrowser.js";
 
 describe("openBrowser", () => {
-  it("launches the custom browser detached with its Windows console hidden", () => {
+  it("launches the custom browser detached without hiding its GUI window", () => {
     const unref = vi.fn();
     spawnMock.mockReturnValue({ on: vi.fn(), unref });
 
@@ -29,7 +29,7 @@ describe("openBrowser", () => {
         "--remote-debugging-port=9222",
         "http://localhost:3002",
       ],
-      expect.objectContaining({ detached: true, stdio: "ignore", windowsHide: true }),
+      { detached: true, stdio: "ignore" },
     );
     expect(unref).toHaveBeenCalledOnce();
   });
