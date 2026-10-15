@@ -9,19 +9,19 @@ function ipv4Number(address: string): number {
 
 // Conservatively exclude special-use networks, including all of 192.0/16.
 const NON_PUBLIC_IPV4: ReadonlyArray<readonly [string, number]> = [
-  ["0.0.0.0", 8], // Current network
-  ["10.0.0.0", 8], // Private
-  ["100.64.0.0", 10], // Shared
-  ["127.0.0.0", 8], // Loopback
-  ["169.254.0.0", 16], // Link-local and metadata
-  ["172.16.0.0", 12], // Private
-  ["192.0.0.0", 16], // Protocol assignments and documentation
-  ["192.88.99.0", 24], // Deprecated relay
-  ["192.168.0.0", 16], // Private
-  ["198.18.0.0", 15], // Benchmarking
-  ["198.51.100.0", 24], // Documentation
-  ["203.0.113.0", 24], // Documentation
-  ["224.0.0.0", 3], // Multicast and reserved
+  ["0.0.0.0", 8],
+  ["10.0.0.0", 8],
+  ["100.64.0.0", 10],
+  ["127.0.0.0", 8],
+  ["169.254.0.0", 16],
+  ["172.16.0.0", 12],
+  ["192.0.0.0", 16],
+  ["192.88.99.0", 24],
+  ["192.168.0.0", 16],
+  ["198.18.0.0", 15],
+  ["198.51.100.0", 24],
+  ["203.0.113.0", 24],
+  ["224.0.0.0", 3],
 ];
 const NON_PUBLIC_RANGES = NON_PUBLIC_IPV4.map(([network, prefix]) => ({
   start: ipv4Number(network),

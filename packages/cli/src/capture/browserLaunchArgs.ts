@@ -4,9 +4,9 @@ export function captureBrowserArgs(
   viewportHeight: number,
   platform: NodeJS.Platform = process.platform,
 ): string[] {
+  const needsLinuxSandboxException = platform === "linux";
   return [
-    // Linux containers may lack the user namespaces Chromium's sandbox requires.
-    ...(platform === "linux" ? ["--no-sandbox"] : []),
+    ...(needsLinuxSandboxException ? ["--no-sandbox"] : []),
     "--disable-dev-shm-usage",
     ...(disableWebgl
       ? ["--disable-gpu"]

@@ -32,6 +32,7 @@ export async function launchCaptureBrowser(options: {
       userDataDir: profile,
       executablePath: options.executablePath,
       protocolTimeout: options.protocolTimeout,
+      // Linux containers may lack the user namespaces Chromium's sandbox requires.
       args: [
         ...captureBrowserArgs(options.disableWebgl, options.width, options.height),
         `--proxy-server=${proxy.url}`,
