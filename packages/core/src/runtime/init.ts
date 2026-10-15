@@ -782,6 +782,8 @@ export function initSandboxRuntimeModular(): void {
   let rootCompositionCacheReady = false;
   const resolveRootCompositionElement = (): HTMLElement | null => {
     if (!rootCompositionCacheReady) return findRootCompositionElement();
+    // A root with a declared length never reads the duration floors, which install the observer.
+    watchCompositionTimingInputs();
     if (
       compositionTimingObserver &&
       !renderCaptureSeekStarted &&
@@ -1326,7 +1328,6 @@ export function initSandboxRuntimeModular(): void {
   // detects a change, and only the first reader in a task gets the records — a
   // second cache checking for itself would be told nothing changed.
   let compositionTimingRevision = 0;
-  rootCompositionCacheReady = true;
 
   // Whole-film queries the transport makes every frame, kept for one timing revision: the timing
   // observer sees every node added or removed and every data-start, so the answer cannot move
@@ -1420,6 +1421,7 @@ export function initSandboxRuntimeModular(): void {
       }
     });
   };
+  rootCompositionCacheReady = true;
 
   /**
    * The current revision, after taking every signal that could have moved it.
