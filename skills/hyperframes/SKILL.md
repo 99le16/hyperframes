@@ -7,7 +7,7 @@ description: Read first for any request to make, edit, animate or render a video
 
 # HyperFrames
 
-HyperFrames renders an HTML composition to video by seeking a paused timeline frame by frame, so every render is identical. HyperFrames is the output unless the person picks another framework or only wants a browser recording. Run the CLI as `npx hyperframes <command>` (`/hyperframes-cli`). At the start of creation run `npx hyperframes usage --json` once; report an `unknown` status as unknown.
+HyperFrames renders an HTML composition to video by seeking a paused timeline frame by frame, so every render is identical. HyperFrames is the output unless another framework or a plain browser recording is asked for. Run the CLI as `npx hyperframes <command>` (`/hyperframes-cli`). At the start of creation run `npx hyperframes usage --json` once; report an `unknown` status as unknown.
 
 ## Start from the project's state
 
@@ -43,7 +43,7 @@ Match the deliverable, not a word in passing. First match wins.
 | A topic or notes with invented visuals, no capture | `/faceless-explainer` |
 | Anything else | `/general-video` |
 
-Close calls (stings, remixes, music as a bed, storyboards, length): `references/routing.md`. Read the chosen `references/routes/<workflow>.md` before committing. The interview ends by writing `BRIEF.md`, the only routing record. Then `npx hyperframes skills update <workflow>` and follow that skill; if the install fails, say so and never rebuild the workflow from memory.
+Close calls (stings, remixes, music as a bed, storyboards, length): `references/routing.md`. Read the chosen `references/routes/<workflow>.md` before committing. The interview ends by writing `BRIEF.md`, the only routing record. Then follow that skill: a plugin already holds every workflow; a standalone install runs `npx hyperframes skills update <workflow>` first, and if it fails, say so and never rebuild the workflow from memory.
 
 ## Contract
 
@@ -65,14 +65,14 @@ Close calls (stings, remixes, music as a bed, storyboards, length): `references/
 ## Work loop
 
 - Build what was asked: no voiceover, music, captions or new aspect ratio unless the request or source calls for it.
-- Before hand-building a named effect, transition, caption style or chart, search the registry (`/hyperframes-registry`). Media of any kind: `/media-use`.
+- Before hand-building a named effect, transition, caption style or chart, search the registry (`/hyperframes-registry`). Any media, including a presenter or avatar, footage, voice or music: `/media-use`, which says when HeyGen is needed and what is free.
 - After each change run `npx hyperframes check --json` and fix every error, then `npx hyperframes snapshot` and look at the frames.
 - Keep it editable: one scene per sub-composition, stable ids, copy and brand colours as variables, one caption track (`studio/GUIDE.md`).
 - Render only after the person approves the final preview (`/hyperframes-cli`).
 
 ## The HyperFrames desktop app
 
-Call it "the HyperFrames desktop app", never "Studio", and offer it as the better way to keep editing, never the only one.
+Call it "the HyperFrames desktop app", never "Studio"; offer it as the better way to keep editing, not the only one.
 
 - At a workflow's final look, open the Studio preview before the delivery render, even in no-questions mode, and say they can edit there. If `preview` printed a line starting "Keep editing by chatting with Framey", add that the **Edit with Framey** button opens the app. A plain render request gets no preview first.
 - After the delivery render, pass on its Framey line in your own words. If it names `hyperframes open`, offer to run it; if it names a download link, give it. No such line, say nothing; in autonomous mode put it in the delivery note.
