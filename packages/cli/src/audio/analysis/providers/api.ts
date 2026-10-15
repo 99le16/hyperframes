@@ -81,13 +81,32 @@ function resample(input: Float32Array, from: number, to: number): Float32Array {
   return output;
 }
 
-/** What is uploaded: the channels averaged to one, at 16 kHz. */
+/** Preserve a channel when destructive interference removes over 90% of its energy. */
+function monoInput(channels: readonly Float32Array[]): Float32Array {
+  const mono = new Float32Array(channels[0]?.length ?? 0);
+  let loudest: Float32Array = mono;
+  let loudestEnergy = 0;
+  for (const channel of channels) {
+    let energy = 0;
+    for (let i = 0; i < mono.length; i++) {
+      const value = channel[i]!;
+      mono[i]! += value / channels.length;
+      energy += value * value;
+    }
+    if (energy > loudestEnergy) {
+      loudest = channel;
+      loudestEnergy = energy;
+    }
+  }
+  const monoEnergy = mono.reduce((energy, value) => energy + value * value, 0);
+  return monoEnergy < loudestEnergy * 0.1 ? loudest : mono;
+}
+
 function uploaded(signal: AudioSignal): AudioSignal {
-  const frames = signal.channels[0]?.length ?? 0;
-  const mono = new Float32Array(frames);
-  for (const channel of signal.channels)
-    for (let i = 0; i < frames; i++) mono[i]! += channel[i]! / signal.channels.length;
-  return { sampleRate: UPLOAD_RATE, channels: [resample(mono, signal.sampleRate, UPLOAD_RATE)] };
+  return {
+    sampleRate: UPLOAD_RATE,
+    channels: [resample(monoInput(signal.channels), signal.sampleRate, UPLOAD_RATE)],
+  };
 }
 
 /** Beats and downbeats come from one request; the others each from their own. */

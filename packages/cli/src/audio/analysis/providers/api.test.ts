@@ -322,6 +322,39 @@ describe("apiProvider", () => {
     expect(level(7_000)).toBeLessThan(0.005);
   });
 
+  it.each([
+    { phase: Math.PI, quiet: 1, expected: 0.7 },
+    { phase: Math.PI * 0.9, quiet: 1, expected: 0.7 },
+    { phase: Math.PI, quiet: 0.8, expected: 0.7 },
+    { phase: Math.PI / 2, quiet: 1, expected: 0.7 / Math.sqrt(2) },
+    { phase: 0, quiet: 1, expected: 0.7 },
+  ])(
+    "preserves stereo energy for phase $phase and channel gain $quiet",
+    async ({ phase, quiet, expected }) => {
+      configure();
+      const rate = 44_100;
+      const left = Float32Array.from(
+        { length: rate },
+        (_, k) => 0.7 * quiet * Math.sin((2 * Math.PI * 440 * k) / rate),
+      );
+      const right = Float32Array.from(
+        { length: rate },
+        (_, k) => 0.7 * Math.sin((2 * Math.PI * 440 * k) / rate + phase),
+      );
+      reply = () => ({ status: 200, body: { version: 1, describe: { tags: [] } } });
+      await analyzeSignal(
+        { sampleRate: rate, channels: [left, right] },
+        { capabilities: ["describe"] },
+        [apiProvider],
+      );
+      const wav = Buffer.from(received[0]!.audio.bytes);
+      expect(wav.readUInt32LE(24)).toBe(UPLOAD_RATE);
+      let energy = 0;
+      for (let k = 0; k < UPLOAD_RATE; k++) energy += (wav.readInt16LE(44 + 2 * k) / 32767) ** 2;
+      expect(Math.sqrt((2 * energy) / UPLOAD_RATE)).toBeCloseTo(expected, 2);
+    },
+  );
+
   it("reads an answer sent without the data envelope too", async () => {
     configure();
     enveloped = false;
