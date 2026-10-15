@@ -271,5 +271,7 @@ export const TimelineClip = memo(function TimelineClip({
       )}
     </button>
   );
-  return isAudioClip || el.hasAudio ? <ClipPeakTooltip>{clip}</ClipPeakTooltip> : clip;
+  // Only a waveform describes peaks, and a frame-wide clip draws none; selected keeps it, so focus survives a zoom.
+  const describesPeaks = (isAudioClip || el.hasAudio) && (ladder !== "frame" || isSelected);
+  return describesPeaks ? <ClipPeakTooltip>{clip}</ClipPeakTooltip> : clip;
 });
