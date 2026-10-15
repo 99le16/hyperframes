@@ -62,7 +62,12 @@ import {
   maybeProxyProactively,
   setProxyDisplayScale,
 } from "./mediaProxy";
-import { probeAndCacheElementVolume, type VolumeKeyframe } from "./mediaVolumeEnvelope.js";
+import {
+  probeAndCacheElementVolume,
+  volumeMoversOf,
+  type VolumeKeyframe,
+  type VolumeMovers,
+} from "./mediaVolumeEnvelope.js";
 import { createPickerModule } from "./picker";
 import { createRuntimePlayer, resolveRenderSeekTime, type RuntimePlayerTransport } from "./player";
 import { createRuntimeState } from "./state";
@@ -2102,9 +2107,10 @@ export function initSandboxRuntimeModular(): void {
 
     // (Re-)probe all already-bound media elements against the new timeline.
     // Clear the cache first so elements probed against a prior timeline get fresh keyframes.
+    const rebindMovers = passMovers();
     for (const el of metadataBoundMedia) {
       volumeKeyframeCache.delete(el);
-      probeAndCacheVolumeKeyframes(el);
+      probeAndCacheVolumeKeyframes(el, rebindMovers);
     }
     return true;
   };
@@ -2356,6 +2362,11 @@ export function initSandboxRuntimeModular(): void {
   let metadataRebindApplied = false;
   const metadataBoundMedia = new Set<HTMLMediaElement>();
   const volumeKeyframeCache = new WeakMap<HTMLMediaElement, VolumeKeyframe[]>();
+  /** One walk of the captured timeline's tweens for a whole pass of probes, made only if one probes. */
+  const passMovers = (): (() => VolumeMovers) => {
+    let movers: VolumeMovers | undefined;
+    return () => (movers ??= volumeMoversOf(state.capturedTimeline ?? {}));
+  };
 
   const scheduleMetadataDurationHydration = () => {
     if (state.tornDown) return;
@@ -2488,6 +2499,7 @@ export function initSandboxRuntimeModular(): void {
     if (state.tornDown) return;
     const mediaEls = Array.from(document.querySelectorAll("video, audio")) as HTMLMediaElement[];
     const nearPlayheadPending: HTMLMediaElement[] = [];
+    const bindMovers = passMovers();
     for (const mediaEl of mediaEls) {
       if (metadataBoundMedia.has(mediaEl)) continue;
       metadataBoundMedia.add(mediaEl);
@@ -2531,13 +2543,13 @@ export function initSandboxRuntimeModular(): void {
       // Runs only when the timeline is already captured; elements bound before
       // the timeline is ready are re-probed the first time bindMediaMetadataListeners
       // fires after the timeline has been captured (every 30 transport ticks).
-      probeAndCacheVolumeKeyframes(mediaEl);
+      probeAndCacheVolumeKeyframes(mediaEl, bindMovers);
     }
     if (nearPlayheadPending.length > 0)
       syncTimedElementVisibility(state.currentTime, nearPlayheadPending);
   };
 
-  const probeAndCacheVolumeKeyframes = (mediaEl: HTMLMediaElement) => {
+  const probeAndCacheVolumeKeyframes = (mediaEl: HTMLMediaElement, movers?: () => VolumeMovers) => {
     if (volumeKeyframeCache.has(mediaEl)) return;
     probeAndCacheElementVolume(
       mediaEl,
@@ -2547,6 +2559,7 @@ export function initSandboxRuntimeModular(): void {
       {
         allowLiveTimelineSeek: !(window as Window & { __HF_RENDER_CAPTURE_MODE?: boolean })
           .__HF_RENDER_CAPTURE_MODE,
+        ...(movers && { movers }),
       },
     );
   };
@@ -3774,10 +3787,11 @@ export function initSandboxRuntimeModular(): void {
     childrenBound = false;
     bindRootTimelineIfAvailable();
     // Probed before the scene was nested, so the new media found no volume envelope.
+    const swapMovers = passMovers();
     for (const host of swappedHosts) {
       for (const el of host.querySelectorAll<HTMLMediaElement>("video, audio")) {
         volumeKeyframeCache.delete(el);
-        probeAndCacheVolumeKeyframes(el);
+        probeAndCacheVolumeKeyframes(el, swapMovers);
       }
     }
     const duration = getSafeTimelineDurationSeconds(state.capturedTimeline, 0);
