@@ -40,7 +40,6 @@ export interface Rhythm {
   downbeats: Downbeats;
 }
 
-/** Log energy per frame in log-spaced bands, `fps` frames per second, and a slower pitch-class profile. */
 export interface BandFrames {
   fps: number;
   bands: Float64Array[];
@@ -121,7 +120,6 @@ const PITCH_CLASS = Array.from({ length: CHROMA_SIZE / 2 }, (_, bin) => {
   return (((Math.round(12 * Math.log2(hz / 440)) + 9) % 12) + 12) % 12;
 });
 
-/** Pitch-class magnitude of every chroma frame, summed over channels. */
 function chromaFrames(channels: Float32Array[]): Float64Array[] {
   const window = hann(CHROMA_SIZE);
   const hop = ANALYSIS_RATE / CHROMA_FPS;
@@ -147,7 +145,6 @@ function chromaFrames(channels: Float32Array[]): Float64Array[] {
   return frames;
 }
 
-/** Band energies and chroma of `signal`, resampled to the analysis rate first. */
 function bandFrames(signal: AudioSignal): BandFrames {
   const channels = signal.channels.map((c) => resample(c, signal.sampleRate, ANALYSIS_RATE));
   return {
@@ -403,7 +400,6 @@ function barStartEvidence(beats: number[], curves: OnsetCurves, frames: BandFram
 /** Most music is in four, so three must win by a clear margin. */
 const TRIPLE_METER_HANDICAP = 0.7;
 
-/** The meter and bar phase whose beats carry the most bar-start evidence against the others. */
 function barPhase(beats: number[], curves: OnsetCurves, frames: BandFrames) {
   const evidence = barStartEvidence(beats, curves, frames);
   let best = { meter: 4, phase: 0, contrast: -Infinity };
@@ -417,7 +413,6 @@ function barPhase(beats: number[], curves: OnsetCurves, frames: BandFrames) {
   return best;
 }
 
-/** Every `meter`th beat from the bar phase, once there are enough beats to tell one. */
 function downbeatsOf(
   beatList: number[],
   times: number[],
@@ -455,7 +450,6 @@ export const STEADY_BEAT_CONFIDENCE = 0.15;
 const beatConfidence = (clarity: number, lift: number) =>
   round(Math.max(0, Math.min(1, clarity)) * Math.max(0, Math.min(1, lift / 3)));
 
-/** Beats and downbeats of `frames`, a signal's band energies and chroma. */
 function rhythmOf(frames: BandFrames): Rhythm {
   const curves = onsetCurves(frames);
   const { period, clarity } = beatPeriod(curves.broad, curves.fps);

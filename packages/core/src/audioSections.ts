@@ -59,10 +59,7 @@ function blockParts({ fps, bands, chroma, chromaFps }: BandFrames): number[][] {
   return blocks;
 }
 
-/**
- * Timbre and harmony, weighted equally: each feature standardized over time, then the band part and the chroma part
- * each scaled to half the block's squared length.
- */
+/** Timbre and harmony each contribute half the block's squared length. */
 function blockFeatures(frames: BandFrames): number[][] {
   const blocks = blockParts(frames);
   standardizeBands(blocks);
