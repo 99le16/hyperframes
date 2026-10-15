@@ -16,7 +16,9 @@ export const CORE_SKILLS = {
   "hyperframes-cli": 7168,
   "hyperframes-registry": 5120,
   "media-use": 5120,
-  figma: null,
+  figma: 7168,
+  slideshow: 5120,
+  "remotion-to-hyperframes": 5120,
 };
 
 /** @param {string} skill */

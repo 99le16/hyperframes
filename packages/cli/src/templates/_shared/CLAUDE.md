@@ -12,7 +12,7 @@
 - `/media-use` — get or make any media (music, sound effects, images, voiceover, avatar and generated video, transcripts, cutouts, colour grades) and mix placed audio.
 - `/figma` — bring a Figma design, frame, logo or brand into a video.
 - `/slideshow` — a presentation or pitch deck. Output is a navigable deck, not a rendered MP4.
-- `/remotion-to-hyperframes` — port an existing Remotion (React) composition's source to HyperFrames HTML.
+- `/remotion-to-hyperframes` — bring existing video code or footage into HyperFrames (Remotion first; also Motion Canvas, Lottie, Three.js, canvas, or renders from other tools) and verify it frame by frame against the original.
 
 **Changing how real footage or images look or reveal?** Load `/media-use` and read its `references/media-treatments.md` before editing, even when the request only says dark, flat, boring, retro, private, or “make the reveal cooler.” It governs how footage is treated, never whether media may be used. Use canonical media treatments and seek-safe motion; do not improvise equivalent CSS/SVG filters or overlays.
 
@@ -84,6 +84,8 @@ npm run check
 ```
 
 Fix all errors before presenting the result. Warnings should be reviewed before rendering.
+
+Then look at what you changed: `npx hyperframes snapshot --at <seconds>` (or `--range START,END`, `--composition <id>`) at the moments you edited, and read the frames before you reply. A passing check does not show how it looks.
 
 ## Key Rules
 

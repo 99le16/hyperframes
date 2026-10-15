@@ -102,7 +102,7 @@ This writes `dist/hyperframes-plugin.zip` with a `hyperframes/` root folder and 
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/figma`                   | Bring Figma into a video — rendered assets, brand tokens, components, storyboard frames as reconstructed motion, shaders and connector-assisted motion. Use when you paste a figma.com link.          |
 | `/slideshow`               | A presentation, pitch deck or interactive deck — discrete slides, fragment reveals, branching, hotspot navigation, presenter mode with speaker notes. Output is a navigable deck, not a rendered MP4. |
-| `/remotion-to-hyperframes` | Porting an existing Remotion (React) composition's source to HyperFrames HTML. One-way migration, only on an explicit ask.                                                                            |
+| `/remotion-to-hyperframes` | Bringing existing video code or footage into HyperFrames (Remotion first; also Motion Canvas, Lottie, Three.js, canvas, other tools' renders), verified frame by frame.                               |
 
 For visual design handoff workflows, see the [Claude Design guide](https://hyperframes.heygen.com/guides/claude-design) and [Open Design guide](https://hyperframes.heygen.com/guides/open-design).
 

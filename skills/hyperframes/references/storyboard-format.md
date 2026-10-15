@@ -8,16 +8,16 @@ A storyboard is the **plan layer** for a video — an ordered set of **frames** 
 
 YAML block at the top. Unknown keys are kept under `globals.extra`.
 
-| Key        | Meaning                                                           | Example                                   |
-| ---------- | ----------------------------------------------------------------- | ----------------------------------------- |
-| `format`   | Canvas size                                                       | `1920x1080`                               |
-| `duration` | The brief's rough length expectation (advisory, not a hard limit) | `22s`                                     |
-| `message`  | One-line thesis                                                   | `Ship a launch video in an afternoon`     |
-| `arc`      | Narrative arc                                                     | `Hook → Problem → Solution → Proof → CTA` |
-| `audience` | Who it's for                                                      | `indie devs on X`                         |
-| `mode`     | Interaction mode (default collaborative)                          | `autonomous`                              |
+| Key        | Meaning                                                      | Example                                   |
+| ---------- | ------------------------------------------------------------ | ----------------------------------------- |
+| `format`   | Canvas size                                                  | `1920x1080`                               |
+| `duration` | The length the person asked for (advisory, not a hard limit) | `22s`                                     |
+| `message`  | One-line thesis                                              | `Ship a launch video in an afternoon`     |
+| `arc`      | Narrative arc                                                | `Hook → Problem → Solution → Proof → CTA` |
+| `audience` | Who it's for                                                 | `indie devs on X`                         |
+| `mode`     | Interaction mode (default collaborative)                     | `autonomous`                              |
 
-Set `duration` from the brief's `length` when the storyboard is first written. It is an expectation, not a gate: assembly reports where the cut actually lands against it and flags a large gap — judge whether the drift serves the piece, and update the value when the intended length genuinely changes.
+Set `duration` when the storyboard is first written. It is an expectation, not a gate: compare where the cut actually lands against it — judge whether the drift serves the piece, and update the value when the intended length genuinely changes.
 
 ## Per-frame sections
 

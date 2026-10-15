@@ -43,7 +43,7 @@ Studio edits the tags you write.
 ## Work loop
 
 - An existing project: `npx hyperframes timeline --json` shows what plays when. Before changing anything, `npx hyperframes history --since mine --who <you>` shows what the person changed since your last turn; build on it (`/hyperframes-cli`, Project history).
-- After each change: `npx hyperframes check --json` and fix every error, then `npx hyperframes snapshot` and look at the frames.
+- After your last edit, run `npx hyperframes check --json` and fix every error, then `npx hyperframes snapshot` the moments you changed (`--at`, `--range START,END` or `--composition <id>`) and look at the frames before you reply.
 - Render only after the person has seen the Studio preview and approved; a plain render request is just that.
 
 ## The HyperFrames desktop app
@@ -65,6 +65,6 @@ Call it "the HyperFrames desktop app", never "Studio"; offer it as the better wa
 | `references/captions.md` | Captions: transcripts, word groups, fitting, placement |
 | `references/film.md` | A whole film from a website, a topic, a pull request, a music track, or a short motion piece |
 | `references/overlays.md` | Designed cards and lower thirds over talking-head footage |
-| `references/storyboard-format.md` | When the person wants a storyboard before the build |
+| `references/storyboard.md` | A storyboard: stills on a board the person approves before you animate |
 
 Decks: `/slideshow`. Remotion source: `/remotion-to-hyperframes`. Figma designs, tokens, or storyboard frames as reconstructed motion: `/figma`. Installing or refreshing skills, and upgrading a project's pinned CLI: `references/skill-lifecycle.md`.

@@ -20,7 +20,7 @@ Make any video by asking for it; the `/hyperframes` skill carries the contract a
 - `/media-use` — get or make any media for a video (music, sound effects, images, voiceover, avatar and generated video, transcripts, cutouts, colour grades) with HeyGen or free local tools, and mix placed audio.
 - `/figma` — bring Figma into a video: rendered assets, brand tokens, components, storyboard frames as reconstructed motion.
 - `/slideshow` — a presentation, pitch deck or interactive deck. Output is a navigable deck, not a rendered MP4.
-- `/remotion-to-hyperframes` — port an existing Remotion (React) composition's source to HyperFrames HTML. Only on an explicit ask to port a Remotion source.
+- `/remotion-to-hyperframes` — bring existing video code or footage into HyperFrames (Remotion first; also Motion Canvas, Lottie, Three.js, canvas, or renders from other tools) and verify it frame by frame against the original.
 
 ## Issue and PR triage
 
