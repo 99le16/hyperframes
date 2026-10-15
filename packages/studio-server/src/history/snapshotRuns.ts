@@ -19,6 +19,7 @@ import type { ArtifactRecord, VideoState } from "./videoState.js";
 const SNAPSHOT_RUNS_TO_KEEP = 10;
 export const SNAPSHOT_GRACE_MS = 24 * 60 * 60 * 1000;
 const OWNER = ".capture-owner.json";
+const ownedMarkers = new Map<string, Stats>();
 const UUID = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
 const rootOf = (project: string) =>
   join(resolve(project), ".hyperframes", "artifacts", "snapshots");
@@ -58,9 +59,14 @@ export function ownSnapshotRun(project: string, path: string): void {
   if (dirname(path) !== root || !UUID.test(path.slice(root.length + 1))) return;
   createSnapshotParents(project, root);
   mkdirSync(path);
-  writeFileSync(join(path, OWNER), JSON.stringify({ version: 1, pid: process.pid }), {
-    flag: "wx",
-  });
+  const marker = join(path, OWNER);
+  const fd = openSync(marker, "wx");
+  try {
+    writeFileSync(fd, JSON.stringify({ version: 1, pid: process.pid }));
+    ownedMarkers.set(marker, fstatSync(fd));
+  } finally {
+    closeSync(fd);
+  }
 }
 
 function missingFile(error: unknown): boolean {
@@ -91,23 +97,21 @@ function ownerPid(owner: unknown): number | null {
   return typeof pid === "number" && Number.isSafeInteger(pid) && pid > 0 ? pid : null;
 }
 
+function ordinaryOwner(stat: Stats): boolean {
+  return stat.isFile() && stat.nlink === 1;
+}
+
 function sameOwnerFile(before: Stats, current: Stats): boolean {
-  return (
-    current.isFile() &&
-    current.nlink === 1 &&
-    current.dev === before.dev &&
-    current.ino === before.ino
-  );
+  return current.dev === before.dev && current.ino === before.ino;
 }
 
 function openOwner(marker: string, access: number): number {
-  const before = lstatSync(marker);
-  if (!before.isFile() || before.nlink !== 1)
-    throw new Error("Snapshot owner must be a regular file.");
   const fd = openSync(marker, access | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   try {
     const current = fstatSync(fd);
-    if (!sameOwnerFile(before, current)) throw new Error("Snapshot owner changed while opening.");
+    const named = lstatSync(marker);
+    if (!ordinaryOwner(current) || !ordinaryOwner(named) || !sameOwnerFile(named, current))
+      throw new Error("Snapshot owner changed while opening.");
     return fd;
   } catch (error) {
     closeSync(fd);
@@ -263,11 +267,14 @@ export function finishSnapshotCleanup(project: string, runs: readonly SnapshotRu
 }
 
 export function releaseSnapshotRun(project: string, path: string): void {
-  if (dirname(path) !== rootOf(project) || !ordinaryPath(project, path)) return;
+  const marker = join(path, OWNER);
+  const expected = ownedMarkers.get(marker);
+  if (!expected) return;
   try {
-    const marker = join(path, OWNER);
+    if (dirname(path) !== rootOf(project) || !ordinaryPath(project, path)) return;
     const fd = openOwner(marker, constants.O_RDWR);
     try {
+      if (!sameOwnerFile(expected, fstatSync(fd))) return;
       const owner: unknown = JSON.parse(readFileSync(fd, "utf8"));
       if (ownerPid(owner) !== process.pid) return;
       ftruncateSync(fd, 0);
@@ -277,6 +284,8 @@ export function releaseSnapshotRun(project: string, path: string): void {
     }
   } catch {
     // A missing or unreadable lease must not fail a successful capture.
+  } finally {
+    ownedMarkers.delete(marker);
   }
 }
 

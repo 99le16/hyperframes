@@ -335,3 +335,34 @@ it("does not modify a hard-linked owner file outside snapshot storage", () => {
   f.collect();
   expect(existsSync(old.path)).toBe(true);
 });
+
+it("keeps a run whose pathname is replaced after opening its owner", async () => {
+  const f = fixture();
+  const old = f.run();
+  const marker = join(old.path, ".capture-owner.json");
+  writeFileSync(marker, JSON.stringify({ pid: 2147483647 }));
+  ageRun(old.path);
+  f.fill();
+  const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+  vi.mocked(fs.openSync).mockImplementationOnce((...args) => {
+    const fd = actual.openSync(...args);
+    actual.renameSync(marker, join(old.path, "previous-owner.json"));
+    writeFileSync(marker, JSON.stringify({ pid: process.pid }));
+    return fd;
+  });
+  f.collect();
+  expect(existsSync(old.path)).toBe(true);
+  expect(old.record.status).not.toBe("cleaned");
+});
+
+it("does not release an owned marker hard-linked elsewhere after creation", () => {
+  const f = fixture();
+  const path = join(f.root, randomUUID());
+  ownSnapshotRun(f.project, path);
+  const marker = join(path, ".capture-owner.json");
+  const outside = join(f.project, "linked-owner.json");
+  linkSync(marker, outside);
+  const contents = readFileSync(outside, "utf8");
+  releaseSnapshotRun(f.project, path);
+  expect(readFileSync(outside, "utf8")).toBe(contents);
+});
