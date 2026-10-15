@@ -47,6 +47,16 @@ previews with `--status`, `--stop`, `--list`, and `--kill-all`. Add `--json` to
 managed lifecycle commands for machine-readable output. `--foreground --json`
 prints the ready-session envelope once, then remains attached until stopped.
 
+### `audio`
+
+Measure where sounds land: onsets, the moment each sound peaks, loudness and
+silence. Give files, or query the film's own clips in film time:
+
+```bash
+npx hyperframes audio sfx/whoosh.mp3
+npx hyperframes audio --at 12 --json
+```
+
 ### `normalize-audio`
 
 Measure two local authored audio clips with integrated LUFS and match the target
