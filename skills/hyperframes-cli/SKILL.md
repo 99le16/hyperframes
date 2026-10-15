@@ -106,6 +106,7 @@ Treat tiny unstyled content, canvas-sized icons, missing hero elements, or timel
 - Use one `HYPERFRAMES_RUN_ID` for all commands in the same verification loop.
 - When disk is tight, run `npx hyperframes clean` (`--dry-run` to list first); it removes what dead renders left and idle caches that rebuild themselves, never outputs, sources or anything a running render uses. Write QC frames to a temp dir, not the project.
 - Use `--strict`, `--strict-all`, and `--strict-variables` when the corresponding warnings, variables, or CI conditions must gate the render.
+- For `shader_unbounded_cosine_pow`, clamp the cosine to `[0, 1]` before `pow(1 - cosine, exponent)`; a lower-only `max` is insufficient. Follow `/hyperframes-animation` → `adapters/three.md` for the source fix and affected-GPU preview/export verification. Lint only recognizes static shader expressions, and software rendering can miss hardware-specific invalid pixels.
 - JSON paths redact the home directory as `$HOME`; do not try to reverse the redaction.
 - When a hosted cloud project approaches or exceeds the 200 MB upload limit, use `cloud render --dry-run --json` and follow the `.hyperframesignore` investigation in `references/cloud.md`. Never ignore an asset merely because it is large.
 - Never render merely because checks pass. Pause at the final preview and wait for approval.
