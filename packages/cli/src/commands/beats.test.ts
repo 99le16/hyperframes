@@ -1,146 +1,86 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runCommand } from "citty";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterAll, describe, expect, it, vi } from "vitest";
+import { findFfBinary } from "@hyperframes/parsers/ff-binaries";
+import { encodeWav } from "../audio/analysis/providers/shared.js";
 
-const analyzer = vi.hoisted(() => vi.fn());
-vi.mock("../beats/headlessAnalyzer.js", () => ({ analyzeBeatsHeadless: analyzer }));
+const RATE = 22_050;
+const root = mkdtempSync(join(tmpdir(), "hf-beats-"));
+afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-import beatsCommand from "./beats.js";
-
-describe("beats source discovery", () => {
-  let dir: string;
-
-  beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "hf-beats-source-"));
-    analyzer.mockReset().mockResolvedValue({
-      beatTimes: [0.5, 1],
-      beatStrengths: [0.8, 0.6],
-      bpm: 120,
-      bpmConfidence: "high",
-    });
-    writeFileSync(join(dir, "bed.wav"), "BEAT_AUDIO");
-    writeFileSync(join(dir, "clip.mp4"), "VIDEO_AUDIO");
-    vi.spyOn(console, "log").mockImplementation(() => {});
-    vi.spyOn(console, "error").mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
-    vi.restoreAllMocks();
-  });
-
-  async function analyze(html: string) {
-    writeFileSync(join(dir, "index.html"), `<html><body>${html}</body></html>`);
-    await runCommand(beatsCommand, { rawArgs: [dir, "--json"] });
+/** A project whose music track is `seconds` of noise clicks at `bpm`, or silence when `bpm` is null. */
+function project(name: string, bpm: number | null, seconds = 12): string {
+  const dir = join(root, name);
+  const samples = new Float32Array(seconds * RATE);
+  let seed = 7;
+  const noise = () => (seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648) / 2 ** 30 - 1;
+  for (let t = 0.2; bpm && t < seconds - 0.1; t += 60 / bpm) {
+    const start = Math.round(t * RATE);
+    for (let i = 0; i < 0.05 * RATE; i++)
+      samples[start + i]! += 0.6 * noise() * Math.exp(-i / RATE / 0.015);
   }
+  mkdirSync(join(dir, "assets"), { recursive: true });
+  writeFileSync(
+    join(dir, "assets", "song.wav"),
+    encodeWav({ sampleRate: RATE, channels: [samples] }),
+  );
+  writeFileSync(
+    join(dir, "index.html"),
+    `<div data-composition-id="main"><audio id="music" src="assets/song.wav"></audio></div>`,
+  );
+  return dir;
+}
 
-  it.each([
-    ['<audio id="music"><source src="bed.wav" type="audio/wav"></audio>', "bed.wav", "BEAT_AUDIO"],
-    [
-      '<video id="soundtrack" data-has-audio="true"><source src="clip.mp4"></video>',
-      "clip.mp4",
-      "VIDEO_AUDIO",
-    ],
-  ])("analyzes and persists the music supplied by %s", async (html, src, audio) => {
-    await analyze(html);
+async function runBeats(dir: string): Promise<{ exitCode: number; out: string }> {
+  const command = (await import("./beats.js")).default as unknown as {
+    run: (context: { args: Record<string, unknown> }) => Promise<void>;
+  };
+  const lines: string[] = [];
+  const capture = (...parts: unknown[]) => void lines.push(parts.map(String).join(" "));
+  const log = vi.spyOn(console, "log").mockImplementation(capture);
+  const error = vi.spyOn(console, "error").mockImplementation(capture);
+  let exitCode = 0;
+  try {
+    await command.run({ args: { dir, json: true } });
+  } catch (thrown) {
+    exitCode = (thrown as { result?: { exitCode?: number } }).result?.exitCode ?? -1;
+  } finally {
+    log.mockRestore();
+    error.mockRestore();
+  }
+  return { exitCode, out: lines.join("\n") };
+}
 
-    expect(analyzer).toHaveBeenCalledWith(Buffer.from(audio));
-    expect(JSON.parse(readFileSync(join(dir, "beats", `${src}.json`), "utf-8"))).toEqual({
-      version: 1,
-      audio: src,
-      beats: [
-        { time: 0.5, strength: 0.8 },
-        { time: 1, strength: 0.6 },
-      ],
-    });
-    expect(readFileSync(join(dir, "index.html"), "utf-8")).toContain(html);
+const ffmpeg = findFfBinary("ffmpeg") && findFfBinary("ffprobe");
+
+describe.skipIf(!ffmpeg)("hyperframes beats", () => {
+  it("writes beats/<audio>.json in the beat-file format the Studio reads", async () => {
+    const dir = project("steady", 120);
+    const { exitCode, out } = await runBeats(dir);
+    expect(exitCode).toBe(0);
+    const file = JSON.parse(readFileSync(join(dir, "beats", "assets", "song.wav.json"), "utf8"));
+    expect(Object.keys(file)).toEqual(["version", "audio", "beats"]);
+    expect(file).toMatchObject({ version: 1, audio: "assets/song.wav" });
+    for (const beat of file.beats) {
+      expect(Object.keys(beat)).toEqual(["time", "strength"]);
+      expect(beat.strength).toBeGreaterThanOrEqual(0);
+      expect(beat.strength).toBeLessThanOrEqual(1);
+    }
+    const times: number[] = file.beats.map((b: { time: number }) => b.time);
+    expect(times.length).toBeGreaterThan(18);
+    expect(times.every((t) => Math.abs(((t - 0.2 + 0.25) % 0.5) - 0.25) <= 0.07)).toBe(true);
+    const report = JSON.parse(out) as { ok: boolean; count: number; bpm: number };
+    expect(report).toMatchObject({ ok: true, file: "beats/assets/song.wav.json" });
+    expect(report.count).toBe(times.length);
+    expect(Math.abs(report.bpm - 120)).toBeLessThanOrEqual(1);
   });
 
-  it("keeps a child-source music track ahead of a later parent-source track", async () => {
-    await analyze(
-      '<audio id="music"><source src="bed.wav"></audio><audio id="bgm" src="clip.mp4"></audio>',
-    );
-    expect(analyzer).toHaveBeenCalledWith(Buffer.from("BEAT_AUDIO"));
-  });
-
-  it("prefers the parent src over child alternatives", async () => {
-    await analyze('<audio id="music" src="bed.wav"><source src="clip.mp4"></audio>');
-    expect(analyzer).toHaveBeenCalledWith(Buffer.from("BEAT_AUDIO"));
-  });
-
-  it("prefers a local child source over a remote alternative, like the renderer", async () => {
-    await analyze(
-      '<audio id="music"><source src="https://cdn.example.com/clip.mp4"><source src="bed.wav"></audio>',
-    );
-    expect(analyzer).toHaveBeenCalledWith(Buffer.from("BEAT_AUDIO"));
-  });
-
-  it("does not take sources from muted videos or explicit non-music tracks", async () => {
-    await analyze(
-      '<video id="music" data-has-audio="true" muted><source src="clip.mp4"></video>' +
-        '<audio id="bgm" data-timeline-role="voiceover"><source src="clip.mp4"></audio>' +
-        '<audio id="soundtrack"><source src="bed.wav"></audio>',
-    );
-    expect(analyzer).toHaveBeenCalledWith(Buffer.from("BEAT_AUDIO"));
-  });
-
-  it("does not borrow a source outside a source-less music element", async () => {
-    await analyze('<audio id="music"></audio><audio id="bgm" src="bed.wav"></audio>');
-    expect(analyzer).toHaveBeenCalledWith(Buffer.from("BEAT_AUDIO"));
-  });
-
-  it("reads uppercase source attributes", async () => {
-    await analyze("<AUDIO ID=music><SOURCE SRC=bed.wav TYPE=audio/wav></AUDIO>");
-    expect(analyzer).toHaveBeenCalledWith(Buffer.from("BEAT_AUDIO"));
-  });
-
-  it("keeps an uppercase parent src ahead of child alternatives", async () => {
-    await analyze('<AUDIO ID=music SRC=bed.wav><source src="clip.mp4"></AUDIO>');
-    expect(analyzer).toHaveBeenCalledWith(Buffer.from("BEAT_AUDIO"));
-  });
-
-  it("finds music inside an authored composition template", async () => {
-    await analyze(
-      '<template data-composition-id="main"><audio id="music"><source src="bed.wav"></audio></template>',
-    );
-    expect(analyzer).toHaveBeenCalledWith(Buffer.from("BEAT_AUDIO"));
-  });
-
-  it("decodes child source attributes and escaped URL paths", async () => {
-    writeFileSync(join(dir, "bed & pulse.wav"), "ESCAPED_AUDIO");
-    await analyze(
-      '<audio id="music"><source src="bed%20&amp;%20pulse.wav?version=1#track"></audio>',
-    );
-    expect(analyzer).toHaveBeenCalledWith(Buffer.from("ESCAPED_AUDIO"));
-    expect(JSON.parse(readFileSync(join(dir, "beats", "bed & pulse.wav.json"), "utf-8"))).toEqual(
-      expect.objectContaining({ audio: "bed & pulse.wav" }),
-    );
-  });
-
-  it("keeps markup in comments and scripts out of source discovery", async () => {
-    await analyze(
-      '<!-- <audio id="music"><source src="clip.mp4"></audio> -->' +
-        '<script>const sample = \'<audio id="bgm"><source src="clip.mp4"></audio>\';</script>' +
-        '<audio id="music"><source src="bed.wav"></audio>',
-    );
-    expect(analyzer).toHaveBeenCalledWith(Buffer.from("BEAT_AUDIO"));
-  });
-
-  it("keeps the first duplicate id and src attributes", async () => {
-    await analyze(
-      '<audio id="speech" id="music"><source src="clip.mp4"></audio>' +
-        '<audio id="bgm"><source src="bed.wav" src="clip.mp4"></audio>',
-    );
-    expect(analyzer).toHaveBeenCalledWith(Buffer.from("BEAT_AUDIO"));
-  });
-
-  it("does not read media-like text inside quoted attributes", async () => {
-    await analyze(
-      '<audio title="<source src=\'clip.mp4\'>" data-id="music" src="clip.mp4"></audio>' +
-        '<audio data-timeline-role="mus&#105;c"><source src="bed.wav"></audio>',
-    );
-    expect(analyzer).toHaveBeenCalledWith(Buffer.from("BEAT_AUDIO"));
+  it("writes nothing for a track with no steady beat", async () => {
+    const dir = project("silent", null);
+    const { exitCode, out } = await runBeats(dir);
+    expect(exitCode).toBe(1);
+    expect(out).toMatch(/No beats detected in assets\/song\.wav/);
+    expect(existsSync(join(dir, "beats"))).toBe(false);
   });
 });
