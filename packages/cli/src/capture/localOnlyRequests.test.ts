@@ -101,8 +101,6 @@ ${PROBES[probe]!.replaceAll("FOREIGN", foreignHost)}</script></body></html>`;
     foreignHits = 0;
     const failed: string[] = [];
     let popupSettled: Promise<unknown> = Promise.resolve();
-    const t0 = Date.now();
-    let tNav = 0;
     const { browser, page } = await openSettledCompositionPage(html(), `http://${projectHost}/`, {
       renderReadyTimeoutMs: 2_000,
       navigationTimeoutMs: LOAD_MS,
@@ -110,7 +108,6 @@ ${PROBES[probe]!.replaceAll("FOREIGN", foreignHost)}</script></body></html>`;
       browserGpuMode: "software",
       localOnly,
       beforeNavigate: (p) => {
-        tNav = Date.now();
         p.on("requestfailed", (r) => failed.push(`${r.url()} ${r.failure()?.errorText}`));
         p.on("popup", (popup) => {
           popupSettled =
@@ -120,22 +117,6 @@ ${PROBES[probe]!.replaceAll("FOREIGN", foreignHost)}</script></body></html>`;
         });
       },
     });
-    const tOpen = Date.now();
-    const nav = await page.evaluate(() => {
-      const e = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming;
-      return [
-        e.fetchStart,
-        e.connectStart,
-        e.requestStart,
-        e.responseStart,
-        e.domContentLoadedEventEnd,
-      ]
-        .map(Math.round)
-        .join("/");
-    });
-    console.log(
-      `[load-ms] ${name} flag=${localOnly} launch=${tNav - t0} open=${tOpen - tNav} fetch/connect/request/response/dcl=${nav}`,
-    );
     try {
       await page.waitForFunction(() => document.title !== "", { timeout: LOAD_MS });
       await popupSettled;
