@@ -188,7 +188,6 @@ describe("loadEnvFile", () => {
     "HYPERFRAMES_BROWSER_PATH",
     "PRODUCER_HEADLESS_SHELL_PATH",
     "localappdata",
-    "gemini_api_key",
     "UNRECOGNIZED_FUTURE_SETTING",
   ])("does not import launcher or unknown setting %s", (key) => {
     vi.stubEnv(key, undefined);
@@ -196,6 +195,13 @@ describe("loadEnvFile", () => {
     loadEnvFile(join(dir, "out"));
     expect(process.env[key]).toBeUndefined();
     expect(process.env.GEMINI_API_KEY).toBe("allowed");
+  });
+
+  it("does not import a supported provider setting with the wrong letter case", () => {
+    fs.writeFileSync(join(dir, ".env"), "gemini_api_key=/untrusted/value\n");
+    loadEnvFile(join(dir, "out"));
+    expect(process.env.gemini_api_key).toBeUndefined();
+    expect(process.env.GEMINI_API_KEY).toBeUndefined();
   });
 
   it("loads supported vision provider settings without replacing inherited credentials", () => {
