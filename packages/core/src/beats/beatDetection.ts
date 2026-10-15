@@ -1,5 +1,5 @@
 import { energyMix, type AudioSignal } from "../audioAnalysis";
-import { bandFrames, rhythmOf, tempoOf } from "../audioRhythm";
+import { bandFramesOf, rhythm, tempoOf } from "../audioRhythm";
 
 export interface MusicBeatAnalysis {
   beatTimes: number[];
@@ -40,8 +40,6 @@ export function strengthAtTime(
   return Math.min(1, computeRmsAt(analysis.channelData, analysis.sampleRate, time) / analysis.peak);
 }
 
-/** Below this tracker confidence the grid is more likely the tracker's than the music's, so none is reported. */
-const MIN_CONFIDENCE = 0.2;
 /** At or above this the tempo is reported as "high" confidence. */
 const HIGH_CONFIDENCE = 0.35;
 
@@ -62,13 +60,13 @@ export async function analyzeMusicFromSignal(
   { pause }: MusicAnalysisOptions = {},
 ): Promise<MusicBeatAnalysis> {
   await pause?.();
-  const frames = bandFrames(signal);
+  bandFramesOf(signal);
   await pause?.();
-  const { beats } = rhythmOf(frames, signal.sampleRate);
+  const { beats } = rhythm(signal);
   await pause?.();
   const channelData = energyMix(signal);
   const confidence = beats.confidence ?? 0;
-  const times = confidence >= MIN_CONFIDENCE ? beats.times : [];
+  const times = beats.times;
   const { strengths, peak } = beatStrengths(times, channelData, signal.sampleRate);
   const bpm = tempoOf(times).value;
   return {
