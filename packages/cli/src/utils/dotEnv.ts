@@ -1,7 +1,5 @@
 import { FEEDBACK_EMAIL_ENV } from "./feedbackSource.js";
 
-// Capture project dotenv is data: only vision configuration may enter the process.
-// Browser discovery, executable lookup and runtime/preload settings stay launcher-controlled.
 export const CAPTURE_ENV_KEYS = [
   "OPENROUTER_API_KEY",
   "GEMINI_API_KEY",
