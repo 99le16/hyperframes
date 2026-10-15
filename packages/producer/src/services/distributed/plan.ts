@@ -1,3 +1,4 @@
+import { audioFailureDiagnostics } from "@hyperframes/engine";
 /**
  * Activity A of the distributed render pipeline.
  *
@@ -337,6 +338,7 @@ export function applyDistributedAudioWarningPolicy(
         message: `Audio mix failed; output would be video-only: ${audioError}`,
         details: {
           mediaType: "audio",
+          audioFailures: audioFailureDiagnostics(audioFailures),
           failureReasons: [...new Set(audioFailures.map((failure) => failure.reason))],
           failureStages: [...new Set(audioFailures.map((failure) => failure.stage))],
           failureOwner,
@@ -426,7 +428,7 @@ export class PlanTooLargeError extends Error {
         `Lambda's 10 GB /tmp budget alongside the chunk worker's frame buffer and ffmpeg's ` +
         `working set. To unblock: use the content-addressed \`planV2()\` transport, shorten ` +
         `the composition, lower the framerate, or use the in-process renderer ` +
-        `(\`executeRenderJob\`) — it has no planDir size cap.` +
+        `(\`executeRenderJob\`), which has no planDir size cap.` +
         observationSuffix +
         breakdownSuffix,
     );
@@ -468,8 +470,8 @@ export class FormatNotSupportedInDistributedError extends Error {
   constructor(format: string, reason: string) {
     super(
       `[plan] format ${JSON.stringify(format)} is not supported in distributed mode: ${reason}. ` +
-        `Render with the in-process renderer (\`executeRenderJob\`) — it has full format ` +
-        `support — or pick a distributed-supported format: mp4 SDR, mov ProRes 4444, ` +
+        `Render with the in-process renderer (\`executeRenderJob\`), which has full format ` +
+        `support, or pick a distributed-supported format: mp4 SDR, mov ProRes 4444, ` +
         `png-sequence, or webm VP9.`,
     );
     this.name = "FormatNotSupportedInDistributedError";
@@ -682,7 +684,7 @@ async function readFontSnapshotSha(): Promise<string> {
   const data = module.EMBEDDED_FONT_DATA;
   if (!data || typeof data !== "object") {
     throw new Error(
-      "[plan] EMBEDDED_FONT_DATA missing from @hyperframes/core/fonts/embedded-data — was `bun run build:fonts` run?",
+      "[plan] EMBEDDED_FONT_DATA missing from @hyperframes/core/fonts/embedded-data. Was `bun run build:fonts` run?",
     );
   }
   // Hash a canonical key fingerprint, not the raw font bytes — the bytes are
@@ -778,7 +780,7 @@ function resolveEncoderTriple(config: DistributedRenderConfig): EncoderTriple {
     throw new Error(
       `[plan] DistributedRenderConfig.codec is only valid for format="mp4"; received ` +
         `codec=${JSON.stringify(config.codec)} with format=${JSON.stringify(config.format)}. ` +
-        `Omit codec for non-mp4 formats — mov is always ProRes 4444, webm is always ` +
+        `Omit codec for non-mp4 formats: mov is always ProRes 4444, webm is always ` +
         `libvpx-vp9, and png-sequence has no encoder.`,
     );
   }
@@ -1058,6 +1060,7 @@ export async function buildLocalExecutionPlan(
     height,
     needsAlpha,
     deviceScaleFactor,
+    subTimelineWaitMemo: {},
   });
   compiled = probeResult.compiled;
   job.duration = probeResult.duration;
@@ -1129,6 +1132,7 @@ export async function buildLocalExecutionPlan(
     ffmpegProcessTimeout: cfg.ffmpegProcessTimeout,
     audioGain: cfg.audioGain,
     audios: composition.audios,
+    masterFxChain: composition.masterFxChain,
     abortSignal,
     assertNotAborted,
   });
