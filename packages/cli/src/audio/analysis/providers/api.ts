@@ -1,3 +1,5 @@
+import { HyperframesCloudClient } from "../../../cloud/_gen/client.js";
+import { uploadAssetViaDirectUpload } from "../../../cloud/upload.js";
 import { randomUUID } from "node:crypto";
 import {
   medianInterval,
@@ -14,9 +16,9 @@ import { AVAILABLE, encodeWav, perSignal, rounded, unavailable } from "./shared.
  * The audio analysis service contract.
  *
  * Request: `POST <HYPERFRAMES_AUDIO_API_URL>`, exactly as configured, with `x-api-key: <HYPERFRAMES_AUDIO_API_KEY>`,
- * a new `Idempotency-Key` per request, and a `multipart/form-data` body of two parts:
- * - `request`: `application/json`, an {@link AudioApiRequest};
- * - `audio`: `audio/wav`, 16-bit PCM of the analyzed span, mono at 16 kHz.
+ * a new `Idempotency-Key` per request, and an {@link AudioApiRequest} JSON body.
+ * The analyzed span is uploaded once as 16-bit PCM WAV, mono at 16 kHz, using the same origin
+ * public asset direct-upload and completion routes. The body references that finalized asset.
  *
  * Response: `200` with `application/json`, `{ "data": AudioApiResponse }`; a bare {@link AudioApiResponse} is read
  * too. Every time is in seconds from the start of the uploaded audio. A capability the service cannot answer is left
@@ -25,7 +27,7 @@ import { AVAILABLE, encodeWav, perSignal, rounded, unavailable } from "./shared.
 export interface AudioApiRequest {
   version: 1;
   capabilities: AudioApiCapability[];
-  audio: { sampleRate: number; channels: number; duration: number };
+  audio: { type: "asset_id"; asset_id: string };
 }
 
 export type AudioApiCapability = "beats" | "downbeats" | "sections" | "describe";
@@ -155,31 +157,49 @@ async function failure(response: Response): Promise<Error> {
   return new Error(`the service answered ${response.status}${detail ? `: ${detail}` : ""}`);
 }
 
+const uploadedAsset = perSignal(async (analyzed: AudioSignal) => {
+  const { url, key, timeoutMs } = config();
+  if (!url || !key) throw new Error(`${URL_ENV} and ${KEY_ENV} must both be set`);
+  const deadline = AbortSignal.timeout(timeoutMs);
+  const boundedFetch: typeof fetch = (input, init) =>
+    fetch(input, {
+      ...init,
+      redirect: "error",
+      signal: deadline,
+    });
+  const client = new HyperframesCloudClient({
+    baseUrl: new URL(url).origin,
+    getAuthHeaders: () => ({ "x-api-key": key }),
+    fetchImpl: boundedFetch,
+  });
+  const asset = await uploadAssetViaDirectUpload({
+    client,
+    bytes: new Uint8Array(encodeWav(uploaded(analyzed))),
+    filename: "audio.wav",
+    contentType: "audio/wav",
+    idempotencyKey: randomUUID(),
+    fetchImpl: boundedFetch,
+  });
+  return asset.asset_id;
+});
+
 async function ask(analyzed: AudioSignal, capabilities: AudioApiCapability[]) {
   const { url, key, timeoutMs } = config();
   if (!url || !key) throw new Error(`${URL_ENV} and ${KEY_ENV} must both be set`);
-  const signal = uploaded(analyzed);
   const request: AudioApiRequest = {
     version: 1,
     capabilities,
-    audio: {
-      sampleRate: signal.sampleRate,
-      channels: 1,
-      duration: signal.channels[0]!.length / signal.sampleRate,
-    },
+    audio: { type: "asset_id", asset_id: await uploadedAsset(analyzed) },
   };
-  const form = new FormData();
-  form.append("request", new Blob([JSON.stringify(request)], { type: "application/json" }));
-  form.append(
-    "audio",
-    new Blob([new Uint8Array(encodeWav(signal))], { type: "audio/wav" }),
-    "audio.wav",
-  );
   const response = await fetch(url, {
     method: "POST",
     redirect: "error",
-    headers: { "x-api-key": key, "idempotency-key": randomUUID() },
-    body: form,
+    headers: {
+      "x-api-key": key,
+      "idempotency-key": randomUUID(),
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(request),
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!response.ok) throw await failure(response);

@@ -42,25 +42,56 @@ let reply: (request: AudioApiRequest) => { status: number; body: unknown } = () 
   body: {},
 });
 let enveloped = true;
+let uploads = 0;
+let uploadedBytes = new Uint8Array();
 
-async function readForm(req: IncomingMessage) {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
-  const form = await new Request("http://stand-in", {
-    method: "POST",
-    headers: { "content-type": req.headers["content-type"]! },
-    body: Buffer.concat(chunks),
-  }).formData();
-  const audio = form.get("audio") as Blob;
-  return {
-    request: JSON.parse(await (form.get("request") as Blob).text()) as AudioApiRequest,
-    audio: { type: audio.type, bytes: new Uint8Array(await audio.arrayBuffer()) },
-  };
+async function readBytes(req: IncomingMessage) {
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of req) chunks.push(chunk);
+  return Buffer.concat(chunks);
 }
 
 beforeAll(async () => {
   server = createServer(async (req, res) => {
-    const form = await readForm(req);
+    const bytes = await readBytes(req);
+    if (req.url === "/v3/assets/direct-uploads") {
+      expect(req.headers["x-api-key"]).toBe("test-key");
+      expect(req.headers.authorization).toBeUndefined();
+      const input = JSON.parse(bytes.toString());
+      expect(input).toMatchObject({ filename: "audio.wav", content_type: "audio/wav" });
+      uploads++;
+      res.writeHead(200, { "content-type": "application/json" }).end(
+        JSON.stringify({
+          data: {
+            asset_id: "uploaded-audio",
+            upload_url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/put`,
+            upload_headers: { "content-type": "audio/wav" },
+          },
+        }),
+      );
+      return;
+    }
+    if (req.url === "/put") {
+      expect(req.method).toBe("PUT");
+      expect(req.headers["x-api-key"]).toBeUndefined();
+      expect(req.headers.authorization).toBeUndefined();
+      expect(req.headers["content-type"]).toBe("audio/wav");
+      uploadedBytes = new Uint8Array(bytes);
+      res.writeHead(200).end();
+      return;
+    }
+    if (req.url === "/v3/assets/uploaded-audio/complete") {
+      expect(req.headers["x-api-key"]).toBe("test-key");
+      res
+        .writeHead(200, { "content-type": "application/json" })
+        .end(JSON.stringify({ data: { asset_id: "uploaded-audio" } }));
+      return;
+    }
+    expect(req.headers["content-type"]).toBe("application/json");
+    const form = {
+      request: JSON.parse(bytes.toString()) as AudioApiRequest,
+      audio: { type: "audio/wav", bytes: uploadedBytes },
+    };
     received.push({
       method: req.method!,
       apiKey: req.headers["x-api-key"] as string | undefined,
@@ -79,6 +110,7 @@ afterAll(() => new Promise<void>((done) => server.close(() => done())));
 
 afterEach(() => {
   received = [];
+  uploads = 0;
   enveloped = true;
   delete process.env.HYPERFRAMES_AUDIO_API_URL;
   delete process.env.HYPERFRAMES_AUDIO_API_KEY;
@@ -162,7 +194,7 @@ describe("apiProvider", () => {
     expect(call!.request).toEqual({
       version: 1,
       capabilities: ["beats", "downbeats"],
-      audio: { sampleRate: UPLOAD_RATE, channels: 1, duration: 12 },
+      audio: { type: "asset_id", asset_id: "uploaded-audio" },
     });
     expect(call!.audio.type).toBe("audio/wav");
     expect(Buffer.from(call!.audio.bytes.subarray(0, 4)).toString()).toBe("RIFF");
@@ -246,6 +278,8 @@ describe("apiProvider", () => {
     ]);
     expect(received.map((r) => r.request.capabilities)).toEqual([["sections"], ["describe"]]);
     expect(new Set(received.map((r) => r.idempotencyKey)).size).toBe(2);
+    expect(uploads).toBe(1);
+    expect(received.every((r) => r.request.audio.asset_id === "uploaded-audio")).toBe(true);
     expect(analysis.values.sections).toMatchObject({
       spans: [
         { start: 0, end: beat, label: "intro" },
