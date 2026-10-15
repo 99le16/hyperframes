@@ -42,7 +42,7 @@ export function unknownCommands(content, commands) {
   return [...new Set(named)].filter((name) => !commands.has(name));
 }
 
-// A backtick span that is a relative path to a file this skill ships, such as `references/x.md`.
+// A backtick span that is a relative path to a file this skill ships, such as one under references/.
 const PATH_SPAN = /`((?:\.\.\/)*[a-z0-9][\w.-]*(?:\/[\w.-]+)+\.(?:md|html|json))(?:#[^`]*)?`/g;
 
 /** @param {string} content @param {string} skillDir */
