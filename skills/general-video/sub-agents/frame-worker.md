@@ -1,6 +1,6 @@
 # Frame worker — general-video delta
 
-> The shared law is the core contract above (the packet builder prepends `../../hyperframes/references/frame-worker-core.md` to this file as `_role.md`) — read the two as one role. This file carries only what's specific to a general-video scene; each worker receives the **2–3 scene packets** the orchestrator assigns; build every assigned packet, one at a time. Tempted to add a generic GSAP / timeline rule here? Wrong home — it belongs in the core contract or `hyperframes-core`.
+> The shared law is the core contract above (the packet builder prepends `../../hyperframes/references/frame-worker-core.md` to this file as `_role.md`) — read the two as one role. This file carries only what's specific to a general-video scene; each worker receives the **2–3 scene packets** the orchestrator assigns; build every assigned packet, one at a time. Tempted to add a generic GSAP / timeline rule here? Wrong home — it belongs in the core contract or `hyperframes/core/GUIDE.md`.
 
 ## Your scene is invented, not captured
 

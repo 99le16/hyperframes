@@ -21,14 +21,8 @@
       "license": "Apache-2.0",
       "skills": [
         "./skills/hyperframes",
-        "./skills/hyperframes-animation",
-        "./skills/hyperframes-audio",
         "./skills/hyperframes-cli",
-        "./skills/hyperframes-core",
-        "./skills/hyperframes-creative",
-        "./skills/hyperframes-keyframes",
         "./skills/hyperframes-registry",
-        "./skills/hyperframes-studio",
         "./skills/media-use"
       ]
     }

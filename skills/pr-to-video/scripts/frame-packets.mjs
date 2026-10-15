@@ -44,7 +44,7 @@ function codeVocabularySection(block) {
 }
 
 const CONFIG = {
-  animationDir: resolve(SKILL_DIR, "../hyperframes-animation"),
+  animationDir: resolve(SKILL_DIR, "../hyperframes/animation"),
   corePath: resolve(SKILL_DIR, "../hyperframes/references/frame-worker-core.md"),
   deltaPath: resolve(SKILL_DIR, "sub-agents/frame-worker.md"),
   validateFrame,

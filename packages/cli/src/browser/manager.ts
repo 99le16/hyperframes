@@ -323,7 +323,7 @@ function whichBinary(name: string): string | undefined {
 // engine-side name that per-worker render launches already honor (see
 // `packages/engine/src/services/browserManager.ts` and `render.ts` which even
 // propagates the CLI-resolved executable into it). Docs in
-// `skills/hyperframes-animation/adapters/typegpu.md`,
+// `skills/hyperframes/animation/adapters/typegpu.md`,
 // `packages/gcp-cloud-run/Dockerfile`, and `examples/k8s-jobs/Dockerfile.example`
 // all instruct users to set `PRODUCER_HEADLESS_SHELL_PATH`, so field reports
 // (e.g. `#hyperframes-cli-feedback` ts=1784095034 on win32/x64) hit the case

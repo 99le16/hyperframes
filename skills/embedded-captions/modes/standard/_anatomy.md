@@ -20,7 +20,7 @@ HyperFrames-native, so anyone can reproduce it:
 - **Deterministic + seek-safe** only — no `Math.random()`, no `Date.now()`, no `repeat: -1` without a finite root `data-duration`, no un-seekable CSS animations. Every state is reachable by seeking the timeline to a time `t`.
 - GSAP transform aliases (`x`, `y`, `scale`, `rotation`); animate `opacity`, `filter`, `clipPath`, `textShadow`, `backgroundPosition`, `letterSpacing` — never layout props (width/top/left/margin).
 
-For the composition contract see `hyperframes-core`; eases + the animated-property allowlist see `hyperframes-gsap`; caption grouping/positioning/exit guarantees see `hyperframes-captions`.
+For the composition contract see `hyperframes/core/GUIDE.md`; eases + the animated-property allowlist see `hyperframes-gsap`; caption grouping/positioning/exit guarantees see `hyperframes-captions`.
 
 ## 1 · Asset prep (two CLI calls)
 
@@ -203,7 +203,7 @@ The gallery used a `setInterval` loop; HyperFrames needs the same beats as **abs
 </script>
 ```
 
-`FLOW_IN` / `FLOW_OUT` / `CLIMAX_IN` / `CLIMAX_OUT` are the named recipes in **`_motion.md`** — each returns a GSAP tween/timeline so the per-template file just picks four names. A simpler equivalent for the flow active-word _glow_ (rather than discrete reveal) is the single-driver envelope in `hyperframes-animation/rules/asr-keyword-glow.md`.
+`FLOW_IN` / `FLOW_OUT` / `CLIMAX_IN` / `CLIMAX_OUT` are the named recipes in **`_motion.md`** — each returns a GSAP tween/timeline so the per-template file just picks four names. A simpler equivalent for the flow active-word _glow_ (rather than discrete reveal) is the single-driver envelope in `hyperframes/animation/rules/asr-keyword-glow.md`.
 
 ## 5 · How to choose values
 
@@ -228,6 +228,6 @@ The gallery used a `setInterval` loop; HyperFrames needs the same beats as **abs
 
 - `media-use` — `remove-background` (the matte) + `transcribe` (word timings).
 - `hyperframes-captions` — transcript consumption, grouping, positioning, exit guarantees, `fitTextFontSize`.
-- `hyperframes-animation/rules/asr-keyword-glow.md` — the verbatim active-word envelope.
+- `hyperframes/animation/rules/asr-keyword-glow.md` — the verbatim active-word envelope.
 - `hyperframes-gsap` — single paused timeline, transform aliases, ease palette.
 - `_motion.md` (this folder) — the named flow/climax entrance + exit recipes.

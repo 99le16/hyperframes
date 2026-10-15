@@ -3,15 +3,15 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { lintHyperframeHtml } from "../packages/lint/src/index.ts";
 
-const OWNER = "skills/hyperframes-core/references/creator-editing-recipes.md";
-const STUDIO_SKILL = "skills/hyperframes-studio/SKILL.md";
+const OWNER = "skills/hyperframes/core/references/creator-editing-recipes.md";
+const STUDIO_SKILL = "skills/hyperframes/studio/GUIDE.md";
 const VOLUME_TWEEN = /\.(?:to|from|fromTo|set)\(\s*["'`]#[\w-]+["'`]\s*,\s*\{[^}]*\bvolume\s*:/;
 const TWEEN_SCANNED = [
-  "skills/hyperframes-core/references/variables-and-media.md",
-  "skills/hyperframes-core/references/data-attributes.md",
-  "skills/hyperframes-animation/adapters/gsap.md",
-  "skills/hyperframes-audio/SKILL.md",
-  "skills/hyperframes-audio/references/attributes.md",
+  "skills/hyperframes/core/references/variables-and-media.md",
+  "skills/hyperframes/core/references/data-attributes.md",
+  "skills/hyperframes/animation/adapters/gsap.md",
+  "skills/media-use/mix/GUIDE.md",
+  "skills/media-use/mix/references/attributes.md",
   "skills/music-to-video/references/montage.md",
   "skills/media-use/references/operations.md",
   "packages/cli/src/docs/data-attributes.md",

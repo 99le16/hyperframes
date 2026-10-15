@@ -4,11 +4,11 @@ Open-source video rendering framework: write HTML, render video.
 
 ## Skills
 
-This repo ships 21 AI agent skills via [vercel-labs/skills](https://github.com/vercel-labs/skills). Install them before writing compositions — they encode framework-specific patterns that generic docs don't cover. **Default to the core set**: the `/hyperframes` router installs each creation workflow on demand; install all 21 only when the user explicitly asks for the full set.
+This repo ships 15 AI agent skills via [vercel-labs/skills](https://github.com/vercel-labs/skills). Install them before writing compositions — they encode framework-specific patterns that generic docs don't cover. **Default to the core set**: the `/hyperframes` router installs each creation workflow on demand; install all 15 only when the user explicitly asks for the full set.
 
 ```bash
 npx hyperframes skills update                         # default: installs/refreshes the core set — workflows install on demand
-npx hyperframes skills                                # all 21 published skills at once — only on explicit request
+npx hyperframes skills                                # all 15 published skills at once — only on explicit request
 npx skills add heygen-com/hyperframes                 # interactive picker; internal skills require INSTALL_INTERNAL_SKILLS=1 for discovery
 npx skills add heygen-com/hyperframes --all           # excludes internal skills unless INSTALL_INTERNAL_SKILLS=1
 npx skills add heygen-com/hyperframes --skill <name>  # a named match installs regardless of metadata.internal (bare name, no leading slash)
@@ -37,12 +37,8 @@ npx skills add heygen-com/hyperframes --skill <name>  # a named match installs r
 
 Atomic capabilities the creation workflows compose against — pull one when you need that specific layer:
 
-- `/hyperframes-core` — the composition contract: `data-*` timing attributes, `class="clip"`, tracks, sub-compositions, variables, framework-owned media playback, determinism rules. Read before writing composition HTML.
-- `/hyperframes-animation` — all animation knowledge: atomic motion rules, scene blueprints, transitions, runtime adapters (GSAP default, plus Lottie / Three.js / Anime.js / CSS / WAAPI / TypeGPU).
-- `/hyperframes-keyframes` — seek-safe keyframe authoring across runtimes: GSAP timelines, CSS keyframes, Anime.js, WAAPI, FLIP, paths, masks, SVG morph/draw, text trails, 3D depth; plus `hyperframes keyframes` diagnostics for surfacing and verifying rendered motion.
-- `/hyperframes-creative` — non-animation creative direction: `frame.md` / `design.md` handling, palettes, typography, narration, beat planning, audio-reactive visuals, composition patterns.
-- `/media-use` — the media OS (a host app's own music and sound-effect tools come first for those): resolve any media need (BGM, SFX, image, icon, logo, voice, color grade, LUT) into a frozen local file or paste-ready block + ledger record; generate via TTS / music / image models when the catalog misses; transcribe, caption, remove backgrounds, and reuse assets across projects. One shared `scripts/audio.mjs` engine + manifest tracking; keeps search noise on disk.
-- `/hyperframes-audio` — mix the audio already placed in a composition: voiceover carve (dip a music bed only in the bands the voice occupies, static or dynamic, level match included), the effect chain (EQ, compressor, limiter, gate, saturation, delay, reverb, chorus, phaser, bitcrush), automation envelopes on volume or any effect parameter, and submix buses (`<hf-audio-group>`) that carry one chain, fader and automation clock for several tracks at once. Sourcing the audio is `/media-use`; this is what happens to it afterwards.
+- `/hyperframes` guides — the entry skill also carries the domain guides, read from its folder on demand: `core/GUIDE.md` (the composition contract: `data-*` timing attributes, `class="clip"`, tracks, sub-compositions, variables, framework-owned media playback, determinism rules; read before writing composition HTML), `animation/GUIDE.md` (motion rules, scene blueprints, transitions, runtime adapters), `keyframes/GUIDE.md` (seek-safe keyframes plus `hyperframes keyframes` diagnostics), `creative/GUIDE.md` (`frame.md` / `design.md`, palettes, typography, narration, beat planning), `studio/GUIDE.md` (Studio conventions).
+- `/media-use` — the media OS (a host app's own music and sound-effect tools come first for those): resolve any media need (BGM, SFX, image, icon, logo, voice, color grade, LUT) into a frozen local file or paste-ready block + ledger record; generate via TTS / music / image models when the catalog misses; transcribe, caption, remove backgrounds, and reuse assets across projects. One shared `scripts/audio.mjs` engine + manifest tracking; keeps search noise on disk. Its `mix/GUIDE.md` mixes audio already placed in a composition: voiceover carve, effect chain, automation envelopes, `<hf-audio-group>` submix buses.
 - `/hyperframes-cli` — CLI dev loop: `init`, `add`, `lint`, `check`, `snapshot`, `preview`, `render`, `publish`, `doctor`, `lambda` (AWS Lambda cloud rendering).
 - `/hyperframes-registry` — search, install and wire registry blocks and components into compositions via `hyperframes catalog` / `hyperframes add`. Load it before hand-building any named look, effect, treatment or transition: the search ranks the whole hosted registry with nothing installed. Covers authoring a new block or component to contribute upstream.
 - `/figma` — import Figma assets, tokens, components, and storyboard sections → reconstructed motion (frames read as states, not slides) (REST/CLI) plus Motion animations (MCP) and shaders (MCP source / native export) into a composition.

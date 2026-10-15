@@ -120,7 +120,7 @@ const FETCH_TIMEOUT_MS = 4000;
 //
 //   core     — the `/hyperframes` entry router plus the shared domain skills
 //              (`hyperframes-*`, `media-use`) that every creation workflow
-//              references structurally (sibling `../hyperframes-animation/…`
+//              references structurally (sibling `../hyperframes/animation/…`
 //              paths, "call /media-use" preambles). These must be present and
 //              current for ANY workflow to run, so `init` / `skills update`
 //              keep them fresh.
@@ -149,15 +149,24 @@ export function isCoreSkill(name: string): boolean {
  */
 export const FALLBACK_CORE_SKILLS: readonly string[] = [
   "hyperframes",
+  "hyperframes-cli",
+  "hyperframes-registry",
+  "media-use",
+];
+
+/**
+ * Skills folded into guide folders of a remaining skill (`hyperframes/core/`,
+ * `media-use/mix/`, …). Machines that installed them still carry the old
+ * bundles; detectRemoved flags these names whenever the manifest no longer
+ * lists them, so `skills update` removes them.
+ */
+export const RETIRED_SKILLS: readonly string[] = [
   "hyperframes-animation",
   "hyperframes-audio",
-  "hyperframes-cli",
   "hyperframes-core",
   "hyperframes-creative",
   "hyperframes-keyframes",
-  "hyperframes-registry",
   "hyperframes-studio",
-  "media-use",
 ];
 
 // ── Hashing ────────────────────────────────────────────────────────────────
@@ -559,8 +568,14 @@ function detectRemoved(
   opts: { cwd?: string; home?: string },
 ): RemovedResult {
   const lock = readSkillLock(lockPathForScope(root.scope, opts));
-  const removed = skillsAttributedToSource(lock, latest.source)
-    .filter((name) => manifestCoversSkill(lock?.skills?.[name]))
+  const attributed = skillsAttributedToSource(lock, latest.source);
+  const dropped = attributed.filter((name) => manifestCoversSkill(lock?.skills?.[name]));
+  // A retired name is ours by definition, so it needs no skillPath (older
+  // locks lack one) and no lock entry at all when its bundle is on disk.
+  const retired = RETIRED_SKILLS.filter(
+    (name) => attributed.includes(name) || existsSync(join(root.dir, name, "SKILL.md")),
+  );
+  const removed = [...new Set([...dropped, ...retired])]
     .filter((name) => !(name in latest.skills))
     .sort()
     .map((name) => ({ name, status: "removed" as const }));

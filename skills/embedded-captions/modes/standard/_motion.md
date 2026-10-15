@@ -189,4 +189,4 @@ Default is **fade** unless a template names another. **Every exit ends at `opaci
 
 - `hyperframes-gsap` — single paused timeline, transform aliases, ease list, the animated-property allowlist.
 - `_anatomy.md` — where these four hooks attach.
-- `hyperframes-animation/rules/asr-keyword-glow.md` — the verbatim active-word envelope for the flow.
+- `hyperframes/animation/rules/asr-keyword-glow.md` — the verbatim active-word envelope for the flow.

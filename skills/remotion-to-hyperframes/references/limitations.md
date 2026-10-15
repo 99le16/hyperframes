@@ -32,7 +32,7 @@ Remotion accepts a function for `volume`:
 ```
 
 HF ramps volume with a `data-automation` volume lane on the `<audio>`
-(form in `hyperframes-core/references/creator-editing-recipes.md`).
+(form in `hyperframes/core/references/creator-editing-recipes.md`).
 Translation: write the lane from the `interpolate` points, OR bake the ramp
 into the audio file with `ffmpeg afade`. The dropped-ramp path produces audibly different
 output but visually-identical video, so SSIM passes — just flag it.

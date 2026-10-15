@@ -68,7 +68,7 @@ for (const workflow of workflows) {
       assert.equal(result.status, 0, result.stderr);
       const original = readFileSync(
         new URL(
-          `../../hyperframes-creative/frame-presets/${preset.name}/FRAME.md`,
+          `../../hyperframes/creative/frame-presets/${preset.name}/FRAME.md`,
           import.meta.url,
         ),
         "utf8",

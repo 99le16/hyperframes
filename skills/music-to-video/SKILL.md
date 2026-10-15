@@ -92,7 +92,7 @@ Goal: Turn the skeleton into an approved, complete `STORYBOARD.md`.
 
 Read [`references/planning.md`](references/planning.md), [`storyboard-format.md`](references/storyboard-format.md), [`template-catalog.md`](references/template-catalog.md), [`motion-primitive-catalog.md`](references/motion-primitive-catalog.md), and [`montage.md`](references/montage.md) (only if the user supplied assets). Editing the same file in place, do two things:
 
-1. **Pick the brand.** Choose one preset from `../hyperframes-creative/frame-presets/` using the table in `../hyperframes-creative/references/design-spec.md` (match the track's mood; **only its fonts and colors matter** — templates own composition). Copy it into `frame.md` **unmodified** and fill the frontmatter `style` (font + a ≤4–6 swatch palette) from it.
+1. **Pick the brand.** Choose one preset from `../hyperframes/creative/frame-presets/` using the table in `../hyperframes/creative/references/design-spec.md` (match the track's mood; **only its fonts and colors matter** — templates own composition). Copy it into `frame.md` **unmodified** and fill the frontmatter `style` (font + a ≤4–6 swatch palette) from it.
 2. **Fill every frame.** Decide its groups and give each a treatment: a matched template from the catalog (with bound params and real audiomap anchors), a free-compose from the primitive catalog, or an asset treatment that **obeys `pacing`**. **Before you free-compose a named look, search the live catalog for it**: for every look, effect, treatment or transition the user asked for — "CRT scanlines", "glitch", "film grain", "shimmer sweep" — run `npx hyperframes catalog --query "<the look, in plain English>" --json` and read the top results. `template-catalog.md` and `motion-primitive-catalog.md` list only this skill's own local materials; the search ranks the whole hosted registry (~400 blocks and components) and needs **nothing installed** — no project, no prior `add`, no account. Free-compose a look only after a search for it came back with nothing that fits. Write the copy. You own WHAT (template / primitives + content + anchors); the frame-worker owns HOW — **never write millisecond tweens into the storyboard**.
 
 ```bash
@@ -100,7 +100,7 @@ node <SKILL_DIR>/scripts/validate-plan.mjs --storyboard "$PROJECT_DIR/STORYBOARD
   --audiomap "$PROJECT_DIR/audiomap.json" --templates <SKILL_DIR>/references/templates
 ```
 
-Fix every `✗` (hard errors: duration mismatch, frames not tiling the track, a missing `src`); warnings are best-effort. Then present the frame-by-frame summary in chat as a proposal (`../hyperframes/references/review-loop.md` § 1) and iterate on the user's replies until they approve; for `storyboard: yes`, also show it as the board, `boards/storyboard.html` (`../hyperframes-creative/references/storyboard-recipe.md`). In autonomous mode this is a checkpoint gate: post the summary as a heads-up and proceed (the `validate-plan.mjs` pass is a quality gate and still blocks).
+Fix every `✗` (hard errors: duration mismatch, frames not tiling the track, a missing `src`); warnings are best-effort. Then present the frame-by-frame summary in chat as a proposal (`../hyperframes/references/review-loop.md` § 1) and iterate on the user's replies until they approve; for `storyboard: yes`, also show it as the board, `boards/storyboard.html` (`../hyperframes/creative/references/storyboard-recipe.md`). In autonomous mode this is a checkpoint gate: post the summary as a heads-up and proceed (the `validate-plan.mjs` pass is a quality gate and still blocks).
 
 **Gate:** `frame.md` is a verbatim preset copy; `validate-plan.mjs` exits 0; the user approved the plan (autonomous: the summary was posted as a heads-up).
 
@@ -120,7 +120,7 @@ audiomap: PROJECT_DIR/audiomap.json
 frame.md: PROJECT_DIR/frame.md
 Materials: for each group, <SKILL_DIR>/references/templates/<id>/index.html (templates) and
            <SKILL_DIR>/references/motion-primitives/<id>/ (free); staged assets/ (asset groups)
-Contracts: ../hyperframes-core/references/sub-compositions.md + determinism-rules.md
+Contracts: ../hyperframes/core/references/sub-compositions.md + determinism-rules.md
 Canvas: <w>×<h>   Pacing: <beat_cut|phrase_flow>
 Write to: PROJECT_DIR/compositions/frames/<frame_id>.html
 ```
@@ -194,7 +194,7 @@ Inspect at `t=0`, each frame start, the strongest DROP / SURGE, every `hard_stop
 | [`references/montage.md`](references/montage.md)                                                               | Step 3/4: asset treatments (beat-cut / ken-burns)       |
 | [`sub-agents/frame-worker.md`](sub-agents/frame-worker.md)                                                     | Step 4: dispatch + build one frame                      |
 | `../hyperframes/references/subagent-dispatch.md`                                                               | Step 4: dispatch sub-agents safely                      |
-| `../hyperframes-creative/references/design-spec.md`                                                            | Step 3: pick the preset (the brand)                     |
+| `../hyperframes/creative/references/design-spec.md`                                                            | Step 3: pick the preset (the brand)                     |
 
 ## Directory layout
 

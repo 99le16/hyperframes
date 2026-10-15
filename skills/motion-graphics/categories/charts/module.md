@@ -2,7 +2,7 @@
 
 Animated **data-viz** from data. Asset-free (the "input" is the data). "One chart, one message" for short durations.
 
-Read [data in motion](../../../hyperframes-creative/references/data-in-motion.md) before planning or building. Apply its guidance to default chart choices; preserve a chart type explicitly requested by the user.
+Read [data in motion](../../../hyperframes/creative/references/data-in-motion.md) before planning or building. Apply its guidance to default chart choices; preserve a chart type explicitly requested by the user.
 
 ## Plan (Director)
 

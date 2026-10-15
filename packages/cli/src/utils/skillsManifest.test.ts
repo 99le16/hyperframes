@@ -24,6 +24,7 @@ import {
   MANIFEST_FILE,
   presentSkills,
   pruneOrphanedLockEntries,
+  RETIRED_SKILLS,
   skillsAttributedToSource,
   type SkillsManifest,
   type SkillEntry,
@@ -109,8 +110,8 @@ describe("buildManifest", () => {
 describe("isCoreSkill", () => {
   it("classifies the entry router, hyperframes-* domain skills, and media-use as core", () => {
     expect(isCoreSkill("hyperframes")).toBe(true);
-    expect(isCoreSkill("hyperframes-core")).toBe(true);
-    expect(isCoreSkill("hyperframes-animation")).toBe(true);
+    expect(isCoreSkill("hyperframes-cli")).toBe(true);
+    expect(isCoreSkill("hyperframes-registry")).toBe(true);
     expect(isCoreSkill("media-use")).toBe(true);
     // End-user workflows and optional integrations install on demand.
     expect(isCoreSkill("pr-to-video")).toBe(false);
@@ -596,6 +597,61 @@ describe("checkSkills removed-upstream detection", () => {
     const res = await checkSkills(opts);
 
     expect(res.summary.removed).toBe(0);
+  });
+
+  // Retired skills (folded into guide folders of a remaining skill) are ours by
+  // name, so they are removed even where the generic rule fails safe: a lock
+  // entry with no skillPath, or a bundle on disk with no lock entry at all.
+  describe("retired skills", () => {
+    const retired = "hyperframes-core";
+
+    it("is one of RETIRED_SKILLS and absent from the skills/ tree", () => {
+      expect(RETIRED_SKILLS).toContain(retired);
+      const skillsRoot = join(dirname(fileURLToPath(import.meta.url)), "../../../../skills");
+      for (const name of RETIRED_SKILLS) expect(existsSync(join(skillsRoot, name))).toBe(false);
+    });
+
+    it("flags a retired skill whose lock entry has no skillPath", async () => {
+      const { home, opts } = setup({ source: "test", skills: { alpha: { hash: "x", files: 1 } } });
+      writeFileSync(
+        join(home, ".agents/.skill-lock.json"),
+        JSON.stringify({
+          version: 3,
+          skills: { alpha: { source: "test" }, [retired]: { source: "test" } },
+        }),
+      );
+
+      const res = await checkSkills(opts);
+
+      expect(res.skills.filter((s) => s.status === "removed").map((s) => s.name)).toEqual([
+        retired,
+      ]);
+    });
+
+    it("flags a retired bundle on disk that no lock attributes", async () => {
+      const { home, opts } = setup({ source: "test", skills: { alpha: { hash: "x", files: 1 } } });
+      installSkills(join(home, ".agents/skills"), [retired]);
+
+      const res = await checkSkills(opts);
+
+      expect(res.skills.filter((s) => s.status === "removed").map((s) => s.name)).toEqual([
+        retired,
+      ]);
+      expect(res.updateAvailable).toBe(true);
+    });
+
+    it("leaves a retired name alone while the manifest still publishes it", async () => {
+      const { home, opts } = setup({
+        source: "test",
+        skills: { alpha: { hash: "x", files: 1 }, [retired]: { hash: "y", files: 1 } },
+      });
+      installSkills(join(home, ".agents/skills"), [retired]);
+      writeGlobalLock(home, { alpha: { source: "test" }, [retired]: { source: "test" } });
+
+      const res = await checkSkills(opts);
+
+      expect(res.summary.removed).toBe(0);
+    });
   });
 
   it("a removed skill alone makes an update available (no outdated/missing)", async () => {

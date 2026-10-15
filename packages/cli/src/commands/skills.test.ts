@@ -90,7 +90,7 @@ const DEFAULT_CHECK = {
   summary: { current: 1, outdated: 1, missing: 2, coreMissing: 1, removed: 0 },
   skills: [
     { name: "hyperframes", status: "outdated" },
-    { name: "hyperframes-core", status: "missing" },
+    { name: "hyperframes-registry", status: "missing" },
     { name: "embedded-captions", status: "current" },
     { name: "pr-to-video", status: "missing" },
   ],
@@ -242,7 +242,7 @@ describe("hyperframes skills", () => {
         "--skill",
         "hyperframes",
         "--skill",
-        "hyperframes-core",
+        "hyperframes-registry",
         "--skill",
         "pr-to-video",
         ...GLOBAL_ARGS_TAIL,
@@ -259,7 +259,7 @@ describe("hyperframes skills", () => {
         "--skill",
         "hyperframes",
         "--skill",
-        "hyperframes-core",
+        "hyperframes-registry",
         "--skill",
         "pr-to-video",
         ...GLOBAL_ARGS_TAIL,
@@ -280,7 +280,7 @@ describe("hyperframes skills", () => {
         "--skill",
         "hyperframes",
         "--skill",
-        "hyperframes-core",
+        "hyperframes-registry",
         "--skill",
         "pr-to-video",
         ...GLOBAL_ARGS_TAIL,
@@ -322,7 +322,7 @@ describe("hyperframes skills", () => {
     expect(args).toContain("--copy");
     expect(args).toContain("--full-depth");
     // targeted per-name selection: the stale core skills only
-    expect(skillFlagValues(args).sort()).toEqual(["hyperframes", "hyperframes-core"]);
+    expect(skillFlagValues(args).sort()).toEqual(["hyperframes", "hyperframes-registry"]);
     // never the full-set wildcard, and never a missing on-demand workflow
     expect(skillFlagValues(args)).not.toContain("*");
     expect(skillFlagValues(args)).not.toContain("pr-to-video");
@@ -393,6 +393,25 @@ describe("hyperframes skills", () => {
     expect(removeCall!.args).toContain("graphic-overlays");
     expect(removeCall!.args).toContain("--yes");
     expect(removeCall!.args).toContain("-g"); // attributed from the global lock → remove globally
+    expect(await commandExitCode()).toBe(0);
+  });
+
+  it("skills update removes every retired skill check reports, in one call", async () => {
+    setPlatform("linux");
+    const { checkSkills, RETIRED_SKILLS } = await import("../utils/skillsManifest.js");
+    vi.mocked(checkSkills)
+      .mockResolvedValueOnce(DEFAULT_CHECK as never)
+      .mockResolvedValueOnce({
+        scope: "global",
+        skills: RETIRED_SKILLS.map((name) => ({ name, status: "removed" })),
+      } as never);
+
+    await runSkillsUpdate();
+
+    const removeCalls = state.spawnCalls.filter((s) => s.args.includes("remove"));
+    expect(removeCalls).toHaveLength(1);
+    for (const name of RETIRED_SKILLS) expect(removeCalls[0]!.args).toContain(name);
+    expect(removeCalls[0]!.args).toContain("-g");
     expect(await commandExitCode()).toBe(0);
   });
 
@@ -741,7 +760,7 @@ describe("hyperframes skills update <names>", () => {
     // (installed + current) and the full-set wildcard must not appear.
     expect(skillFlagValues(args).sort()).toEqual([
       "hyperframes",
-      "hyperframes-core",
+      "hyperframes-registry",
       "pr-to-video",
     ]);
   });
@@ -754,7 +773,7 @@ describe("hyperframes skills update <names>", () => {
       updateAvailable: false,
       skills: [
         { name: "hyperframes", status: "current" },
-        { name: "hyperframes-core", status: "current" },
+        { name: "hyperframes-registry", status: "current" },
         { name: "pr-to-video", status: "current" },
       ],
     } as never);

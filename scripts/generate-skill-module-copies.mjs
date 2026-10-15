@@ -20,7 +20,7 @@ export const skillModuleCopies = [
   [
     "skills/hyperframes/scripts/lib/main-module.mjs",
     [
-      ...[...workflows, "general-video", "hyperframes-audio", "media-use/audio"].map(
+      ...[...workflows, "general-video", "media-use/mix", "media-use/audio"].map(
         (skill) => `skills/${skill}/scripts/lib/main-module.mjs`,
       ),
       "packages/cli/src/media-use/lib/main-module.mjs",

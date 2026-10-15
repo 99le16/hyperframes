@@ -1,6 +1,6 @@
 # init, capture, skills
 
-<!-- registry-items: allow=blank,landscape-4k,portrait-4k,square-4k,product-launch-video,hyperframes-core,media-use -->
+<!-- registry-items: allow=blank,landscape-4k,portrait-4k,square-4k,product-launch-video,media-use -->
 
 Scaffolding commands. Use these instead of creating files by hand — they set up the right file structure, copy media, run transcription, and install AI coding skills.
 
@@ -28,7 +28,7 @@ Other useful flags:
 - `--skip-transcribe` — don't auto-transcribe `--audio` / `--video` with Whisper.
 - `--model`, `--language` — Whisper model / language for the auto-transcription.
 
-When using `--tailwind`, invoke the `hyperframes-core` (Tailwind reference) skill before editing classes or theme tokens. The scaffold uses Tailwind v4 browser runtime patterns, not Studio's Tailwind v3 setup.
+When using `--tailwind`, read `hyperframes/core/GUIDE.md` (Tailwind reference) before editing classes or theme tokens. The scaffold uses Tailwind v4 browser runtime patterns, not Studio's Tailwind v3 setup.
 
 When `--audio` or `--video` is supplied, `init` transcribes the file with Whisper. For voice/model selection see the `media-use` skill.
 
@@ -71,4 +71,4 @@ into a fresh output directory; never merge or reuse a blocked attempt's partial 
 npx hyperframes skills    # install HyperFrames skills for AI coding tools
 ```
 
-One-time setup that adds the HyperFrames skill pack (`hyperframes-core`, `-creative`, `-animation`, `-cli`, `-registry`, `-media`, plus the `product-launch-video` and `hyperframes` orchestrators) to the local AI coding environment so agents follow the framework conventions. Re-run after major HyperFrames upgrades.
+One-time setup that adds the HyperFrames skill pack (the `hyperframes` orchestrator with its core, creative and animation guides, `-cli`, `-registry`, `-media`, plus the `product-launch-video` orchestrator) to the local AI coding environment so agents follow the framework conventions. Re-run after major HyperFrames upgrades.

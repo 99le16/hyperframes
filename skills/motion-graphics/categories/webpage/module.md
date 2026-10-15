@@ -17,7 +17,7 @@ or DOM, or a provided screenshot explicitly selected by the user. If none is ava
 
 ## Vocabulary / leans on
 
-- Rules: `hyperframes-animation/rules/{3d-page-scroll, demo-page-scroll-spotlight, cursor-click-ripple, coordinate-target-zoom, viewport-change}`.
+- Rules: `hyperframes/animation/rules/{3d-page-scroll, demo-page-scroll-spotlight, cursor-click-ripple, coordinate-target-zoom, viewport-change}`.
 - Primitives: scroll pan · spotlight/dim · cursor move + click-ripple · zoom-to-region · callout pin + label.
 
 ## Build (reuse-first)

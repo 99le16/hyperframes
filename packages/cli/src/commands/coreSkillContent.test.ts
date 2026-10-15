@@ -11,9 +11,9 @@ const skillTextFiles = (dir: string): string[] =>
     .filter((entry) => entry.isFile() && /\.(md|mjs|cjs|js|ts|json|html)$/.test(entry.name))
     .map((entry) => join(entry.parentPath, entry.name));
 
-describe("hyperframes-core contract docs", () => {
+describe("hyperframes/core contract docs", () => {
   it("keeps a runnable root in the minimal composition skeleton", () => {
-    const minimal = read("skills", "hyperframes-core", "references", "minimal-composition.md");
+    const minimal = read("skills", "hyperframes", "core", "references", "minimal-composition.md");
 
     // Structural pin: the skeleton must still declare a root the runtime can find
     // and size. The prose around it is deliberately not pinned: asserting exact
@@ -26,7 +26,7 @@ describe("hyperframes-core contract docs", () => {
   });
 
   it("teaches check as the canonical quality gate", () => {
-    const skill = read("skills", "hyperframes-core", "SKILL.md");
+    const skill = read("skills", "hyperframes", "core", "GUIDE.md");
     const brief = read("skills", "hyperframes", "references", "brief-contract.md");
 
     expect(skill).toContain("`npx hyperframes check`");

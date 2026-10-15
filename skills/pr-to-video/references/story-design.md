@@ -25,7 +25,7 @@ A diff is a list of edits. A video is a guided act of understanding.
 
 Do **not** narrate the diff file-by-file or read the PR description aloud — that is the single most common failure. **Explain the change** — and where the change has a runtime behavior, **show that behavior in motion** (a `mechanism` beat — see "Show the behavior" below), don't just display the lines that changed. Reorder, merge, omit, compress: surface the one change that matters and drop the incidental churn (lockfile bumps, formatting, generated files) unless it _is_ the story. Scene order comes from narrative design, not from the diff's file order or the commit list.
 
-**Value before evidence** (`../../hyperframes-creative/references/story-spine.md`): the viewer-facing payoff — what the change unlocks, fixes, or speeds up — lands by the second beat; the diff and the mechanism are the **evidence** for that claim, never the opening. Implementation is the footnote of the story, not the spine.
+**Value before evidence** (`../../hyperframes/creative/references/story-spine.md`): the viewer-facing payoff — what the change unlocks, fixes, or speeds up — lands by the second beat; the diff and the mechanism are the **evidence** for that claim, never the opening. Implementation is the footnote of the story, not the spine.
 
 Default to a **plain, technical, unhurried developer voice** — accurate, specific, no hype, no marketing gloss. You are explaining a real change to engineers; respect their time and intelligence. `frame.md` (code-editorial) tunes the voice toward considered and literary; it does not change the structure.
 
