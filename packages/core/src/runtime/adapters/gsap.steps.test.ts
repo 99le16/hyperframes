@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import gsap from "gsap";
 import { describe, expect, it } from "vitest";
-import { createGsapAdapter, rerenderGsapTimelineAt } from "./gsap";
+import { createGsapAdapter, rerenderGsapTimelineAt, seekGsapTimeline } from "./gsap";
 import type { RuntimeTimelineLike } from "../types";
 
 // Every 0.1 s: hide all three frames, then show one, as frame-by-frame films do.
@@ -480,5 +480,102 @@ describe("re-rendering leaves the rest as the seek left it", () => {
     timeline.set({ x: 0 }, { x: 100 }, 20);
     rerenderGsapTimelineAt(timeline, 1);
     expect(timeline.duration()).toBe(20);
+  });
+});
+
+describe("gsap adapter just after a tween's start", () => {
+  // Starts 0.5 ms before a frame, so the redraw's step down to 1 ms below that frame crosses its start.
+  it("keeps a fromTo's from-only opacity on every frame of a sweep that a later set hides", () => {
+    const bar = document.body.appendChild(document.createElement("div"));
+    bar.style.opacity = "0";
+    const timeline = gsap.timeline({ paused: true });
+    timeline.fromTo(
+      bar,
+      { x: 1920, opacity: 1 },
+      { x: -320, duration: 0.34, ease: "power2.inOut", immediateRender: false },
+      0.4995,
+    );
+    timeline.set(bar, { opacity: 0 }, 0.85);
+    timeline.set({}, {}, 2);
+    const adapter = createGsapAdapter({
+      getTimeline: () => timeline as unknown as RuntimeTimelineLike,
+    });
+    const shown: string[] = [];
+    for (let frame = 0; frame <= 60; frame++) {
+      adapter.seek({ time: frame / 30 });
+      if (frame / 30 > 0.49 && frame / 30 < 0.84) shown.push(bar.style.opacity);
+    }
+    expect(new Set(shown)).toEqual(new Set(["1"]));
+    expect(bar.style.opacity).toBe("0");
+  });
+
+  // A slow drift with a short move on the same property inside it: the drift resumes after the move, as in playback.
+  it("renders overlapping tweens on one property as playback does", () => {
+    const film = () => {
+      const box = { y: 0 };
+      const timeline = gsap.timeline({ paused: true });
+      timeline.to(box, { y: 100, duration: 4, ease: "none" }, 0);
+      timeline.to(box, { y: 300, duration: 0.5, ease: "none" }, 1);
+      timeline.set({}, {}, 5);
+      return { box, timeline };
+    };
+    const played = film();
+    const seeked = film();
+    const adapter = createGsapAdapter({
+      getTimeline: () => seeked.timeline as unknown as RuntimeTimelineLike,
+    });
+    for (let frame = 0; frame <= 150; frame++) {
+      played.timeline.totalTime(frame / 30);
+      adapter.seek({ time: frame / 30 });
+      expect(seeked.box.y, `frame ${frame}`).toBeCloseTo(played.box.y, 6);
+    }
+  });
+});
+
+describe("seekGsapTimeline", () => {
+  function hiddenAtZero() {
+    const word = document.body.appendChild(document.createElement("span"));
+    let calls = 0;
+    const timeline = gsap.timeline({ paused: true });
+    timeline.set(word, { visibility: "hidden" }, 0);
+    timeline.call(() => void calls++, [], 0);
+    timeline.set(word, { visibility: "visible" }, 0.5);
+    return { word, timeline: timeline as unknown as RuntimeTimelineLike, calls: () => calls };
+  }
+
+  it("renders a never-rendered timeline seeked to the time it sits at", () => {
+    const film = hiddenAtZero();
+    seekGsapTimeline(film.timeline, 0, false);
+    expect(film.word.style.visibility).toBe("hidden");
+  });
+
+  it("redraws a timeline parked at one time once, not on every seek", () => {
+    const film = hiddenAtZero();
+    const real = film.timeline;
+    let moves = 0;
+    const counted = {
+      ...real,
+      time: () => real.time(),
+      totalTime: (time?: number, suppressEvents?: boolean) => {
+        if (time === undefined) return real.totalTime!();
+        moves++;
+        return real.totalTime!(time, suppressEvents);
+      },
+      getChildren: real.getChildren!.bind(real),
+    } as RuntimeTimelineLike;
+    seekGsapTimeline(counted, 0, false);
+    const firstSeekMoves = moves;
+    seekGsapTimeline(counted, 0, false);
+    seekGsapTimeline(counted, 0, false);
+    expect(firstSeekMoves).toBeGreaterThan(1);
+    expect(moves - firstSeekMoves).toBe(2);
+  });
+
+  it("fires a call at that time once across the next seeks", () => {
+    const film = hiddenAtZero();
+    seekGsapTimeline(film.timeline, 0, false);
+    seekGsapTimeline(film.timeline, 0, false);
+    seekGsapTimeline(film.timeline, 0.1, false);
+    expect(film.calls()).toBe(1);
   });
 });
