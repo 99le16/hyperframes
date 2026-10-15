@@ -381,7 +381,6 @@ export async function recordRenderSuccess(
   return record;
 }
 
-/** Complete after all derived files have been written, including contact sheets and descriptions. */
 export async function finishSnapshotRun(projectDir: string, path: string): Promise<void> {
   releaseSnapshotRun(projectDir, path);
   let cleanup: SnapshotRun[] = [];
