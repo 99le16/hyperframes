@@ -80,7 +80,7 @@
     "types": "./dist/index.d.ts"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node ../../scripts/rewrite-relative-import-extensions.mjs dist",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

@@ -77,6 +77,10 @@ export const ALLOWED_DELETIONS = new Map([
     "bundled into three-modules.json so catalog scripts run under the docs host policy",
   ],
   [
+    "packages/core/scripts/rewrite-esm-extensions.ts",
+    "moved to scripts/rewrite-relative-import-extensions.mjs as plain ESM so packages without tsx can use it; now also rewrites .d.ts",
+  ],
+  [
     "packages/studio/src/hooks/gsapTargetCache.ts",
     "its only caller was the deleted var-offset move writer; nothing imports isElementGsapTargeted",
   ],
