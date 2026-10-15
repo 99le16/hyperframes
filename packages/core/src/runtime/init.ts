@@ -161,6 +161,7 @@ import {
   isHtmlElement,
   isImageElement,
   isMediaElement,
+  isStylableElement,
   isVideoElement,
 } from "./domRealm";
 import { audibleVideoNeedsWebAudio, isAudibleVideoElement } from "../audibleVideo";
@@ -2690,7 +2691,7 @@ export function initSandboxRuntimeModular(): void {
     rootComp: HTMLElement | null,
   ) => {
     for (let node = from; node && node !== rootComp; node = node.parentElement)
-      if (isHtmlElement(node) && node.hasAttribute("data-start") && !visibleAt(node, time))
+      if (isStylableElement(node) && node.hasAttribute("data-start") && !visibleAt(node, time))
         return false;
     return true;
   };
@@ -2802,7 +2803,7 @@ export function initSandboxRuntimeModular(): void {
     let decidedTimedClip = false;
     const visibleAt = timedVisibilityAt(timingRevision);
     for (const rawNode of visibilityNodes) {
-      if (!isHtmlElement(rawNode)) continue;
+      if (!isStylableElement(rawNode)) continue;
 
       if (rawNode.hasAttribute("data-hidden")) {
         if (!dataHiddenDisplayNodes.has(rawNode)) {
