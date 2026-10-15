@@ -78,14 +78,6 @@ function page(video: string, words: string): string {
 const videoTag = (src: string, extra = "") =>
   `<video id="clip" src="/${src}" muted playsinline ${extra} style="position:absolute;left:0;top:0;width:640px;height:360px;z-index:2"></video>`;
 
-function readClip(dir: string, path: string): Buffer | null {
-  try {
-    return readFileSync(join(dir, path.slice(1)));
-  } catch {
-    return null;
-  }
-}
-
 // Chromium only seeks a media resource its server serves by byte range.
 function serveByteRange(body: Buffer, rangeHeader: string | undefined, response: ServerResponse) {
   const range = /bytes=(\d+)-(\d*)/.exec(rangeHeader ?? "");
@@ -106,6 +98,7 @@ describe.runIf(executablePath && hasFfmpeg)("text_occluded behind a <video> in C
   let origin: string;
   let clipDir: string;
   const pages = new Map<string, string>();
+  const clips = new Map<string, Buffer>();
 
   beforeAll(async () => {
     clipDir = mkdtempSync(join(tmpdir(), "hf-video-alpha-"));
@@ -118,6 +111,7 @@ describe.runIf(executablePath && hasFfmpeg)("text_occluded behind a <video> in C
         join(clipDir, name),
       ]);
       if (result.status !== 0) throw new Error(`ffmpeg ${name}: ${result.stderr}`);
+      clips.set(`/${name}`, readFileSync(join(clipDir, name)));
     }
     server = createServer((request, response) => {
       const path = (request.url ?? "/").split("?")[0] ?? "/";
@@ -127,7 +121,7 @@ describe.runIf(executablePath && hasFfmpeg)("text_occluded behind a <video> in C
         response.end(html);
         return;
       }
-      const body = readClip(clipDir, path);
+      const body = clips.get(path);
       if (body) serveByteRange(body, request.headers.range, response);
       else response.writeHead(404).end();
     });
