@@ -95,12 +95,18 @@ interpolate(frame, [0, 30], [0, 1], { easing: Easing.out(Easing.cubic) });
 | `Easing.bezier(a,b,c,d)`     | `CustomEase.create("c", "M0,0 C${a},${b} ${c},${d} 1,1")` (requires CustomEase plugin) |
 | `Easing.elastic(bounciness)` | `ease: "elastic.out(${bounciness}, 0.3)"`                                              |
 | `Easing.bounce`              | `ease: "bounce.out"`                                                                   |
-| `Easing.back(overshoot)`     | `ease: "back.out(${overshoot * 1.7})"` (Remotion's overshoot scale differs)            |
+| `Easing.back(s)`             | `ease: "back.in(${s})"`                                                                |
+| `Easing.out(Easing.back(s))` | `ease: "back.out(${s})"`                                                               |
 
 GSAP names polynomial eases by degree minus one: `power1` is quadratic,
 `power2` cubic, `power3` quartic, and `power4` quintic. For `Easing.poly(N)`
 with integer N from 1 through 5, use `power<N-1>` (`power0` is linear). For
 other exponents, pass an easing function; an ease-out is `(t) => 1 - (1 - t) ** N`.
+
+Remotion and GSAP use the same back-ease overshoot parameter. Remotion defaults
+to `s = 1.70158`; pass that value explicitly to GSAP when porting the default.
+Bare `Easing.back` is an ease-in. Its polynomial is `t * t * ((s + 1) * t - s)`;
+wrapping it in `Easing.out` reverses the direction without changing `s`.
 
 ## interpolate driving non-numeric properties
 
