@@ -351,6 +351,7 @@ describe("drop counts — why a referenced asset is not in the capture", () => {
       expect(css).toContain("assets/fonts/font-0.woff2");
       expect(drops).toEqual({
         "size-floor": 0,
+        "size-ceiling": 0,
         "budget-exhausted": 0,
         "cap-reached": 0,
         unavailable: 0,
@@ -419,6 +420,32 @@ describe("drop counts — why a referenced asset is not in the capture", () => {
       );
       expect(assets).toHaveLength(30);
       expect(drops["cap-reached"]).toBe(4);
+    });
+  });
+
+  it("writes an inline SVG logo over 10 KB whole, and skips one over the size cap uncut", async () => {
+    await withTempDir(async (dir) => {
+      const shapes = (n: number) =>
+        Array.from({ length: n }, (_, i) => `<path d="M${i} 0h1v10h-1z"/>`).join("");
+      const logo = `<svg viewBox="0 0 3000 10">${shapes(3000)}</svg>`;
+      const huge = `<svg viewBox="0 0 1 10">${shapes(1)}<desc>${"x".repeat(3 * 1024 * 1024)}</desc></svg>`;
+      expect(logo.length).toBeGreaterThan(10_000);
+      const { assets, drops } = await downloadAssets(
+        {
+          svgs: [
+            { outerHTML: logo, isLogo: true },
+            { outerHTML: huge, isLogo: false },
+          ],
+          sections: [],
+          ogImage: "",
+        } as unknown as DesignTokens,
+        dir,
+      );
+      expect(assets).toHaveLength(1);
+      const written = readFileSync(join(dir, assets[0]!.localPath), "utf-8");
+      expect(written).toBe(toStandaloneSvg(logo));
+      expect(written.endsWith("</svg>")).toBe(true);
+      expect(drops["size-ceiling"]).toBe(1);
     });
   });
 });

@@ -40,6 +40,8 @@ interface DownloadBudgetOptions {
 export type AssetDropReason =
   /** Fetched, then judged too small to be a real asset rather than a spacer or tracking pixel. */
   | "size-floor"
+  /** Larger than any one asset may be; skipped whole, never cut. */
+  | "size-ceiling"
   /** The post-navigation clock ran out before this one was reached. */
   | "budget-exhausted"
   /** A per-run or per-family limit was already met. */
@@ -51,7 +53,13 @@ export type AssetDropCounts = Record<AssetDropReason, number>;
 
 /** A tally with every reason at zero — the shape a caller merges into. */
 export function noDrops(): AssetDropCounts {
-  return { "size-floor": 0, "budget-exhausted": 0, "cap-reached": 0, unavailable: 0 };
+  return {
+    "size-floor": 0,
+    "size-ceiling": 0,
+    "budget-exhausted": 0,
+    "cap-reached": 0,
+    unavailable: 0,
+  };
 }
 
 /** Sum two tallies. Used to fold the font pass and the asset pass into one capture-wide count. */
@@ -326,6 +334,7 @@ export async function downloadAssets(
   ensureCaptureDirSync(outputDir, join(outputDir, "assets", "svgs"));
   const usedSvgNames = new Set<string>();
   const MAX_INLINE_SVGS = 30;
+  const MAX_INLINE_SVG_BYTES = 2 * 1024 * 1024;
   drops["cap-reached"] += Math.max(0, tokens.svgs.length - MAX_INLINE_SVGS);
   for (let i = 0; i < tokens.svgs.length && i < MAX_INLINE_SVGS; i++) {
     const svg = tokens.svgs[i]!;
@@ -335,6 +344,10 @@ export async function downloadAssets(
     }
     // Hash the bytes that actually land on disk, so the filename still can't drift from content.
     const svgFile = toStandaloneSvg(svg.outerHTML);
+    if (Buffer.byteLength(svgFile, "utf-8") > MAX_INLINE_SVG_BYTES) {
+      drops["size-ceiling"]++;
+      continue;
+    }
     const slug = svgContentHashSlug(svgFile, !!svg.isLogo);
     let finalSlug = slug;
     let suffix = 2;
