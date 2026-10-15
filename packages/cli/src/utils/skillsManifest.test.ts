@@ -25,6 +25,7 @@ import {
   presentSkills,
   pruneOrphanedLockEntries,
   RETIRED_SKILLS,
+  retiredSkillNotice,
   skillsAttributedToSource,
   type SkillsManifest,
   type SkillEntry,
@@ -113,9 +114,9 @@ describe("isCoreSkill", () => {
     expect(isCoreSkill("hyperframes-cli")).toBe(true);
     expect(isCoreSkill("hyperframes-registry")).toBe(true);
     expect(isCoreSkill("media-use")).toBe(true);
-    // End-user workflows and optional integrations install on demand.
-    expect(isCoreSkill("pr-to-video")).toBe(false);
-    expect(isCoreSkill("embedded-captions")).toBe(false);
+    // Decks, ports and optional integrations install on demand.
+    expect(isCoreSkill("slideshow")).toBe(false);
+    expect(isCoreSkill("remotion-to-hyperframes")).toBe(false);
     expect(isCoreSkill("figma")).toBe(false);
   });
 });
@@ -253,7 +254,7 @@ describe("diffSkills", () => {
       source: "test",
       skills: {
         hyperframes: { hash: "e1", files: 1 }, // core: entry router
-        "pr-to-video": { hash: "w1", files: 1 }, // on-demand workflow
+        slideshow: { hash: "w1", files: 1 }, // on-demand workflow
       },
     };
 
@@ -268,7 +269,7 @@ describe("diffSkills", () => {
     });
 
     // Core itself missing → every workflow needs it, so that IS an update.
-    const coreMissing = diffSkills({ "pr-to-video": { hash: "w1", files: 1 } }, withCore);
+    const coreMissing = diffSkills({ slideshow: { hash: "w1", files: 1 } }, withCore);
     expect(coreMissing.updateAvailable).toBe(true);
     expect(coreMissing.summary).toEqual({ current: 1, outdated: 0, missing: 1, coreMissing: 1 });
   });
@@ -283,7 +284,7 @@ describe("presentSkills", () => {
     mkdirSync(join(skillsDir, "hyperframes"), { recursive: true });
     writeFileSync(join(skillsDir, "hyperframes", "SKILL.md"), "# hyperframes");
 
-    expect(presentSkills(["hyperframes", "pr-to-video"], { cwd: project, home })).toEqual([
+    expect(presentSkills(["hyperframes", "slideshow"], { cwd: project, home })).toEqual([
       "hyperframes",
     ]);
   });
@@ -638,6 +639,47 @@ describe("checkSkills removed-upstream detection", () => {
         retired,
       ]);
       expect(res.updateAvailable).toBe(true);
+    });
+
+    it("lists the eight retired workflow skills", () => {
+      for (const name of [
+        "embedded-captions",
+        "faceless-explainer",
+        "general-video",
+        "motion-graphics",
+        "music-to-video",
+        "pr-to-video",
+        "product-launch-video",
+        "talking-head-recut",
+      ])
+        expect(RETIRED_SKILLS).toContain(name);
+    });
+
+    it("flags a retired workflow the lock attributes to us, even without a skillPath", async () => {
+      const { home, opts } = setup({ source: "test", skills: { alpha: { hash: "x", files: 1 } } });
+      installSkills(join(home, ".agents/skills"), ["general-video"]);
+      writeGlobalLock(home, { alpha: { source: "test" }, "general-video": { source: "test" } });
+
+      const res = await checkSkills(opts);
+
+      expect(res.skills.filter((s) => s.status === "removed").map((s) => s.name)).toEqual([
+        "general-video",
+      ]);
+    });
+
+    it("leaves a same-named workflow bundle alone when no lock attributes it to us", async () => {
+      // Workflow names are generic: another source's `motion-graphics` must survive.
+      const { home, opts } = setup({ source: "test", skills: { alpha: { hash: "x", files: 1 } } });
+      installSkills(join(home, ".agents/skills"), ["motion-graphics"]);
+
+      const res = await checkSkills(opts);
+
+      expect(res.summary.removed).toBe(0);
+    });
+
+    it("explains where a retired skill's knowledge lives", () => {
+      expect(retiredSkillNotice("pr-to-video")).toMatch(/\/hyperframes skill and its references/);
+      expect(retiredSkillNotice("hyperframes-audio")).toMatch(/\/media-use skill/);
     });
 
     it("leaves a retired name alone while the manifest still publishes it", async () => {

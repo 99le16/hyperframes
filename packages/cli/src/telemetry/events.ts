@@ -325,7 +325,7 @@ export function trackRenderComplete(
     durationMs: number;
     fps: number;
     quality: string;
-    /** Authoring workflow skill that drove this render (e.g. "product-launch-video"). */
+    /** Authoring skill that drove this render (e.g. "hyperframes"). */
     authoringSkill?: string;
     /** Which step resolved authoringSkill: an explicit --skill flag, or the project's own config. */
     authoringSkillSource?: string;
@@ -640,7 +640,7 @@ export function trackRenderError(
   props: {
     fps: number;
     quality: string;
-    /** Authoring workflow skill that drove this render (e.g. "product-launch-video"). */
+    /** Authoring skill that drove this render (e.g. "hyperframes"). */
     authoringSkill?: string;
     /** Which step resolved authoringSkill: an explicit --skill flag, or the project's own config. */
     authoringSkillSource?: string;

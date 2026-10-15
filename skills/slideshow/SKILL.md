@@ -19,7 +19,7 @@ description: >
 
 A HyperFrames slideshow is a normal HyperFrames composition — scenes, clips, GSAP timelines — with one extra ingredient: a **JSON island** that declares which scenes are slides and how they connect. The player's `SlideshowController` reads the island and turns the continuous GSAP timeline into a discrete, navigable deck.
 
-**Read `hyperframes/core/GUIDE.md` first** for the base composition contract (clips, tracks, `data-*` attributes, determinism rules). This skill covers only what is new: the island schema, slide writing rules, fragments, branching, validation, and the wrapping component.
+**Read `/hyperframes` and its [`references/format.md`](../hyperframes/references/format.md) first** for the base composition contract (clips, tracks, `data-*` attributes, determinism rules). This skill covers only what is new: the island schema, slide writing rules, fragments, branching, validation, and the wrapping component.
 
 ## Output — a navigable deck, not a linear MP4
 
@@ -29,7 +29,7 @@ A slideshow's output is the **running deck**: serve it with `hyperframes present
 
 ## Intent confirmation
 
-If the user explicitly asks for a slideshow, slide show, or HyperFrames slideshow, proceed with this skill. When the request arrived through `/hyperframes`, the intent layer's triage owns this confirmation — routed here means already confirmed, so don't re-ask; the layer's run-shape questions don't apply (the deliverable is a deck, not a rendered video). A `BRIEF.md`, when present, carries the confirmed intent — read it.
+If the user explicitly asks for a slideshow, slide show, or HyperFrames slideshow, proceed with this skill.
 
 If the skill triggered from an adjacent request such as "presentation", "pitch deck", "deck", "interactive deck", or "convert this page", pause before authoring and frame the choice before asking for confirmation. Briefly explain that a HyperFrames slideshow means a runnable deck with discrete slides, built-in navigation and presenter mode, editable speaker notes, shared media handling, and validation before handoff. For source-page conversions, also mention that the goal is to preserve the original page's visual design, interactions, motion, and media behavior while translating page movement into slide-to-slide transitions.
 
@@ -39,7 +39,7 @@ Then ask a short confirmation question:
 
 Use a yes/no choice UI when the environment provides one; otherwise ask the question in plain text.
 
-Do not implement the slideshow until the user says yes. If they say no, stop using this skill — read `/hyperframes` and let the intent layer re-route. This confirmation is a **routing decision**, not a preference gate — per `../hyperframes/references/brief-contract.md` § 1 it survives autonomous mode ("surprise me" does not skip it): building the wrong deliverable type is a quality failure, not a creative call.
+Do not implement the slideshow until the user says yes. If they say no, stop using this skill and build with `/hyperframes` instead. This confirmation survives autonomous mode ("surprise me" does not skip it): building the wrong deliverable type is a quality failure, not a creative call.
 
 ---
 

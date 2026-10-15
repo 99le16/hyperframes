@@ -118,22 +118,20 @@ const FETCH_TIMEOUT_MS = 4000;
 //
 // Two tiers decide what installs eagerly vs on demand:
 //
-//   core     — the `/hyperframes` entry router plus the shared domain skills
-//              (`hyperframes-*`, `media-use`) that every creation workflow
-//              references structurally (sibling `../hyperframes/animation/…`
-//              paths, "call /media-use" preambles). These must be present and
-//              current for ANY workflow to run, so `init` / `skills update`
-//              keep them fresh.
-//   on-demand — everything else: the end-user workflow skills (pr-to-video,
-//              embedded-captions, …) and optional integrations (figma). They
-//              install lazily, when their workflow is actually triggered
-//              (`hyperframes skills update <name>`), instead of being sprayed
-//              onto every machine that runs `init`.
+//   core     — the `/hyperframes` entry skill plus the shared skills
+//              (`hyperframes-*`, `media-use`) every other skill references
+//              structurally (sibling `../hyperframes/references/…` paths,
+//              "call /media-use" preambles). These must be present and current
+//              for any video work, so `init` / `skills update` keep them fresh.
+//   on-demand — everything else: decks (slideshow), Remotion ports
+//              (remotion-to-hyperframes) and optional integrations (figma).
+//              They install when named (`hyperframes skills update <name>`),
+//              instead of being sprayed onto every machine that runs `init`.
 
-/** The entry/router skill — the capability map that routes every request. */
+/** The entry skill — read first for any video request. */
 const ENTRY_SKILL = "hyperframes";
 
-/** True for skills every workflow depends on (see "Skill tiers" above). */
+/** True for skills every other skill depends on (see "Skill tiers" above). */
 export function isCoreSkill(name: string): boolean {
   return name === ENTRY_SKILL || name.startsWith("hyperframes-") || name === "media-use";
 }
@@ -155,12 +153,11 @@ export const FALLBACK_CORE_SKILLS: readonly string[] = [
 ];
 
 /**
- * Skills folded into guide folders of a remaining skill (`hyperframes/core/`,
- * `media-use/mix/`, …). Machines that installed them still carry the old
- * bundles; detectRemoved flags these names whenever the manifest no longer
- * lists them, so `skills update` removes them.
+ * Domain skills folded into the `hyperframes` and `media-use` skills. Their
+ * `hyperframes-` prefix makes them ours by name, so an on-disk bundle with no
+ * lock entry is removed too.
  */
-export const RETIRED_SKILLS: readonly string[] = [
+const RETIRED_DOMAIN_SKILLS: readonly string[] = [
   "hyperframes-animation",
   "hyperframes-audio",
   "hyperframes-core",
@@ -168,6 +165,42 @@ export const RETIRED_SKILLS: readonly string[] = [
   "hyperframes-keyframes",
   "hyperframes-studio",
 ];
+
+/**
+ * Workflow skills retired when their knowledge moved into the `hyperframes`
+ * skill's references (film, captions, overlays, motion, look). Their names are
+ * generic, so only a lock entry attributing them to our source marks them ours.
+ */
+const RETIRED_WORKFLOW_SKILLS: readonly string[] = [
+  "embedded-captions",
+  "faceless-explainer",
+  "general-video",
+  "motion-graphics",
+  "music-to-video",
+  "pr-to-video",
+  "product-launch-video",
+  "talking-head-recut",
+];
+
+/**
+ * Skills no longer published. Machines that installed them still carry the old
+ * bundles; detectRemoved flags these names whenever the manifest no longer
+ * lists them, so `skills update` removes them, and naming one in
+ * `skills update <name>` explains where its knowledge went instead of failing.
+ */
+export const RETIRED_SKILLS: readonly string[] = [
+  ...RETIRED_DOMAIN_SKILLS,
+  ...RETIRED_WORKFLOW_SKILLS,
+];
+
+/** Where a retired skill's knowledge lives now, for `skills update <retired-name>`. */
+export function retiredSkillNotice(name: string): string {
+  const home =
+    name === "hyperframes-audio"
+      ? "the /media-use skill (references/mixing.md)"
+      : "the /hyperframes skill and its references (film, captions, overlays, motion, look, format)";
+  return `${name} was retired; its knowledge now lives in ${home}, which \`skills update\` keeps current.`;
+}
 
 // ── Hashing ────────────────────────────────────────────────────────────────
 
@@ -429,8 +462,8 @@ export function diffSkills(
 // ── Removed-upstream (orphaned) skills ────────────────────────────────────────
 //
 // `skills add` / `init` / `hyperframes skills update` only ever add or refresh —
-// none of them delete a skill that was renamed or dropped upstream (e.g.
-// graphic-overlays → talking-head-recut), so a stale bundle lingers forever and
+// none of them delete a skill the manifest no longer publishes (e.g. the
+// eight retired workflow skills), so a stale bundle lingers forever and
 // the manifest-only diff above can't see it. We surface these by cross-checking
 // the vercel-labs/skills lock: a skill the lock attributes to OUR manifest
 // `source` that the manifest no longer lists is "removed". Attribution is the
@@ -442,7 +475,7 @@ interface LockEntry {
   sourceUrl?: string;
   /**
    * Path of the skill's SKILL.md within the source repo, as upstream records it
-   * (`skills/general-video/SKILL.md`, `.agents/skills/seam-craft/SKILL.md`). The
+   * (`skills/slideshow/SKILL.md`, `.agents/skills/seam-craft/SKILL.md`). The
    * only field distinguishing skills the published manifest covers from ones
    * installed out of the same repo's other skill roots — see manifestCoversSkill.
    */
@@ -540,7 +573,7 @@ const MANIFEST_COVERAGE_ROOT = "skills/";
  *
  * Only for skills installed from the directory the manifest is generated from.
  * The lock records where in the repo each skill came from (`skillPath`, e.g.
- * `skills/general-video/SKILL.md` vs `.agents/skills/seam-craft/SKILL.md`), and
+ * `skills/slideshow/SKILL.md` vs `.agents/skills/seam-craft/SKILL.md`), and
  * both carry the same `source`, so source attribution alone cannot tell them
  * apart. An entry with no `skillPath` (older lock format) is treated as NOT
  * covered — for a delete, unknown provenance must fail safe. GH #3111.
@@ -570,10 +603,13 @@ function detectRemoved(
   const lock = readSkillLock(lockPathForScope(root.scope, opts));
   const attributed = skillsAttributedToSource(lock, latest.source);
   const dropped = attributed.filter((name) => manifestCoversSkill(lock?.skills?.[name]));
-  // A retired name is ours by definition, so it needs no skillPath (older
-  // locks lack one) and no lock entry at all when its bundle is on disk.
+  // A retired name the lock attributes to us needs no skillPath (older locks
+  // lack one); a retired domain skill needs no lock entry at all when its
+  // bundle is on disk, because its prefix makes it ours by name.
   const retired = RETIRED_SKILLS.filter(
-    (name) => attributed.includes(name) || existsSync(join(root.dir, name, "SKILL.md")),
+    (name) =>
+      attributed.includes(name) ||
+      (RETIRED_DOMAIN_SKILLS.includes(name) && existsSync(join(root.dir, name, "SKILL.md"))),
   );
   const removed = [...new Set([...dropped, ...retired])]
     .filter((name) => !(name in latest.skills))

@@ -121,8 +121,9 @@ that off.
 
 `--tailwind` injects the pinned Tailwind v4 browser runtime and exposes a
 `window.__tailwindReady` promise that renders wait on before capturing frame 0.
-Use `hyperframes/core/GUIDE.md` when editing these projects, so agents follow
-v4 CSS-first patterns instead of v3 `tailwind.config.js` patterns. The browser
+The `/hyperframes-cli` skill's `references/init-and-scaffold.md` (Tailwind)
+covers editing these projects, so agents follow v4 CSS-first patterns instead
+of v3 `tailwind.config.js` patterns. The browser
 runtime is meant for scaffolded projects and quick iteration — for offline or
 locked-down production renders, compile Tailwind to CSS and link the stylesheet.
 
@@ -246,8 +247,7 @@ You get `AGENTS.md`, `CLAUDE.md`, `meta.json`, scroll screenshots, extracted
 HTML and CSS, visible text, design tokens, font files, images, SVGs, animation
 metadata, and contact sheets — plus whatever Lottie, video, and WebGL context
 the page exposed. It is raw material for an agent, not a finished composition;
-the `/product-launch-video` workflow uses it when a real product has to appear
-on screen. Dynamic sites, protected pages, and unusual media loaders produce
+the `/hyperframes` skill uses it when a real product has to appear on screen. Dynamic sites, protected pages, and unusual media loaders produce
 partial results, so read `dropped`, the warnings, and the contact sheets before
 you build.
 
@@ -975,8 +975,8 @@ npx hyperframes snapshot my-project --at 1.5,4.3 --against ref.mp4
 | `--browser-gpu`, `--proxy` | Same meaning as on [`check`](#check)                                                                                                                             |
 
 Each snapshot is a 1920×1080 PNG taken by bundling the project, serving it,
-launching headless Chrome, and seeking. Useful for visual verification during
-the [product launch video](/guides/product-launch-video) workflow.
+launching headless Chrome, and seeking. Useful for visual verification while
+an agent builds, for example a [product or website video](/guides/product-launch-video).
 
 ### `keyframes`
 
@@ -1603,13 +1603,13 @@ npx hyperframes skills check --json
 # Refresh the core set and everything already installed
 npx hyperframes skills update
 
-# Refresh, and also install one workflow on demand
-npx hyperframes skills update pr-to-video
+# Refresh, and also install one skill on demand
+npx hyperframes skills update slideshow
 ```
 
 Bare `skills` installs everything. `skills update` keeps a deliberate partial
 installation partial: it refreshes the core set plus whatever is already
-installed, and never expands beyond that unless you name a workflow. Naming one
+installed, and never expands beyond that unless you name a skill. Naming one
 adds it. `check` and `update` both accept `--json`, plus `--dir` and `--source`
 to point removed-detection at a different skills directory or source — those two
 scope the prune, not the install.

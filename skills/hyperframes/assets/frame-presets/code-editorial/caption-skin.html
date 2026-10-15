@@ -1,16 +1,15 @@
 <!--
   Code editorial — caption skin (preset-local source).
 
-  This is the preset's own lower-third karaoke caption look. product-launch-video's
-  (and pr-to-video's) Step 2 copies it into the project as caption-skin.html;
-  captions.mjs then fills the three reserved holes, wraps the fragment in a
-  <template>, and writes compositions/captions.html:
+  This is the preset's own lower-third karaoke caption look: a caption skin to read or
+  copy, not to mount as is. A copy used as compositions/captions.html fills its three
+  reserved holes and wraps the fragment in a <template>:
     · the empty GROUPS array            → the engine's scene-aware word groups
     · the 0 duration + 0 width/height   → real total + canvas size
     · the empty data-brand-tokens style → :root tokens derived from the project's frame.md
 
-  Token contract — reference ONLY this fixed vocab (captions.mjs injects it from
-  frame.md, so the Step-2 brand overlay flows through; each var has a code-editorial literal
+  Token contract — reference ONLY this fixed vocab (set it from the
+  project's frame.md; each var has a code-editorial literal
   fallback for standalone preview):
     --cap-ink · --cap-canvas · --cap-accent · --cap-accent-2 · --font-display ·
     --font-body · --cap-band-top · --cap-band-height
@@ -28,7 +27,7 @@
 -->
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
 
-<!-- captions.mjs injects the project's :root tokens here -->
+<!-- the project's :root tokens go here -->
 <style data-brand-tokens></style>
 
 <style>
@@ -153,7 +152,7 @@
 </div>
 
 <script>
-  // captions.mjs injects the engine's scene-aware groups + real duration here.
+  // the scene-aware word groups + real duration go here.
   var GROUPS = [];
   var DURATION = 0;
 
