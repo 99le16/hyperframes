@@ -63,7 +63,7 @@
       data-height="1080"
     >
       <div id="mk-ch-center">
-        <div id="mk-ch-box"></div>
+        <div id="mk-ch-box" data-layout-allow-occlusion></div>
       </div>
       <div
         id="mk-ch-drv"
@@ -88,7 +88,9 @@
           fontSize: 60,
           lineHeight: 1.3,
           maxWidth: 700, // px; sentence wraps inside this
-          x: 1030, // box left edge; null = centered horizontally
+          x: 1030, // box left edge; null = centered horizontally. Keep x + maxWidth <= 1920:
+          //         the box never shrinks (flex: none), so past the frame edge it is clipped
+          //         by the root's overflow instead of wrapping earlier.
           y: null, // box top edge; null = centered vertically
           align: "left",
           sweep: { start: 1.2, end: 6.2 }, // block-local seconds, linear
@@ -168,6 +170,7 @@
         if (CONFIG.animationOut) {
           tl.to(box, { opacity: 0, y: -16, duration: 0.4, ease: "power2.in" }, DUR - 0.5);
         }
+        tl.set(root, { visibility: "hidden" }, DUR - 0.02);
 
         tl.eventCallback("onUpdate", render);
         render();
