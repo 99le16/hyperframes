@@ -44,7 +44,7 @@ Studio edits the tags you write.
 
 - An existing project: `npx hyperframes timeline --json` shows what plays when. Before changing anything, `npx hyperframes history --since mine --who <you>` shows what the person changed since your last turn; build on it (`/hyperframes-cli`, Project history).
 - After your last edit, run `npx hyperframes check --json` and fix every error, then `npx hyperframes snapshot` the moments you changed (`--at`, `--range START,END` or `--composition <id>`) and look at the frames before you reply.
-- Render only after the person has seen the Studio preview and approved; a plain render request is just that.
+- Render when the person approves the Studio preview, asks for the file, or asks you to work through without stopping; then render after your own check and snapshots pass. Otherwise stop at the preview and wait.
 
 ## The HyperFrames desktop app
 

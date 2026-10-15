@@ -99,7 +99,7 @@ Validation runs before any server boots, so an invalid value exits cleanly witho
 
 ## render
 
-> Render only after the user has reviewed in `preview` and approved. Don't auto-render when the checks pass.
+> Render after the user has reviewed in `preview` and approved, or when they asked for the file or to work without stopping. Passing checks alone is not a reason to render.
 
 ```bash
 npx hyperframes render                                # standard MP4 from cwd
