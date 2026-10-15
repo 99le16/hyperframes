@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   medianInterval,
   rhythm,
@@ -12,14 +13,14 @@ import { AVAILABLE, encodeWav, perSignal, rounded, unavailable } from "./shared.
 /**
  * The audio analysis service contract.
  *
- * Request: `POST <HYPERFRAMES_AUDIO_API_URL>`, exactly as configured, with
- * `Authorization: Bearer <HYPERFRAMES_AUDIO_API_KEY>` and a `multipart/form-data` body of two parts:
+ * Request: `POST <HYPERFRAMES_AUDIO_API_URL>`, exactly as configured, with `x-api-key: <HYPERFRAMES_AUDIO_API_KEY>`,
+ * a new `Idempotency-Key` per request, and a `multipart/form-data` body of two parts:
  * - `request`: `application/json`, an {@link AudioApiRequest};
- * - `audio`: `audio/wav`, 16-bit PCM of the analyzed span, channels as decoded.
+ * - `audio`: `audio/wav`, 16-bit PCM of the analyzed span, mono at 16 kHz.
  *
- * Response: `200` with `application/json`, an {@link AudioApiResponse}. Every time is in seconds from the start of the
- * uploaded audio. A capability the service cannot answer is left out of the response. Any other status is a failure;
- * its body may be `{ "error": { "message": string } }`.
+ * Response: `200` with `application/json`, `{ "data": AudioApiResponse }`; a bare {@link AudioApiResponse} is read
+ * too. Every time is in seconds from the start of the uploaded audio. A capability the service cannot answer is left
+ * out of the response. Any other status is a failure; its body may be `{ "error": { "message": string } }`.
  */
 export interface AudioApiRequest {
   version: 1;
@@ -33,6 +34,8 @@ export interface AudioApiResponse {
   version: 1;
   /** What answered, as the service wants it reported. */
   source?: string;
+  /** The finest step the service's times resolve, in seconds. */
+  time_resolution_seconds?: number;
   beats?: { times: number[] };
   downbeats?: { times: number[]; meter?: number | null };
   sections?: { spans: { start: number; end: number; label?: string }[] };
@@ -43,6 +46,49 @@ const URL_ENV = "HYPERFRAMES_AUDIO_API_URL";
 const KEY_ENV = "HYPERFRAMES_AUDIO_API_KEY";
 const TIMEOUT_ENV = "HYPERFRAMES_AUDIO_API_TIMEOUT_MS";
 const DEFAULT_TIMEOUT_MS = 120_000;
+const UPLOAD_RATE = 16_000;
+const SINC_ZEROS = 16;
+const ROLLOFF = 0.9;
+const SINC_STEPS = 512;
+const HANN_SINC = Float32Array.from({ length: SINC_ZEROS * SINC_STEPS + 2 }, (_, k) => {
+  const x = k / SINC_STEPS;
+  if (x >= SINC_ZEROS) return 0;
+  const sinc = x === 0 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x);
+  return sinc * (0.5 + 0.5 * Math.cos((Math.PI * x) / SINC_ZEROS));
+});
+
+/** Windowed-sinc resampling with its cutoff just under the lower Nyquist, so nothing above it folds back in. */
+function resample(input: Float32Array, from: number, to: number): Float32Array {
+  if (from === to) return input;
+  const step = from / to;
+  const scale = Math.min(1, to / from) * ROLLOFF;
+  const reach = SINC_ZEROS / scale;
+  const output = new Float32Array(Math.round(input.length / step));
+  for (let i = 0; i < output.length; i++) {
+    const center = i * step;
+    const last = Math.min(input.length - 1, Math.floor(center + reach));
+    let sum = 0;
+    let weights = 0;
+    for (let n = Math.max(0, Math.ceil(center - reach)); n <= last; n++) {
+      const at = Math.abs(n - center) * scale * SINC_STEPS;
+      const k = Math.floor(at);
+      const weight = HANN_SINC[k]! + (at - k) * (HANN_SINC[k + 1]! - HANN_SINC[k]!);
+      sum += input[n]! * weight;
+      weights += weight;
+    }
+    output[i] = weights ? sum / weights : 0;
+  }
+  return output;
+}
+
+/** What is uploaded: the channels averaged to one, at 16 kHz. */
+function uploaded(signal: AudioSignal): AudioSignal {
+  const frames = signal.channels[0]?.length ?? 0;
+  const mono = new Float32Array(frames);
+  for (const channel of signal.channels)
+    for (let i = 0; i < frames; i++) mono[i]! += channel[i]! / signal.channels.length;
+  return { sampleRate: UPLOAD_RATE, channels: [resample(mono, signal.sampleRate, UPLOAD_RATE)] };
+}
 
 /** Beats and downbeats come from one request; the others each from their own. */
 const askedTogether = (capability: AudioApiCapability): AudioApiCapability[] =>
@@ -90,16 +136,17 @@ async function failure(response: Response): Promise<Error> {
   return new Error(`the service answered ${response.status}${detail ? `: ${detail}` : ""}`);
 }
 
-async function ask(signal: AudioSignal, capabilities: AudioApiCapability[]) {
+async function ask(analyzed: AudioSignal, capabilities: AudioApiCapability[]) {
   const { url, key, timeoutMs } = config();
   if (!url || !key) throw new Error(`${URL_ENV} and ${KEY_ENV} must both be set`);
+  const signal = uploaded(analyzed);
   const request: AudioApiRequest = {
     version: 1,
     capabilities,
     audio: {
       sampleRate: signal.sampleRate,
-      channels: signal.channels.length,
-      duration: (signal.channels[0]?.length ?? 0) / signal.sampleRate,
+      channels: 1,
+      duration: signal.channels[0]!.length / signal.sampleRate,
     },
   };
   const form = new FormData();
@@ -111,12 +158,13 @@ async function ask(signal: AudioSignal, capabilities: AudioApiCapability[]) {
   );
   const response = await fetch(url, {
     method: "POST",
-    headers: { authorization: `Bearer ${key}` },
+    headers: { "x-api-key": key, "idempotency-key": randomUUID() },
     body: form,
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!response.ok) throw await failure(response);
-  return (await response.json()) as AudioApiResponse;
+  const body = (await response.json()) as { data?: AudioApiResponse } | null;
+  return (body?.data ?? body ?? {}) as AudioApiResponse;
 }
 
 const requests = new Map<string, (signal: AudioSignal) => Promise<AudioApiResponse>>();
