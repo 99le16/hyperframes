@@ -62,8 +62,6 @@ export function parseHarnessUsage(text: string): HarnessUsage {
   return knownUsage("claude-code", session, weekly, null, claudeSpendWindow(usage));
 }
 
-// Spend-metered plans (for example Enterprise) report no five-hour or weekly window; their
-// allowance is the share of the billing period's spend limit already used.
 function claudeSpendWindow(usage: JTDDataType<typeof usageSchema>): UsageWindow | null {
   const spend = usage.spend;
   const extra = usage.extra_usage;
