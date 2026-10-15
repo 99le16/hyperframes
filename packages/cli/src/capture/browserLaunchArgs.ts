@@ -2,9 +2,11 @@ export function captureBrowserArgs(
   disableWebgl: boolean,
   viewportWidth: number,
   viewportHeight: number,
+  platform: NodeJS.Platform = process.platform,
 ): string[] {
   return [
-    "--no-sandbox",
+    // Linux containers may lack the user namespaces Chromium's sandbox requires.
+    ...(platform === "linux" ? ["--no-sandbox"] : []),
     "--disable-dev-shm-usage",
     ...(disableWebgl
       ? ["--disable-gpu"]

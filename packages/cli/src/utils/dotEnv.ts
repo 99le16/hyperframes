@@ -22,10 +22,22 @@ function entryOf(rawLine: string): [string, string] | null {
 
 // Never over a key already set, and never the feedback email in any letter case (Windows env names are case-blind):
 // only the launching app may attach it, and an agent can write a project `.env`.
-export function applyDotEnv(content: string, env: NodeJS.ProcessEnv): void {
+// An optional exact-name allowlist narrows callers that load less-trusted project settings.
+export function applyDotEnv(
+  content: string,
+  env: NodeJS.ProcessEnv,
+  allowedKeys?: readonly string[],
+): void {
+  const allowed = allowedKeys === undefined ? undefined : new Set(allowedKeys);
   for (const entry of content.split("\n").map(entryOf)) {
     if (!entry) continue;
     const [key, value] = entry;
-    if (key && key.toUpperCase() !== FEEDBACK_EMAIL_ENV && !(key in env)) env[key] = value;
+    if (
+      key &&
+      key.toUpperCase() !== FEEDBACK_EMAIL_ENV &&
+      (allowed === undefined || allowed.has(key)) &&
+      !(key in env)
+    )
+      env[key] = value;
   }
 }

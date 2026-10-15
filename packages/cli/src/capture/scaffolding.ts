@@ -12,17 +12,33 @@ import { writeNewFileSync } from "../utils/writeNewFile.js";
 import type { CatalogedAsset } from "./assetCataloger.js";
 import type { CaptureResult, DesignTokens } from "./types.js";
 
+// Output ancestors are project data: only vision configuration may enter the process.
+// Browser discovery, executable lookup and runtime/preload settings stay launcher-controlled.
+const CAPTURE_ENV_KEYS = [
+  "OPENROUTER_API_KEY",
+  "GEMINI_API_KEY",
+  "GOOGLE_API_KEY",
+  "HYPERFRAMES_VERTEX_PROJECT_ID",
+  "HYPERFRAMES_VERTEX_SERVICE_ACCOUNT",
+  "HYPERFRAMES_VERTEX_LOCATION",
+  "HYPERFRAMES_VERTEX_MODEL",
+  "HYPERFRAMES_OPENROUTER_MODEL",
+  "HYPERFRAMES_GEMINI_MODEL",
+  "HYPERFRAMES_VISION_TIMEOUT_MS",
+];
+
 /**
- * Load .env file by walking up from startDir (up to 5 levels).
- * Sets process.env keys that are not already set. Best-effort — never throws.
+ * Load supported vision settings from .env by walking up from startDir (up to 5 levels).
+ * Keeps inherited settings. Best-effort — never throws.
  */
 export function loadEnvFile(startDir: string): void {
+  if (process.env.HYPERFRAMES_NO_CAPTURE_DOTENV === "1") return;
   try {
     let dir = resolve(startDir);
     for (let i = 0; i < 5; i++) {
       const envPath = resolve(dir, ".env");
       try {
-        applyDotEnv(readFileSync(envPath, "utf-8"), process.env);
+        applyDotEnv(readFileSync(envPath, "utf-8"), process.env, CAPTURE_ENV_KEYS);
         break;
       } catch {
         dir = resolve(dir, "..");

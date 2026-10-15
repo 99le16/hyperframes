@@ -207,6 +207,25 @@ npx hyperframes capture https://example.com --json
   Fonts: sohne-var
 ```
 
+Website capture accepts public HTTP(S) destinations without URL credentials.
+Browser traffic goes through a per-capture proxy, and asset downloads use the
+same checked-address policy. Each connection uses a validated numeric IPv4
+address; redirects and later requests are checked again. Private, loopback,
+link-local and special-use addresses are refused. IPv6-only sites are currently
+unsupported. Plain WebSocket upgrades are refused; slow or refused resources
+may be absent from the capture.
+
+Capture uses a temporary browser profile with non-proxied WebRTC UDP disabled.
+The profile and proxy are removed when the browser closes. The Chromium sandbox
+is retained on macOS and Windows; Linux retains the container compatibility
+exception.
+
+Ancestor `.env` files can supply the supported vision API keys, models, Vertex
+credentials/location and vision timeout. They cannot change the browser path,
+executable discovery, TLS, proxy or process runtime settings. Set
+`HYPERFRAMES_NO_CAPTURE_DOTENV=1` in the calling environment to skip these files.
+An inherited `HYPERFRAMES_BROWSER_PATH` still selects a browser.
+
 `Dropped` is how many assets the page referenced that are **not** in the
 folder, and why. It is printed only when it is non-zero, and `--json` always
 carries it as a `dropped` object. Without it, a capture of a spare page and a
