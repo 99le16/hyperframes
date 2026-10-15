@@ -70,6 +70,21 @@ describe("moments", () => {
   });
 });
 
+describe("opposite polarity", () => {
+  const reversed = signal(3, impact(1, 0.01, 0.05));
+  reversed.channels.push(Float32Array.from(reversed.channels[0]!, (sample) => -sample));
+
+  it("still hears a channel that is the reverse of the other", () => {
+    expect(moments(reversed)?.peak).toBeCloseTo(1.01, 2);
+    for (const method of ["spectral-flux", "energy"] as const)
+      expect(
+        onsets(reversed, { method }).events.some((event) => Math.abs(event.t - 1) < 0.02),
+      ).toBe(true);
+    expect(Math.max(...envelope(reversed, { hopMs: 10 }).values)).toBeGreaterThan(-40);
+    expect(silence(reversed).some((span) => span.start <= 1.01 && span.end > 1.05)).toBe(false);
+  });
+});
+
 describe("onsets", () => {
   it("finds each hit of a three-hit effect, the loudest strongest, by spectral flux and by energy", () => {
     const hits = [0.2, 0.55, 0.9];

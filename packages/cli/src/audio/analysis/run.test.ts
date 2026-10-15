@@ -91,6 +91,24 @@ describe.skipIf(!ffmpeg)("analyzeTargets", () => {
     await expect(previewTarget(path, "late-cut.wav", 2, 1)).rejects.toThrow(/leaves nothing/);
   });
 
+  it("warns when the loudest hit is only inside the margin before the kept window", async () => {
+    const tone = (at: number, gain: number) => (t: number) =>
+      t < at || t >= at + 0.03 ? 0 : gain * Math.sin(2 * Math.PI * 1000 * t);
+    const path = wav("margin.wav", 2.4, (t) => tone(0.502, 0.8)(t) + tone(1.202, 0.25)(t));
+    const warned = async (skip: number) =>
+      (
+        await analyzeTargets([await previewTarget(path, "margin.wav", 4, skip)], {
+          capabilities: ["moments"],
+        })
+      ).items[0]!.warnings;
+    expect(await warned(0.55)).toEqual([
+      "the loudest part of margin.wav is in the first 0.55 s, which is skipped",
+    ]);
+    expect(await warned(0.65)).toEqual([
+      "the loudest part of margin.wav is in the first 0.65 s, which is skipped",
+    ]);
+  });
+
   it("finds no hit where a window cuts into a sound that is already playing", async () => {
     const chord = (t: number) =>
       Array.from({ length: 40 }, (_, k) => Math.sin(2 * Math.PI * 110 * (k + 1) * t + k)).reduce(

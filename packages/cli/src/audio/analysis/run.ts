@@ -105,6 +105,15 @@ function decodeSpan(target: AudioTarget, stream: AudioStreamInfo) {
 const loudest = (signal: AudioSignal) =>
   Math.max(0, ...envelope(signal, { hopMs: 10, scale: "linear" }).values);
 
+/** The decoded span without the margin added so an onset at the window edge is not the cut. */
+function retained(signal: AudioSignal, before: number, after: number): AudioSignal {
+  const skip = Math.round(before * signal.sampleRate);
+  const length = signal.channels[0]?.length ?? 0;
+  const end = Math.max(skip, length - Math.round(after * signal.sampleRate));
+  if (!skip && end >= length) return signal;
+  return { ...signal, channels: signal.channels.map((channel) => channel.subarray(skip, end)) };
+}
+
 /** A file placed after cutting its head says so when the cut part held its loudest moment. */
 async function skippedPeak(target: AudioTarget, kept: AudioSignal, stream: AudioStreamInfo) {
   const skipped = target.kind === "file" ? (target.window?.from ?? 0) : 0;
@@ -139,7 +148,14 @@ async function analyzeTarget(
     ...analysis.values,
     provenance: analysis.provenance,
     ...(full ? { ladder: analysis.ladder } : {}),
-    warnings: [...analysis.warnings, ...(await skippedPeak(target, decoded.signal, stream))],
+    warnings: [
+      ...analysis.warnings,
+      ...(await skippedPeak(
+        target,
+        retained(decoded.signal, context.before, context.after),
+        stream,
+      )),
+    ],
   };
 }
 

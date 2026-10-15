@@ -120,14 +120,17 @@ const DB_FLOOR = -120;
 export const signalDuration = (signal: AudioSignal): number =>
   (signal.channels[0]?.length ?? 0) / signal.sampleRate;
 
-export function mixToMono(signal: AudioSignal): Float32Array {
+/** Per-sample energy. Channels are squared first, so a reversed channel stays audible. */
+function energyMix(signal: AudioSignal): Float32Array {
   const [first, ...rest] = signal.channels;
   if (!first) return new Float32Array(0);
   if (!rest.length) return first;
-  const mono = new Float32Array(first.length);
+  const mixed = new Float32Array(first.length);
   for (const channel of signal.channels)
-    for (let i = 0; i < mono.length; i++) mono[i]! += channel[i]! / signal.channels.length;
-  return mono;
+    for (let i = 0; i < mixed.length; i++) mixed[i]! += channel[i]! * channel[i]!;
+  const scale = 1 / signal.channels.length;
+  for (let i = 0; i < mixed.length; i++) mixed[i] = Math.sqrt(mixed[i]! * scale);
+  return mixed;
 }
 
 const toDb = (amplitude: number) =>
@@ -207,40 +210,60 @@ function spectra(
   return frames;
 }
 
+function averageMagnitudes(frames: Float64Array[]): Float64Array {
+  const mixed = new Float64Array(frames[0]?.length ?? 0);
+  for (const frame of frames)
+    for (let bin = 0; bin < mixed.length; bin++) mixed[bin]! += frame[bin]!;
+  const scale = frames.length || 1;
+  for (let bin = 0; bin < mixed.length; bin++) mixed[bin]! /= scale;
+  return mixed;
+}
+
+/** Mean magnitude spectrum across channels, so opposite polarity cannot cancel a bin. */
+function meanSpectra(signal: AudioSignal, hopMs: number, band?: [number, number]): Float64Array[] {
+  const stacked = signal.channels.map((channel) =>
+    spectra(channel, signal.sampleRate, hopMs, band),
+  );
+  const count = stacked[0]?.length ?? 0;
+  const mixed: Float64Array[] = [];
+  for (let frame = 0; frame < count; frame++)
+    mixed.push(averageMagnitudes(stacked.map((channel) => channel[frame]!)));
+  return mixed;
+}
+
 export function envelope(signal: AudioSignal, options: EnvelopeOptions = {}): Envelope {
   const { hopMs = 5, scale = "db", band } = options;
   const windowMs = options.windowMs ?? hopMs * 2;
-  const mono = mixToMono(signal);
   const size = fftSizeFor(signal.sampleRate);
   // Parseval over the band's bins; a Hann window keeps 0.375 of a frame's power.
   const amplitudes = band
-    ? spectra(mono, signal.sampleRate, hopMs, band).map((frame) => {
+    ? meanSpectra(signal, hopMs, band).map((frame) => {
         let sum = 0;
         for (const magnitude of frame) sum += magnitude * magnitude;
         return Math.sqrt((2 * sum) / (size * size * 0.375));
       })
-    : rmsFrames(mono, signal.sampleRate, hopMs, windowMs);
+    : rmsFrames(energyMix(signal), signal.sampleRate, hopMs, windowMs);
   return { hopMs, scale, values: amplitudes.map((a) => (scale === "db" ? toDb(a) : a)) };
 }
 
 /** Positive change between neighbouring frames: spectral flux of log magnitudes, or the rise in RMS. */
 function noveltyCurve(
-  mono: Float32Array,
-  sampleRate: number,
+  signal: AudioSignal,
   method: OnsetMethod,
   hopMs: number,
   band?: [number, number],
 ): number[] {
+  const samples = energyMix(signal);
   if (method === "energy") {
-    const rms = rmsFrames(mono, sampleRate, hopMs, hopMs * 2);
+    const rms = rmsFrames(samples, signal.sampleRate, hopMs, hopMs * 2);
     return rms.map((value, i) => Math.max(0, value - (rms[i - 1] ?? 0)));
   }
-  const frames = spectra(mono, sampleRate, hopMs, band).map((frame) =>
+  const frames = meanSpectra(signal, hopMs, band).map((frame) =>
     frame.map((m) => Math.log1p(100 * m)),
   );
   // A frame cut off by the end of the signal splatters across the spectrum; that is the edge, not a hit.
   const lastWhole = Math.floor(
-    (mono.length - fftSizeFor(sampleRate) / 2) / hopSamples(sampleRate, hopMs),
+    (samples.length - fftSizeFor(signal.sampleRate) / 2) / hopSamples(signal.sampleRate, hopMs),
   );
   return frames.map((frame, i) => {
     const previous = frames[i - 1];
@@ -273,7 +296,7 @@ function isOnsetPeak(
 
 export function onsets(signal: AudioSignal, options: OnsetOptions = {}): Onsets {
   const { method = "spectral-flux", band, threshold = 0.1, minGapMs = 30, hopMs = 5 } = options;
-  const curve = noveltyCurve(mixToMono(signal), signal.sampleRate, method, hopMs, band);
+  const curve = noveltyCurve(signal, method, hopMs, band);
   const top = Math.max(0, ...curve);
   if (top <= 0) return { method, events: [] };
   const gap = Math.max(1, Math.round(minGapMs / hopMs));
@@ -293,7 +316,7 @@ export function onsets(signal: AudioSignal, options: OnsetOptions = {}): Onsets 
 
 export function moments(signal: AudioSignal, options: MomentOptions = {}): Moments | null {
   const { onsetRatio = 0.2, tailDb = -40, hopMs = 1 } = options;
-  const rms = rmsFrames(mixToMono(signal), signal.sampleRate, hopMs, Math.max(4, hopMs * 4));
+  const rms = rmsFrames(energyMix(signal), signal.sampleRate, hopMs, Math.max(4, hopMs * 4));
   const hopSeconds = hopSamples(signal.sampleRate, hopMs) / signal.sampleRate;
   let peakIndex = 0;
   for (let i = 1; i < rms.length; i++) if (rms[i]! > rms[peakIndex]!) peakIndex = i;
@@ -475,7 +498,7 @@ export function loudness(signal: AudioSignal): Loudness {
 
 export function silence(signal: AudioSignal, options: SilenceOptions = {}): Span[] {
   const { thresholdDb = -50, minMs = 200, hopMs = 5 } = options;
-  const db = rmsFrames(mixToMono(signal), signal.sampleRate, hopMs, hopMs * 2).map(toDb);
+  const db = rmsFrames(energyMix(signal), signal.sampleRate, hopMs, hopMs * 2).map(toDb);
   const hopSeconds = hopSamples(signal.sampleRate, hopMs) / signal.sampleRate;
   const spans: Span[] = [];
   let from: number | null = null;
@@ -516,7 +539,7 @@ function periodicity(curve: number[], hopMs: number): number {
 /** How much of the envelope's modulation sits at syllable rate (3–8 Hz). */
 function syllableModulation(signal: AudioSignal): number {
   const hopMs = 10;
-  const rms = rmsFrames(mixToMono(signal), signal.sampleRate, hopMs, 25);
+  const rms = rmsFrames(energyMix(signal), signal.sampleRate, hopMs, 25);
   const size = 2 ** Math.floor(Math.log2(Math.min(rms.length, 1024)));
   if (size < 64) return 0;
   const re = Float64Array.from(rms.slice(0, size));
@@ -537,7 +560,7 @@ function syllableModulation(signal: AudioSignal): number {
 }
 
 function sustainShare(signal: AudioSignal): number {
-  const levels = rmsFrames(mixToMono(signal), signal.sampleRate, 50, 100).map(toDb);
+  const levels = rmsFrames(energyMix(signal), signal.sampleRate, 50, 100).map(toDb);
   if (!levels.length) return 0;
   const loud = [...levels].sort((a, b) => a - b)[Math.floor((levels.length - 1) * 0.95)]!;
   return levels.filter((level) => level > loud - 20).length / levels.length;
@@ -546,9 +569,7 @@ function sustainShare(signal: AudioSignal): number {
 export function kindFeatures(signal: AudioSignal): KindFeatures {
   return {
     duration: round(signalDuration(signal)),
-    regularity: round(
-      periodicity(noveltyCurve(mixToMono(signal), signal.sampleRate, "spectral-flux", 10), 10),
-    ),
+    regularity: round(periodicity(noveltyCurve(signal, "spectral-flux", 10), 10)),
     syllables: round(syllableModulation(signal)),
     sustain: round(sustainShare(signal)),
   };
