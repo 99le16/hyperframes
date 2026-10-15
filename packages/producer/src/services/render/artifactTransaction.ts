@@ -61,9 +61,8 @@ async function defaultArtifactDurationProbe(path: string): Promise<ArtifactDurat
   // Forward the probed frame count when ffprobe reported one. The frame
   // count check (#3395) catches the multi-worker encode mode where the
   // container duration is reported correctly but the decoded stream is
-  // shorter. A probe that cannot determine frames returns `undefined`; the
-  // frame-count gate reports the missing answer without rejecting formats
-  // whose demuxer cannot supply it.
+  // shorter. When the demuxer cannot determine frames, the frame-count check
+  // is skipped quietly and duration validation still applies.
   return {
     durationSeconds: meta.durationSeconds,
     frames: meta.frames,
@@ -253,7 +252,7 @@ function assertFrameCountWithinTolerance(
  * transaction additionally probes the staged artifact's container duration
  * (and decoded frame count when available) and rejects any artifact that is
  * significantly shorter than what the pipeline asked for. A directory artifact
- * is probed only when `expected.probeTarget` names a file inside it. The
+ * is probed only when `expected.probeTarget` names a file inside it.
  * Without a directory probe target, the expectation instead checks exported
  * PNG frame files. The readable-non-empty check is a separate gate.
  */
@@ -364,9 +363,8 @@ export class ArtifactTransaction {
     );
 
     if (expected.expectedFrames !== undefined) {
-      // ffprobe reports `nb_frames=N/A` through the hls demuxer, so for a
-      // playlist probe the frame-count gate reports its missing answer and
-      // the duration check above carries the validation on its own.
+      // ffprobe reports `nb_frames=N/A` through the hls demuxer, so a playlist
+      // without frame metadata relies on the duration check above.
       assertFrameCountWithinTolerance(expected.expectedFrames, probed.frames, probePath);
     }
   }
