@@ -163,6 +163,7 @@ import {
   isMediaElement,
   isStylableElement,
   isVideoElement,
+  type StylableElement,
 } from "./domRealm";
 import { audibleVideoNeedsWebAudio, isAudibleVideoElement } from "../audibleVideo";
 
@@ -2557,7 +2558,7 @@ export function initSandboxRuntimeModular(): void {
   // instead of overlapping it. Positioned clips keep `visibility:hidden` (cheaper,
   // and avoids disturbing absolute media playback). Computed once per element.
   let timedClipInFlow = new WeakMap<Element, boolean>();
-  const isTimedClipInFlow = (el: HTMLElement): boolean => {
+  const isTimedClipInFlow = (el: Element): boolean => {
     const cached = timedClipInFlow.get(el);
     if (cached !== undefined) return cached;
     const pos = window.getComputedStyle(el).position;
@@ -2573,7 +2574,7 @@ export function initSandboxRuntimeModular(): void {
   // show. `visibility:hidden` doesn't have this problem (a child can override it
   // with `visibility:visible`), so containers keep that and only leaves leave-flow.
   let timedClipIsLeaf = new WeakMap<Element, boolean>();
-  const isTimedClipLeaf = (el: HTMLElement): boolean => {
+  const isTimedClipLeaf = (el: Element): boolean => {
     const cached = timedClipIsLeaf.get(el);
     if (cached !== undefined) return cached;
     const leaf = el.querySelector("[data-start]") === null;
@@ -2595,8 +2596,8 @@ export function initSandboxRuntimeModular(): void {
   // visibility pass applied, so showing the element puts exactly that back. Keyed on
   // what was applied, not on `isTimedClipInFlow`: that answer can flip between the hide
   // and the show pass once `applyClipLayout` force-absolutizes the clip.
-  const displayBeforeHide = new WeakMap<HTMLElement, { value: string; priority: string }>();
-  const hideByDisplay = (el: HTMLElement, plainNoneMayBeLeftover: boolean) => {
+  const displayBeforeHide = new WeakMap<StylableElement, { value: string; priority: string }>();
+  const hideByDisplay = (el: StylableElement, plainNoneMayBeLeftover: boolean) => {
     if (!displayBeforeHide.has(el)) {
       const value = el.style.getPropertyValue("display");
       const priority = el.style.getPropertyPriority("display");
@@ -2606,14 +2607,14 @@ export function initSandboxRuntimeModular(): void {
     }
     el.style.display = "none";
   };
-  const restoreDisplay = (el: HTMLElement) => {
+  const restoreDisplay = (el: StylableElement) => {
     const before = displayBeforeHide.get(el);
     if (!before) return;
     displayBeforeHide.delete(el);
     if (before.value) el.style.setProperty("display", before.value, before.priority);
     else el.style.removeProperty("display");
   };
-  const dataHiddenDisplayNodes = new WeakSet<HTMLElement>();
+  const dataHiddenDisplayNodes = new WeakSet<StylableElement>();
   // A data-hidden toggle on (or affecting) an audio element must re-schedule
   // WebAudio playback so the hidden clip's source is dropped/restored mid-
   // playback. Batched to one call per syncTimedElementVisibility pass, not
@@ -2632,7 +2633,7 @@ export function initSandboxRuntimeModular(): void {
     isMediaElement(el) &&
     el.hasAttribute("data-start") &&
     (joinsWebAudio(el) || webAudio.routesElement(el));
-  const nodeAffectsAudio = (node: HTMLElement): boolean =>
+  const nodeAffectsAudio = (node: Element): boolean =>
     affectsAudio(node) || Array.from(node.querySelectorAll(WEB_AUDIO_MEDIA)).some(affectsAudio);
 
   // An `<hf-audio-group>` carries no `data-start`, so it is never among
@@ -2673,7 +2674,7 @@ export function initSandboxRuntimeModular(): void {
       0,
       timingRevision,
     );
-    return (node: HTMLElement, time: number) =>
+    return (node: Element, time: number) =>
       isRuntimeElementVisibleAt(node, {
         currentTime: time,
         compositionDuration,
@@ -2702,7 +2703,7 @@ export function initSandboxRuntimeModular(): void {
   // Unskipped while within the window on either side of the playhead, so a step or shuttle back
   // across a cut finds the clip it left still loaded; the edge checks catch a clip shorter than it.
   const dueSoon = (
-    node: HTMLElement,
+    node: Element,
     visibleAt: ReturnType<typeof timedVisibilityAt>,
     t: number,
     ahead = LOOKAHEAD_SECONDS,
