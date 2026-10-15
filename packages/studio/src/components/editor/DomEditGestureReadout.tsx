@@ -1,18 +1,9 @@
 import { useRef, type RefObject } from "react";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import type { GestureState } from "./domEditOverlayGestures";
-import { computeOverlayRootScale } from "./domEditOverlayBasis";
-import { orientedOverlayRect } from "./domEditOverlayGeometry";
-import { readStudioBoxSize } from "./manualEdits";
-import { readRotationBase } from "./rotationDraft";
 import { subscribeOverlayFrame } from "./overlayFrameLoop";
 
-type ReadoutGesture = Pick<
-  GestureState,
-  "kind" | "plainRotation" | "actualWidth" | "actualHeight"
-> & {
-  selection: Pick<GestureState["selection"], "element">;
-};
+type ReadoutGesture = Pick<GestureState, "readout" | "travelled">;
 
 interface DomEditGestureReadoutProps {
   gestureRef: RefObject<ReadoutGesture | null>;
@@ -20,75 +11,39 @@ interface DomEditGestureReadoutProps {
   iframeRef: RefObject<HTMLIFrameElement | null>;
 }
 
-function readGestureText(
-  gesture: ReadoutGesture,
-  overlay: HTMLDivElement,
-  iframe: HTMLIFrameElement,
-): string | null {
-  const element = gesture.selection.element;
-  if (gesture.kind === "resize") {
-    const size = readStudioBoxSize(element);
-    return `${Math.round(size.width || gesture.actualWidth)} × ${Math.round(size.height || gesture.actualHeight)}`;
-  }
-  if (gesture.kind === "rotate") {
-    return `${Math.round(readRotationBase(element, gesture.plainRotation !== null))}°`;
-  }
-  const scale = computeOverlayRootScale(overlay, iframe, iframe.contentDocument);
-  const rect = orientedOverlayRect(overlay, iframe, element, scale);
-  if (!scale || !rect || scale.rootScaleX <= 0 || scale.rootScaleY <= 0) return null;
-  const x = (rect.left - (scale.iframeRect.left - scale.overlayRect.left)) / scale.rootScaleX;
-  const y = (rect.top - (scale.iframeRect.top - scale.overlayRect.top)) / scale.rootScaleY;
-  return `X ${Math.round(x)} · Y ${Math.round(y)}`;
-}
-
-function positionGestureReadout(
-  label: HTMLDivElement,
-  gesture: ReadoutGesture,
-  overlay: HTMLDivElement,
-  iframe: HTMLIFrameElement,
-): void {
-  const bounds = overlay.getBoundingClientRect();
-  const element = gesture.selection.element.getBoundingClientRect();
-  const scale = computeOverlayRootScale(overlay, iframe, iframe.contentDocument);
-  if (!scale) {
-    label.style.display = "none";
-    return;
-  }
-  const right = scale.iframeRect.left + element.right * scale.rootScaleX - bounds.left;
-  const top = scale.iframeRect.top + element.top * scale.rootScaleY - bounds.top;
+function positionGestureReadout(label: HTMLDivElement, gesture: ReadoutGesture): void {
+  const readout = gesture.readout;
+  if (!readout) return;
+  const bounds = readout.basis.overlayRect;
+  const rect = readout.rect;
   const minX = Math.max(0, -bounds.left) + 4;
   const minY = Math.max(0, -bounds.top) + 4;
-  const maxX = Math.min(bounds.width, window.innerWidth - bounds.left) - label.offsetWidth - 4;
-  const maxY = Math.min(bounds.height, window.innerHeight - bounds.top) - label.offsetHeight - 4;
-  label.style.left = `${Math.max(minX, Math.min(maxX, right + 8))}px`;
-  label.style.top = `${Math.max(minY, Math.min(maxY, top - label.offsetHeight - 8))}px`;
+  const maxX = Math.min(bounds.width, readout.viewportWidth - bounds.left) - 4;
+  const maxY = Math.min(bounds.height, readout.viewportHeight - bounds.top) - 4;
+  const x = Math.max(minX, Math.min(maxX, rect.left + rect.width + 8));
+  const y = Math.max(minY, Math.min(maxY, rect.top - 8));
+  label.style.left = `${x}px`;
+  label.style.top = `${y}px`;
+  label.style.maxWidth = `${Math.max(0, maxX - minX)}px`;
+  // CSS resolves the label's own size without a synchronous layout read after its text changes.
+  label.style.transform = `translate(max(-100%, ${minX - x}px), max(-100%, ${minY - y}px))`;
 }
 
-export function DomEditGestureReadout({
-  gestureRef,
-  overlayRef,
-  iframeRef,
-}: DomEditGestureReadoutProps) {
+export function DomEditGestureReadout({ gestureRef }: DomEditGestureReadoutProps) {
   const labelRef = useRef<HTMLDivElement | null>(null);
   useMountEffect(() =>
     subscribeOverlayFrame(() => {
       const label = labelRef.current;
       if (!label) return;
       const gesture = gestureRef.current;
-      const overlay = overlayRef.current;
-      const iframe = iframeRef.current;
-      if (!gesture || !overlay || !iframe) {
+      const text = gesture?.travelled && gesture.readout?.text;
+      if (!gesture || !text) {
         label.style.display = "none";
         return;
       }
-      const text = readGestureText(gesture, overlay, iframe);
-      if (!text) {
-        label.style.display = "none";
-        return;
-      }
-      label.textContent = text;
+      if (label.textContent !== text) label.textContent = text;
       label.style.display = "block";
-      positionGestureReadout(label, gesture, overlay, iframe);
+      positionGestureReadout(label, gesture);
     }),
   );
   return (
@@ -96,7 +51,7 @@ export function DomEditGestureReadout({
       ref={labelRef}
       aria-hidden="true"
       data-dom-edit-gesture-readout="true"
-      className="pointer-events-none absolute z-50 rounded bg-studio-surface px-2 py-1 font-mono text-xs whitespace-nowrap text-studio-text shadow-md"
+      className="pointer-events-none absolute z-50 overflow-hidden rounded bg-studio-surface px-2 py-1 font-mono text-xs whitespace-nowrap text-studio-text shadow-md"
       style={{ display: "none" }}
     />
   );

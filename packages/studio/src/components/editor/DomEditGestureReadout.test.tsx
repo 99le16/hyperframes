@@ -3,8 +3,7 @@ import React, { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DomEditGestureReadout } from "./DomEditGestureReadout";
-import { applyStudioBoxSizeDraft } from "./manualEdits";
-import { readRotationBase } from "./rotationDraft";
+import { createGestureReadout, updateGestureReadout } from "./domEditGestureReadoutState";
 
 const frames = vi.hoisted(() => ({ update: () => {} }));
 vi.mock("./overlayFrameLoop", () => ({
@@ -15,7 +14,6 @@ vi.mock("./overlayFrameLoop", () => ({
     };
   },
 }));
-vi.mock("./rotationDraft", () => ({ readRotationBase: vi.fn(() => 0) }));
 // React needs its runtime test flag, which the global typings do not declare.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | undefined;
@@ -53,13 +51,31 @@ function mount(kind: "drag" | "resize" | "rotate") {
   });
   const gestureRef: ComponentProps<typeof DomEditGestureReadout>["gestureRef"] = {
     current: {
-      kind,
-      selection: { element },
-      plainRotation: null,
-      actualWidth: width,
-      actualHeight: height,
+      travelled: true,
+      readout: createGestureReadout(overlay, iframe, {
+        left: x / 2,
+        top: y / 2,
+        width: width / 2,
+        height: height / 2,
+        editScaleX: 0.5,
+        editScaleY: 0.5,
+      }),
     },
   };
+  const update = (text?: string) =>
+    updateGestureReadout(
+      gestureRef.current?.readout,
+      {
+        left: x / 2,
+        top: y / 2,
+        width: width / 2,
+        height: height / 2,
+        editScaleX: 0.5,
+        editScaleY: 0.5,
+      },
+      text,
+    );
+  update(kind === "resize" ? "100 × 60" : kind === "rotate" ? "0°" : undefined);
   root = createRoot(host);
   act(() =>
     root?.render(
@@ -79,7 +95,12 @@ function mount(kind: "drag" | "resize" | "rotate") {
     draw();
   };
   return {
+    measurements: [overlay, iframe, composition, element].map((node) =>
+      vi.spyOn(node, "getBoundingClientRect"),
+    ),
     element,
+    gestureRef,
+    update,
     doc,
     label,
     draw,
@@ -87,18 +108,36 @@ function mount(kind: "drag" | "resize" | "rotate") {
     move: (nextX: number, nextY: number) => {
       x = nextX;
       y = nextY;
+      update();
     },
   };
 }
 
 describe("gesture readout", () => {
+  it("adds no layout reads while drawing and stays hidden on a plain press", () => {
+    const view = mount("drag");
+    const measure = vi.spyOn(Element.prototype, "getBoundingClientRect");
+    if (!view.gestureRef.current) throw new Error("Missing gesture");
+    view.gestureRef.current.travelled = false;
+    view.draw();
+    expect(view.label.style.display).toBe("none");
+    view.gestureRef.current.travelled = true;
+    view.move(120, 70);
+    view.draw();
+    view.draw();
+    expect(view.label.textContent).toBe("Canvas X 120 · Y 70");
+    expect(measure).not.toHaveBeenCalled();
+    for (const measurement of view.measurements) expect(measurement).not.toHaveBeenCalled();
+    measure.mockRestore();
+    for (const measurement of view.measurements) measurement.mockRestore();
+  });
   it("shows rounded composition coordinates during a move, accounting for preview zoom", () => {
     const view = mount("drag");
     view.draw();
-    expect(view.label.textContent).toBe("X 70 · Y 41");
+    expect(view.label.textContent).toBe("Canvas X 70 · Y 41");
     view.move(120.25, 70.75);
     view.draw();
-    expect(view.label.textContent).toBe("X 120 · Y 71");
+    expect(view.label.textContent).toBe("Canvas X 120 · Y 71");
     expect(view.doc.querySelector("[data-dom-edit-gesture-readout]")).toBeNull();
     view.end();
     expect(view.label.style.display).toBe("none");
@@ -107,7 +146,7 @@ describe("gesture readout", () => {
     const view = mount("resize");
     view.draw();
     expect(view.label.textContent).toBe("100 × 60");
-    applyStudioBoxSizeDraft(view.element, { width: 143.6, height: 87.2 });
+    view.update("144 × 87");
     view.draw();
     expect(view.label.textContent).toBe("144 × 87");
     view.end();
@@ -115,11 +154,10 @@ describe("gesture readout", () => {
   });
   it("reads the live angle during rotation and hides on cancellation", () => {
     const view = mount("rotate");
-    vi.mocked(readRotationBase).mockReturnValue(31.6);
+    view.update("32°");
     view.draw();
     expect(view.label.textContent).toBe("32°");
-    expect(readRotationBase).toHaveBeenCalledWith(view.element, false);
-    vi.mocked(readRotationBase).mockReturnValue(-46.2);
+    view.update("-46°");
     view.draw();
     expect(view.label.textContent).toBe("-46°");
     view.end();
@@ -129,11 +167,11 @@ describe("gesture readout", () => {
     const view = mount("drag");
     view.move(900, -100);
     view.draw();
-    expect(view.label.style.left).toBe("376px");
+    expect(view.label.style.left).toBe("496px");
     expect(view.label.style.top).toBe("4px");
     view.move(-900, 900);
     view.draw();
     expect(view.label.style.left).toBe("4px");
-    expect(view.label.style.top).toBe("372px");
+    expect(view.label.style.top).toBe("396px");
   });
 });
