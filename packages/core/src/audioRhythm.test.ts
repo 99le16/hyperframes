@@ -33,6 +33,31 @@ function drums(beatTimes: number[], meter: number, seconds: number, rate = RATE)
   return { sampleRate: rate, channels: [samples] };
 }
 
+/** The same hit on every beat, over chords that change every four beats from beat `firstChange`. */
+function chordsOverEvenHits(
+  beatTimes: number[],
+  firstChange: number,
+  seconds: number,
+): AudioSignal {
+  const samples = new Float32Array(Math.round(seconds * RATE));
+  const noise = random(7);
+  const roots = [220, 175, 262, 196];
+  beatTimes.forEach((t) => {
+    const start = Math.round(t * RATE);
+    for (let i = 0; i < 0.08 * RATE && start + i < samples.length; i++)
+      samples[start + i]! += 0.4 * noise() * Math.exp(-i / RATE / 0.02);
+  });
+  const period = beatTimes[1]! - beatTimes[0]!;
+  for (let i = 0; i < samples.length; i++) {
+    const t = i / RATE;
+    const bar = Math.floor((t - beatTimes[firstChange]!) / (4 * period));
+    const root = roots[((bar % 4) + 4) % 4]!;
+    for (const ratio of [1, 1.26, 1.5])
+      samples[i]! += 0.08 * Math.sin(2 * Math.PI * root * ratio * t);
+  }
+  return { sampleRate: RATE, channels: [samples] };
+}
+
 const grid = (from: number, period: number, until: number) =>
   Array.from({ length: Math.floor((until - from) / period) + 1 }, (_, k) => from + k * period);
 
@@ -73,6 +98,14 @@ describe("rhythm", () => {
     const stereo = rhythm({ sampleRate: 44_100, channels: [wide, wide.slice()] }).beats.times;
     expect(stereo).toHaveLength(reference.length);
     stereo.forEach((t, k) => expect(Math.abs(t - reference[k]!)).toBeLessThanOrEqual(0.011));
+  });
+
+  it("puts the bar where the chords change when every beat hits the same", () => {
+    const truth = grid(0.25, 0.5, 23.5);
+    const { downbeats } = rhythm(chordsOverEvenHits(truth, 1, 24));
+    expect(downbeats.meter).toBe(4);
+    const changes = truth.filter((_, k) => k % 4 === 1);
+    expect(recall(downbeats.times, changes)).toBeGreaterThan(0.9);
   });
 
   it("finds no steady beat in silence or in noise, and none in a clip too short to tell", () => {

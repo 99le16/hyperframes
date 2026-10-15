@@ -19,7 +19,7 @@ export interface Downbeats {
   times: number[];
   /** Beats per bar, 3 or 4; null when there are too few beats to tell. */
   meter: number | null;
-  /** "low" for a guess from where the low end hits hardest. */
+  /** "low": a guess from where the harmony changes and the low end hits. */
   confidence?: "low";
 }
 
@@ -40,20 +40,27 @@ export interface Rhythm {
   downbeats: Downbeats;
 }
 
-/** Log energy per frame in log-spaced bands, the frames `fps` per second. */
+/** Log energy per frame in log-spaced bands, `fps` frames per second, and a slower pitch-class profile. */
 export interface BandFrames {
   fps: number;
   bands: Float64Array[];
+  /** Twelve pitch-class magnitudes per frame, `chromaFps` frames per second. */
+  chroma: Float64Array[];
+  chromaFps: number;
 }
 
 /** Every signal is analyzed at this rate and as the mean of its channels' power, so decode rate and layout cannot change a result. */
 const ANALYSIS_RATE = 22050;
 const FRAME_SIZE = 1024;
+const CHROMA_SIZE = 4096;
+const CHROMA_FPS = 10;
 const FRAMES_PER_SECOND = 100;
 const LOW_BAND_HZ = 150;
 const SLOWEST_BPM = 40;
 const FASTEST_BPM = 240;
 const TIGHTNESS = 100;
+/** The onset curve peaks this much ahead of where listeners place the beat, so beats move this much later. */
+const ONSET_LAG_SECONDS = 0.015;
 
 const round = (t: number) => Math.round(t * 1000) / 1000;
 
@@ -107,10 +114,48 @@ function bandPower(channels: Float32Array[]): Float64Array[] {
   return bands;
 }
 
-/** Band energies of `signal`, resampled to the analysis rate first. */
+/** Index of the pitch class, A = 9, of each FFT bin from 55 Hz to 2 kHz; -1 outside that range. */
+const PITCH_CLASS = Array.from({ length: CHROMA_SIZE / 2 }, (_, bin) => {
+  const hz = (bin * ANALYSIS_RATE) / CHROMA_SIZE;
+  if (hz < 55 || hz > 2000) return -1;
+  return (((Math.round(12 * Math.log2(hz / 440)) + 9) % 12) + 12) % 12;
+});
+
+/** Pitch-class magnitude of every chroma frame, summed over channels. */
+function chromaFrames(channels: Float32Array[]): Float64Array[] {
+  const window = hann(CHROMA_SIZE);
+  const hop = ANALYSIS_RATE / CHROMA_FPS;
+  const re = new Float64Array(CHROMA_SIZE);
+  const im = new Float64Array(CHROMA_SIZE);
+  const frames: Float64Array[] = [];
+  for (let f = 0; Math.round(f * hop) < (channels[0]?.length ?? 0); f++) {
+    const chroma = new Float64Array(12);
+    const first = Math.round(f * hop) - CHROMA_SIZE / 2;
+    for (const channel of channels) {
+      for (let i = 0; i < CHROMA_SIZE; i++) {
+        const at = first + i;
+        re[i] = at >= 0 && at < channel.length ? channel[at]! * window[i]! : 0;
+        im[i] = 0;
+      }
+      fft(re, im);
+      PITCH_CLASS.forEach((pc, bin) => {
+        if (pc >= 0) chroma[pc]! += Math.hypot(re[bin]!, im[bin]!);
+      });
+    }
+    frames.push(chroma);
+  }
+  return frames;
+}
+
+/** Band energies and chroma of `signal`, resampled to the analysis rate first. */
 function bandFrames(signal: AudioSignal): BandFrames {
   const channels = signal.channels.map((c) => resample(c, signal.sampleRate, ANALYSIS_RATE));
-  return { fps: FRAMES_PER_SECOND, bands: bandPower(channels) };
+  return {
+    fps: FRAMES_PER_SECOND,
+    bands: bandPower(channels),
+    chroma: chromaFrames(channels),
+    chromaFps: CHROMA_FPS,
+  };
 }
 
 /** Subtract the mean of the surrounding ±`radius` frames and keep what rises above it. */
@@ -175,8 +220,9 @@ function autocorrelation(curve: Float64Array, maxLag: number): Float64Array {
   return ac.map((v) => v / zero);
 }
 
+/** Log-normal around 120 BPM, 0.8 octave wide. */
 const tempoPrior = (lag: number, fps: number) =>
-  Math.exp(-0.5 * Math.log2(60 / (lag / fps) / 120) ** 2);
+  Math.exp(-0.5 * (Math.log2(60 / (lag / fps) / 120) / 0.8) ** 2);
 
 interface LagRange {
   shortest: number;
@@ -262,13 +308,13 @@ function trimmed(beats: number[], local: Float64Array): number[] {
 
 const LOCAL_WINDOW_SECONDS = 8;
 
-/** The period through the piece: eight-second windows a second apart, held near the global period, median-smoothed. */
+/** The period through the piece: eight-second windows a second apart, held within 10% of the global period, median-smoothed. */
 function localPeriods(curve: Float64Array, fps: number, period: number): (frame: number) => number {
   const window = Math.round(LOCAL_WINDOW_SECONDS * fps);
   const hop = Math.round(fps);
   const range = {
-    shortest: Math.max(fullRange(fps).shortest, Math.floor(period * 0.7)),
-    longest: Math.min(fullRange(fps).longest, Math.ceil(period * 1.4)),
+    shortest: Math.max(fullRange(fps).shortest, Math.floor(period * 0.9)),
+    longest: Math.min(fullRange(fps).longest, Math.ceil(period * 1.1)),
   };
   const centres: number[] = [];
   const periods: number[] = [];
@@ -309,28 +355,76 @@ function onsetLift(frames: number[], local: Float64Array): number {
   return overall > 0 ? onBeats / overall - 1 : 0;
 }
 
-/** The meter and bar phase whose beats carry the most low-band onset energy against the others. */
-function barPhase(beats: number[], curves: OnsetCurves): { meter: number; phase: number } {
-  const strength = (f: number) =>
-    Math.max(
-      ...[-1, 0, 1, 2].map((d) => (curves.low[f + d] ?? 0) + 0.3 * (curves.broad[f + d] ?? 0)),
-    );
-  const levels = beats.map(strength);
+const mean = (values: readonly number[]) =>
+  values.reduce((a, b) => a + b, 0) / (values.length || 1);
+
+function zScored(values: number[]): number[] {
+  const centre = mean(values);
+  const spread = Math.sqrt(mean(values.map((v) => (v - centre) ** 2))) || 1;
+  return values.map((v) => (v - centre) / spread);
+}
+
+const CHROMA_REACH_SECONDS = CHROMA_SIZE / 2 / ANALYSIS_RATE;
+
+/** The unit-length mean chroma from one time to another, in seconds, leaving out frames that already hear the next onset. */
+function chromaBetween({ chroma, chromaFps }: BandFrames, from: number, to: number): number[] {
+  const middle = Math.round(((from + to) / 2) * chromaFps);
+  let first = Math.ceil(from * chromaFps);
+  let end = Math.floor((to - CHROMA_REACH_SECONDS) * chromaFps) + 1;
+  if (end <= first) [first, end] = [middle, middle + 1];
+  const sum = new Array<number>(12).fill(0);
+  for (let f = first; f < end; f++) for (let c = 0; c < 12; c++) sum[c]! += chroma[f]?.[c] ?? 0;
+  const length = Math.hypot(...sum) || 1;
+  return sum.map((v) => v / length);
+}
+
+const cosine = (a: number[], b: number[]) => a.reduce((sum, v, i) => sum + v * b[i]!, 0);
+
+/** How much the harmony changes at each beat: the chroma `span` beats before it against the `span` after. */
+function harmonicChange(beats: number[], fps: number, frames: BandFrames, span: number): number[] {
+  return beats.map((f, k) => {
+    if (k < span || k + span >= beats.length) return 0;
+    const before = chromaBetween(frames, beats[k - span]! / fps, f / fps);
+    return 1 - cosine(before, chromaBetween(frames, f / fps, beats[k + span]! / fps));
+  });
+}
+
+/** Each beat's evidence of starting a bar: a low-end hit, a chord change, and a chord change over half a bar. */
+function barStartEvidence(beats: number[], curves: OnsetCurves, frames: BandFrames): number[] {
+  const lowHit = (f: number) => Math.max(...[-1, 0, 1, 2].map((d) => curves.low[f + d] ?? 0));
+  const cues = [
+    zScored(beats.map(lowHit)),
+    zScored(harmonicChange(beats, curves.fps, frames, 1)),
+    zScored(harmonicChange(beats, curves.fps, frames, 2)),
+  ];
+  return beats.map((_, k) => cues.reduce((sum, cue) => sum + cue[k]!, 0));
+}
+
+/** Most music is in four, so three must win by a clear margin. */
+const TRIPLE_METER_HANDICAP = 0.7;
+
+/** The meter and bar phase whose beats carry the most bar-start evidence against the others. */
+function barPhase(beats: number[], curves: OnsetCurves, frames: BandFrames) {
+  const evidence = barStartEvidence(beats, curves, frames);
   let best = { meter: 4, phase: 0, contrast: -Infinity };
   for (const meter of [4, 3])
     for (let phase = 0; phase < meter; phase++) {
-      const on = levels.filter((_, k) => (k - phase) % meter === 0);
-      const off = levels.filter((_, k) => (k - phase) % meter !== 0);
-      const mean = (v: number[]) => v.reduce((a, b) => a + b, 0) / (v.length || 1);
-      const contrast = (mean(on) - mean(off)) * (meter === 3 ? 0.85 : 1);
+      const on = evidence.filter((_, k) => (k - phase) % meter === 0);
+      const off = evidence.filter((_, k) => (k - phase) % meter !== 0);
+      const contrast = (mean(on) - mean(off)) * (meter === 3 ? TRIPLE_METER_HANDICAP : 1);
       if (contrast > best.contrast) best = { meter, phase, contrast };
     }
   return best;
 }
 
 /** Every `meter`th beat from the bar phase, once there are enough beats to tell one. */
-function downbeatsOf(beatList: number[], times: number[], curves: OnsetCurves): Downbeats {
-  const bar = beatList.length >= 6 ? barPhase(beatList, curves) : null;
+function downbeatsOf(
+  beatList: number[],
+  times: number[],
+  curves: OnsetCurves,
+  frames: BandFrames,
+): Downbeats {
+  const bar = beatList.length >= 6 ? barPhase(beatList, curves, frames) : null;
   return {
     times: bar ? times.filter((_, k) => (k - bar.phase) % bar.meter === 0) : [],
     meter: bar?.meter ?? null,
@@ -361,7 +455,7 @@ export const STEADY_BEAT_CONFIDENCE = 0.15;
 const beatConfidence = (clarity: number, lift: number) =>
   round(Math.max(0, Math.min(1, clarity)) * Math.max(0, Math.min(1, lift / 3)));
 
-/** Beats and downbeats of `frames`, a signal's band energies. */
+/** Beats and downbeats of `frames`, a signal's band energies and chroma. */
 function rhythmOf(frames: BandFrames): Rhythm {
   const curves = onsetCurves(frames);
   const { period, clarity } = beatPeriod(curves.broad, curves.fps);
@@ -371,8 +465,8 @@ function rhythmOf(frames: BandFrames): Rhythm {
   const { frames: beatList, local } = beatFrames(curves.broad, curves.fps, period);
   const confidence = beatConfidence(clarity, onsetLift(beatList, local));
   if (beatList.length < 4 || confidence < STEADY_BEAT_CONFIDENCE) return noRhythm(confidence);
-  const times = beatList.map((f) => round(f / curves.fps));
-  return { beats: { times, confidence }, downbeats: downbeatsOf(beatList, times, curves) };
+  const times = beatList.map((f) => round(f / curves.fps + ONSET_LAG_SECONDS));
+  return { beats: { times, confidence }, downbeats: downbeatsOf(beatList, times, curves, frames) };
 }
 
 const TEMPO_STEP_SECONDS = 4;
