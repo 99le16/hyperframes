@@ -127,13 +127,13 @@ export interface DrawElementPerfInput {
   fallbackFrameIndex?: number;
   /** The HF_DE_VERIFY_MIN_DB threshold the failing dB breached; only set alongside fallbackFailedDb. */
   fallbackThresholdDb?: number;
-  /** The failing worst-region mean shift (1/255) when `fallbackReason === "shift"`; undefined otherwise. */
+  /** Shift-failure details (1/255 units): the failing worst-region mean shift and the HF_DE_VERIFY_MAX_SHIFT ceiling it breached. Only set when fallbackReason === "shift". */
   fallbackFailedShift?: number;
-  /** The HF_DE_VERIFY_MAX_SHIFT ceiling the failing shift breached; only set alongside fallbackFailedShift. */
   fallbackMaxShift?: number;
   drainStats?: {
     verifyChecked: number;
     verifyMinDb?: number;
+    verifyMaxShiftObserved?: number;
     blankSuspects: number;
     blankDeterministicAccepts: number;
     blankRecaptures: number;
@@ -187,6 +187,7 @@ function aggregateDrawElement(
     verifyArmed: perfs.reduce((sum, p) => sum + (p.deVerifyArmed ?? 0), 0),
     verifyChecked: drain?.verifyChecked ?? 0,
     verifyMinDb: roundDb(drain?.verifyMinDb),
+    verifyMaxShiftObserved: drain?.verifyMaxShiftObserved,
     verifyInitMs: perfs.reduce((sum, p) => sum + (p.deVerifyInitMs ?? 0), 0),
     selfVerifyFallback: de.selfVerifyFallback,
     fallbackReason: de.fallbackReason,

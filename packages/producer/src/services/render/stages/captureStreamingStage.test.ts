@@ -675,7 +675,9 @@ describe("runCaptureStreamingStage", () => {
     psnrDbValue = 44;
     regionShiftValue = 13;
     const prevBatch = process.env.HF_DE_BATCH;
+    const prevShift = process.env.HF_DE_VERIFY_MAX_SHIFT;
     process.env.HF_DE_BATCH = "1";
+    process.env.HF_DE_VERIFY_MAX_SHIFT = "3";
     const { runCaptureStreamingStage } = await import("./captureStreamingStage.js");
     const cfg = { forceScreenshot: false, ffmpegStreamingTimeout: 3_600_000 };
     const input = { ...createInput(cfg), totalFrames: 1, workerCount: 1 };
@@ -692,11 +694,53 @@ describe("runCaptureStreamingStage", () => {
       regionShiftValue = 0;
       if (prevBatch === undefined) delete process.env.HF_DE_BATCH;
       else process.env.HF_DE_BATCH = prevBatch;
+      if (prevShift === undefined) delete process.env.HF_DE_VERIFY_MAX_SHIFT;
+      else process.env.HF_DE_VERIFY_MAX_SHIFT = prevShift;
     }
 
     expect(caught).toBeInstanceOf(Error);
     expect((caught as Error).message).toContain("drawElement self-verify failed at frame 0");
     expect((caught as Error).message).toContain("region shift 13/255 > 3/255");
+  });
+
+  it("records a shift breach in verifyMaxShiftObserved without rejecting while the gate is observe-only", async () => {
+    // Same #3345 failure shape as the armed-gate test, but with
+    // HF_DE_VERIFY_MAX_SHIFT unset: the render completes and the observed
+    // max shift is surfaced for calibration telemetry instead.
+    sessionWorkerEncodeEnabled = true;
+    deVerifyFramesMap = new Map([[0, Buffer.from("truth")]]);
+    psnrDbValue = 44;
+    regionShiftValue = 13;
+    const prevBatch = process.env.HF_DE_BATCH;
+    const prevShift = process.env.HF_DE_VERIFY_MAX_SHIFT;
+    process.env.HF_DE_BATCH = "1";
+    delete process.env.HF_DE_VERIFY_MAX_SHIFT;
+    const { runCaptureStreamingStage } = await import("./captureStreamingStage.js");
+    const cfg = { forceScreenshot: false, ffmpegStreamingTimeout: 3_600_000 };
+    const input = { ...createInput(cfg), totalFrames: 1, workerCount: 1 };
+
+    let result:
+      | { success?: boolean; deDrainStats?: { verifyMaxShiftObserved?: number } }
+      | undefined;
+    let caught: unknown;
+    try {
+      result = await runCaptureStreamingStage(input);
+    } catch (error) {
+      caught = error;
+    } finally {
+      sessionWorkerEncodeEnabled = false;
+      deVerifyFramesMap = undefined;
+      psnrDbValue = Infinity;
+      regionShiftValue = 0;
+      if (prevBatch === undefined) delete process.env.HF_DE_BATCH;
+      else process.env.HF_DE_BATCH = prevBatch;
+      if (prevShift === undefined) delete process.env.HF_DE_VERIFY_MAX_SHIFT;
+      else process.env.HF_DE_VERIFY_MAX_SHIFT = prevShift;
+    }
+
+    expect(caught).toBeUndefined();
+    expect(result?.success).toBe(true);
+    expect(result?.deDrainStats?.verifyMaxShiftObserved).toBe(13);
   });
 
   it("accepts a verified frame when both gates clear", async () => {

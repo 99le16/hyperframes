@@ -629,6 +629,8 @@ export interface RenderPerfSummary {
     verifyChecked: number;
     /** Minimum PSNR across checked samples (dB; margin above the 32dB threshold). */
     verifyMinDb?: number;
+    /** Max worst-region mean shift (1/255) across checked samples; the observe-only shift gate's tuning signal. */
+    verifyMaxShiftObserved?: number;
     /** Init cost of capturing ground truth (ms). */
     verifyInitMs: number;
     /**

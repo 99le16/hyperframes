@@ -726,7 +726,7 @@ function logParDebug(message: () => string): void {
 export function assertDiskSampleVerified(
   metrics: { db: number; shift: number },
   verifyMinDb: number,
-  verifyMaxShift: number,
+  verifyMaxShift: number | undefined,
   idx: number,
   workerId: number,
 ): void {
@@ -744,10 +744,10 @@ export function assertDiskSampleVerified(
       },
     );
   }
-  if (metrics.shift > verifyMaxShift) {
+  if (verifyMaxShift !== undefined && metrics.shift > verifyMaxShift) {
     throw new DrawElementVerificationError(
       `drawElement self-verify failed at frame ${idx} (disk path, worker ${workerId}): ` +
-        `region shift ${metrics.shift}/255 > ${verifyMaxShift}/255 vs pre-injection screenshot — ` +
+        `region shift ${metrics.shift}/255 > ${verifyMaxShift}/255 vs pre-injection screenshot; ` +
         "a low-contrast region is absent from the drawElement frame",
       {
         kind: "shift",

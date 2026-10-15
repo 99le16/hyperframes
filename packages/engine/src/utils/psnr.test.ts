@@ -106,19 +106,19 @@ describe("resolveDeVerifyMinDb", () => {
 });
 
 describe("resolveDeVerifyMaxShift", () => {
-  it("defaults to 3 when unset and honors an in-range override", async () => {
+  it("is observe-only (undefined) when unset and honors an in-range override", async () => {
     const { resolveDeVerifyMaxShift } = await import("./psnr.js");
     setEnv("HF_DE_VERIFY_MAX_SHIFT", undefined);
-    expect(resolveDeVerifyMaxShift()).toBe(3);
+    expect(resolveDeVerifyMaxShift()).toBeUndefined();
     setEnv("HF_DE_VERIFY_MAX_SHIFT", "8");
     expect(resolveDeVerifyMaxShift()).toBe(8);
   });
 
-  it("falls back to 3 for out-of-range or malformed values", async () => {
+  it("stays observe-only for out-of-range or malformed values", async () => {
     const { resolveDeVerifyMaxShift } = await import("./psnr.js");
     for (const bad of ["0", "65", "banana", ""]) {
       setEnv("HF_DE_VERIFY_MAX_SHIFT", bad);
-      expect(resolveDeVerifyMaxShift()).toBe(3);
+      expect(resolveDeVerifyMaxShift()).toBeUndefined();
     }
   });
 });

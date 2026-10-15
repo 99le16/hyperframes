@@ -633,6 +633,12 @@ describe("assertDiskSampleVerified", () => {
     });
   });
 
+  it("observes but does not reject a shift breach while the gate is unarmed", () => {
+    expect(() =>
+      assertDiskSampleVerified({ db: 44, shift: 13 }, 32, undefined, 7, 1),
+    ).not.toThrow();
+  });
+
   it("still throws kind='psnr' below the dB floor even with zero shift", () => {
     expect(() => assertDiskSampleVerified({ db: 20, shift: 0 }, 32, 3, 7, 1)).toThrow(
       /20\.0dB < 32dB/,

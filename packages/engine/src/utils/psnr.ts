@@ -100,12 +100,17 @@ export async function regionShift(a: Buffer, b: Buffer): Promise<number> {
 }
 
 /**
- * The drawElement self-verify region-shift ceiling (1/255 channel units).
- * HF_DE_VERIFY_MAX_SHIFT overrides, clamped to [1, 64]; out-of-range or unset
- * falls back to 3. Below ~1 the gate sits inside measured encoder noise; the
- * ceiling keeps an override able to weaken (not silently remove) the check.
+ * The drawElement self-verify region-shift ceiling (1/255 channel units), or
+ * undefined when HF_DE_VERIFY_MAX_SHIFT is unset: the gate is observe-only
+ * by default, so the shift is still measured and logged per verified sample
+ * but a breach feeds `verifyMaxShiftObserved` telemetry instead of falling
+ * back. Fixture calibration (PR #3941 discussion) found clean renders sitting
+ * at 18-27/255 on compositor-animated content, where any hard default trips.
+ * A set value in [1, 64] turns the gate on at that ceiling.
  */
-export function resolveDeVerifyMaxShift(): number {
-  const raw = Number(process.env.HF_DE_VERIFY_MAX_SHIFT ?? "3");
-  return Number.isFinite(raw) && raw >= 1 && raw <= 64 ? raw : 3;
+export function resolveDeVerifyMaxShift(): number | undefined {
+  const raw = process.env.HF_DE_VERIFY_MAX_SHIFT;
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 1 && n <= 64 ? n : undefined;
 }

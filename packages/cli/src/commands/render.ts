@@ -1831,6 +1831,7 @@ function trackRenderMetrics(
     deVerifyArmed: perf?.drawElement?.verifyArmed,
     deVerifyChecked: perf?.drawElement?.verifyChecked,
     deVerifyMinDb: perf?.drawElement?.verifyMinDb,
+    deVerifyMaxShiftObserved: perf?.drawElement?.verifyMaxShiftObserved,
     deVerifyInitMs: perf?.drawElement?.verifyInitMs,
     deSelfVerifyFallback: perf?.drawElement?.selfVerifyFallback,
     deFallbackReason: perf?.drawElement?.fallbackReason,

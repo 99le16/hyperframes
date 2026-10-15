@@ -408,6 +408,7 @@ export function trackRenderComplete(
     deVerifyArmed?: number;
     deVerifyChecked?: number;
     deVerifyMinDb?: number;
+    deVerifyMaxShiftObserved?: number;
     deVerifyInitMs?: number;
     deSelfVerifyFallback?: boolean;
     deFallbackReason?: string;
@@ -570,6 +571,7 @@ export function trackRenderComplete(
       de_verify_armed: props.deVerifyArmed,
       de_verify_checked: props.deVerifyChecked,
       de_verify_min_db: props.deVerifyMinDb,
+      de_verify_max_shift_observed: props.deVerifyMaxShiftObserved,
       de_verify_init_ms: props.deVerifyInitMs,
       de_self_verify_fallback: directOrCapture(
         props.deSelfVerifyFallback,

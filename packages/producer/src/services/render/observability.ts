@@ -73,9 +73,7 @@ export interface RenderCaptureObservability {
   deFallbackFrameIndex?: number;
   /** The HF_DE_VERIFY_MIN_DB threshold the failing dB breached; only set alongside deFallbackFailedDb (psnr reason). */
   deFallbackThresholdDb?: number;
-  /** The failing worst-region mean shift (1/255) when `deFallbackReason === "shift"`; undefined for every other reason (no score exists). */
   deFallbackFailedShift?: number;
-  /** The HF_DE_VERIFY_MAX_SHIFT ceiling the failing shift breached; only set alongside deFallbackFailedShift (shift reason). */
   deFallbackMaxShift?: number;
   /** Auto-parallel inversion outcome: "inverted" (fired, held) | "reverted" (fired, self-verify retry rolled back). */
   deWorkerInversion?: "inverted" | "reverted";
