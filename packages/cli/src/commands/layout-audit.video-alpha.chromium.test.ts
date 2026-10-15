@@ -26,7 +26,8 @@ const hasFfmpeg = spawnSync("ffmpeg", ["-version"], { stdio: "ignore" }).status 
 const script = readFileSync(new URL("./layout-audit.browser.js", import.meta.url), "utf8");
 
 // 320x180 clips shown at 640x360. The cutout's subject fills the left half until 0.5s and the
-// right half after it, the horizon's fills the bottom half, and the opaque clip has no alpha plane.
+// right half after it, the horizon's fills the bottom half, the strip's is opaque only at source
+// x 76-104 (page x 152-208), and the opaque clip has no alpha plane.
 const CLIPS: Record<string, string[]> = {
   "cutout.webm": [
     "-f",
@@ -45,6 +46,18 @@ const CLIPS: Record<string, string[]> = {
     "lavfi",
     "-i",
     "color=c=red:s=320x180:d=1:r=10,format=rgba,geq=r='255':g='0':b='0':a='if(gte(Y,H/2),255,0)'",
+    "-c:v",
+    "libvpx-vp9",
+    "-pix_fmt",
+    "yuva420p",
+    "-auto-alt-ref",
+    "0",
+  ],
+  "strip.webm": [
+    "-f",
+    "lavfi",
+    "-i",
+    "color=c=red:s=320x180:d=1:r=10,format=rgba,geq=r='255':g='0':b='0':a='if(between(X,76,104),255,0)'",
     "-c:v",
     "libvpx-vp9",
     "-pix_fmt",
@@ -75,8 +88,21 @@ function page(video: string, words: string): string {
     </div></body>`;
 }
 
-const videoTag = (src: string, extra = "") =>
-  `<video id="clip" src="/${src}" muted playsinline ${extra} style="position:absolute;left:0;top:0;width:640px;height:360px;z-index:2"></video>`;
+const videoTag = (src: string, extra = "", style = "") =>
+  `<video id="clip" src="/${src}" muted playsinline ${extra} style="position:absolute;left:0;top:0;width:640px;height:360px;z-index:2;${style}"></video>`;
+
+// A ~590px caption whose word "gh" is moved onto the strip's centre (page x 180). The coarse probe
+// columns at 20% and 35% of the line then fall either side of the strip, never on it.
+const STRIP_CAPTION = `<span id="line" style="position:absolute;left:0;top:150px;margin:0;font:24px/1 monospace;color:#fff;white-space:nowrap">abcdefghi gh ij kl mn op qr st uv wx yz ab cd</span>
+  <script>
+    const line = document.getElementById("line");
+    const text = line.firstChild;
+    const range = document.createRange();
+    range.setStart(text, 10);
+    range.setEnd(text, 12);
+    const word = range.getBoundingClientRect();
+    line.style.left = 180 - (word.left + word.width / 2) + "px";
+  </script>`;
 
 // Chromium only seeks a media resource its server serves by byte range.
 function serveByteRange(body: Buffer, rangeHeader: string | undefined, response: ServerResponse) {
@@ -208,6 +234,41 @@ describe.runIf(executablePath && hasFfmpeg)("text_occluded behind a <video> in C
     expect(occlusionOf(early, "right")).toBeUndefined();
     expect(occlusionOf(late, "left")).toBeUndefined();
     expect(occlusionOf(late, "right")?.severity).toBe("error");
+  });
+
+  it("fails a word hidden by a matte feature narrower than the probe grid", async () => {
+    const issues = await audit(page(videoTag("strip.webm"), STRIP_CAPTION));
+    const finding = occlusionOf(issues, "line");
+    expect(finding).toMatchObject({ severity: "error", containerSelector: "#clip" });
+    expect(finding?.message).toMatch(/"gh" is 100% behind/);
+  });
+
+  it("reads a mirrored cutout's alpha on the side it is painted", async () => {
+    const issues = await audit(
+      page(
+        videoTag("cutout.webm", "", "transform:scaleX(-1)"),
+        word("shown", 160, "SHIP") + word("hidden", 480, "SHIP"),
+      ),
+    );
+    expect(occlusionOf(issues, "shown")).toBeUndefined();
+    expect(occlusionOf(issues, "hidden")).toMatchObject({ severity: "error", coveredFraction: 1 });
+  });
+
+  it("keeps a cutout's opaque CSS background occluding behind its clear pixels", async () => {
+    const issues = await audit(
+      page(videoTag("cutout.webm", "", "background:#123456"), word("boxed", 480, "SHIP")),
+    );
+    expect(occlusionOf(issues, "boxed")).toMatchObject({ severity: "error" });
+  });
+
+  it("judges a rotated cutout as opaque and says why", async () => {
+    const issues = await audit(
+      page(videoTag("cutout.webm", "", "transform:rotate(90deg)"), word("turned", 480, "SHIP")),
+    );
+    expect(occlusionOf(issues, "turned")).toMatchObject({ severity: "error" });
+    expect(issues).toContainEqual(
+      expect.objectContaining({ code: "video_alpha_unread", selector: "#clip" }),
+    );
   });
 
   it("respects data-layout-allow-occlusion on text behind a cutout", async () => {

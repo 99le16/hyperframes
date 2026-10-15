@@ -1026,9 +1026,46 @@
     return { x: objectPositionOffset(x, freeX), y: objectPositionOffset(y, freeY) };
   }
 
+  const IDENTITY_FLIP = { flipX: false, flipY: false };
+
+  // 2D CSS matrix components [a, b, c, d], or null when the transform is 3D or unparsed.
+  function transformMatrix(value) {
+    if (!value || value === "none") return [1, 0, 0, 1];
+    const match = /^matrix\(([^)]*)\)$/.exec(value.trim());
+    if (!match) return null;
+    const parts = match[1].split(",").map(Number);
+    return parts.length === 6 && parts.every(Number.isFinite) ? parts.slice(0, 4) : null;
+  }
+
+  // Which axes the element's paint is mirrored on, or null when a rotation, skew or 3D transform
+  // (on it or an ancestor) means its bounding box no longer maps axis-aligned onto its pixels.
+  function paintFlips(element) {
+    let flipX = false;
+    let flipY = false;
+    for (let current = element; current; current = current.parentElement) {
+      const style = getComputedStyle(current);
+      const matrix = transformMatrix(style.transform);
+      if (!matrix) return null;
+      const [a, b, c, d] = matrix;
+      if (Math.abs(b) > 1e-6 || Math.abs(c) > 1e-6) return null;
+      if (style.rotate && style.rotate !== "none" && parseFloat(style.rotate) !== 0) return null;
+      const scale = String(style.scale || "none")
+        .trim()
+        .split(/\s+/)
+        .map(Number);
+      const scaleX = Number.isFinite(scale[0]) ? scale[0] : 1;
+      const scaleY = Number.isFinite(scale[1]) ? scale[1] : scaleX;
+      if (a * scaleX < 0) flipX = !flipX;
+      if (d * scaleY < 0) flipY = !flipY;
+    }
+    return flipX || flipY ? { flipX, flipY } : IDENTITY_FLIP;
+  }
+
   function paintedSourceMapping(element, sourceWidth, sourceHeight) {
     const rect = element.getBoundingClientRect();
     if (!sourceWidth || !sourceHeight || !rect.width || !rect.height) return null;
+    const flips = paintFlips(element);
+    if (!flips) return null;
 
     const style = getComputedStyle(element);
     const fit = style.objectFit || "fill";
@@ -1057,8 +1094,9 @@
       rect.height - paintedHeight,
     );
     return {
-      left: rect.left + offsets.x,
-      top: rect.top + offsets.y,
+      rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
+      offsets,
+      ...flips,
       paintedWidth,
       paintedHeight,
       scaleX,
@@ -1070,8 +1108,9 @@
 
   // The source pixel painted at a viewport point, or null outside the painted content box.
   function sourcePixelAt(mapping, x, y) {
-    const localX = x - mapping.left;
-    const localY = y - mapping.top;
+    const { rect, offsets } = mapping;
+    const localX = (mapping.flipX ? rect.right - x : x - rect.left) - offsets.x;
+    const localY = (mapping.flipY ? rect.bottom - y : y - rect.top) - offsets.y;
     if (
       localX < 0 ||
       localY < 0 ||
@@ -1157,8 +1196,10 @@
   function readVideoAlphaFrame(video) {
     if (video.seeking) return unreadVideoFrame("the seek had not landed");
     if (video.readyState < 2) return unreadVideoFrame("no frame was decoded at this time");
+    if (!video.videoWidth || !video.videoHeight)
+      return unreadVideoFrame("the video has no frame size");
     const mapping = paintedSourceMapping(video, video.videoWidth, video.videoHeight);
-    if (!mapping) return unreadVideoFrame("the video has no frame size");
+    if (!mapping) return unreadVideoFrame("it is rotated, skewed or transformed in 3D");
     const downscale = Math.min(
       1,
       VIDEO_ALPHA_MAX_SIDE / Math.max(mapping.sourceWidth, mapping.sourceHeight),
@@ -1215,8 +1256,10 @@
     return (frame.alpha[pixel.y * frame.width + pixel.x] / 255) * frame.opacity >= OCCLUDING_ALPHA;
   }
 
+  // A video with an opaque CSS background paints that background behind its clear pixels.
   function matteFrameFor(element) {
     if (element.tagName !== "VIDEO") return null;
+    if (hasOpaqueBackground(getComputedStyle(element))) return null;
     const frame = videoAlphaFrame(element);
     return frame.kind === "matte" ? frame : null;
   }
@@ -1282,7 +1325,7 @@
   // there is related to the text, non-opaque, sharing a 3D context with it, or
   // part of a transient crossfade overlap.
   // fallow-ignore-next-line complexity
-  function occluderAt(element, x, y) {
+  function occluderAt(element, x, y, seenMattes) {
     // Walk the paint-ordered stack: a transparent layer on top must not mask an opaque one below it.
     const stack =
       typeof document.elementsFromPoint === "function"
@@ -1295,6 +1338,8 @@
       // Pair-specific exemptions excuse this hit only; keep walking for deeper occluders.
       if (sharedPreserve3d(element, hit)) continue;
       if (isCrossSceneTransitionOverlap(element, hit)) continue;
+      const matte = seenMattes && matteFrameFor(hit);
+      if (matte && !seenMattes.has(matte)) seenMattes.set(matte, hit);
       if (isOpaqueOccluder(hit, x, y)) return hit;
     }
     return null;
@@ -1329,25 +1374,27 @@
     let occluder = null;
     let hits = 0;
     let opaqueHits = 0;
-    const mattes = new Set();
+    // Every matte above the text, including where its alpha is clear: a feature narrower than the
+    // probe grid (an arm, a mic stand) can hide a word between two probe columns.
+    const seenMattes = new Map();
     for (const textRect of textRects) {
       for (const yFraction of OCCLUSION_PROBE_Y_FRACTIONS) {
         const y = textRect.top + textRect.height * yFraction;
         for (const xFraction of OCCLUSION_PROBE_X_FRACTIONS) {
-          const hit = occluderAt(element, textRect.left + textRect.width * xFraction, y);
+          const x = textRect.left + textRect.width * xFraction;
+          const hit = occluderAt(element, x, y, seenMattes);
           if (!hit) continue;
           hits += 1;
           if (!occluder) occluder = hit;
-          const matte = matteFrameFor(hit);
-          if (matte) mattes.add(matte);
-          else opaqueHits += 1;
+          if (!matteFrameFor(hit)) opaqueHits += 1;
         }
       }
     }
+    const judgeByMatte = opaqueHits === 0 && seenMattes.size > 0;
     return {
-      occluder,
+      occluder: occluder || (judgeByMatte ? seenMattes.values().next().value : null),
       coveredFraction: round(hits / (OCCLUSION_GRID_POINTS * textRects.length)),
-      mattes: opaqueHits === 0 ? [...mattes] : [],
+      mattes: judgeByMatte ? [...seenMattes.keys()] : [],
     };
   }
 

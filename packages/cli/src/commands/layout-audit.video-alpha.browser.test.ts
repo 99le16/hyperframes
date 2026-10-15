@@ -38,6 +38,10 @@ interface VideoScene {
   /** Alpha (0-255) the decoded frame paints at a composition point. */
   alphaAt?: (x: number, y: number) => number;
   video?: { readyState?: number; seeking?: boolean; readError?: Error; overlapsText?: boolean };
+  /** Computed style the <video> adds to the base, e.g. a transform or a background. */
+  videoStyle?: Record<string, string>;
+  /** Report each element's text as one line box, as Chromium does, rather than one per word. */
+  wholeLine?: boolean;
   textAttrs?: string;
 }
 
@@ -97,7 +101,11 @@ function installVideoScene(scene: VideoScene): { getImageData: ReturnType<typeof
   });
 
   vi.spyOn(window, "getComputedStyle").mockImplementation(
-    () => ({ ...BASE_STYLE }) as unknown as CSSStyleDeclaration,
+    (element) =>
+      ({
+        ...BASE_STYLE,
+        ...(element === video ? scene.videoStyle : {}),
+      }) as unknown as CSSStyleDeclaration,
   );
   for (const element of Array.from(document.querySelectorAll("*"))) {
     vi.spyOn(element, "getBoundingClientRect").mockReturnValue(domRect(FRAME));
@@ -127,9 +135,13 @@ function installVideoScene(scene: VideoScene): { getImageData: ReturnType<typeof
       getClientRects() {
         const owner = node?.parentElement?.id ?? "";
         if (end === null) {
-          return (scene.text[owner] ?? []).map(({ left, width }) =>
-            domRect(wordBox(left, width)),
-          ) as unknown as DOMRectList;
+          const boxes = (scene.text[owner] ?? []).map(({ left, width }) => wordBox(left, width));
+          if (scene.wholeLine && boxes.length > 0) {
+            const left = Math.min(...boxes.map((box) => box.left));
+            const right = Math.max(...boxes.map((box) => box.left + box.width));
+            return [domRect(wordBox(left, right - left))] as unknown as DOMRectList;
+          }
+          return boxes.map(domRect) as unknown as DOMRectList;
         }
         return wordRect(node, start, end) as unknown as DOMRectList;
       },
@@ -295,6 +307,53 @@ describe("layout-audit.browser text behind a <video>", () => {
     expect(occlusionOf(issues, "second")).toBeUndefined();
   });
 
+  it("fails a word hidden by a matte feature that falls between two probe columns", () => {
+    // One 1800px line box: its 20% and 35% probe columns sit at x 360 and 630, the strip at 440-540.
+    installVideoScene({
+      text: {
+        caption: [
+          { word: "a", left: 0, width: 40 },
+          { word: "gh", left: 460, width: 60 },
+          { word: "end", left: 1700, width: 100 },
+        ],
+      },
+      wholeLine: true,
+      alphaAt: (x) => (x >= 440 && x < 540 ? 255 : 0),
+    });
+    expect(occlusionOf(runAudit(), "caption")).toMatchObject({
+      severity: "error",
+      containerSelector: "#clip",
+      message: `"gh" is 100% behind a transparent video's matte.`,
+    });
+  });
+
+  it("reads a mirrored video's alpha on the side it is painted", () => {
+    installVideoScene({
+      text: {
+        shown: [{ word: "SHIP", left: 200, width: 200 }],
+        hidden: [{ word: "SHIP", left: 1500, width: 200 }],
+      },
+      videoStyle: { transform: "matrix(-1, 0, 0, 1, 0, 0)" },
+      // Source alpha: the subject fills the source's left half, so it paints on the right.
+      alphaAt: subjectLeftOf(960),
+    });
+    const issues = runAudit();
+    expect(occlusionOf(issues, "shown")).toBeUndefined();
+    expect(occlusionOf(issues, "hidden")).toMatchObject({ severity: "error", coveredFraction: 1 });
+  });
+
+  it("keeps a video's opaque CSS background occluding behind its clear pixels", () => {
+    installVideoScene({
+      text: SHIP,
+      videoStyle: { backgroundColor: "rgb(18, 52, 86)" },
+      alphaAt: subjectLeftOf(400),
+    });
+    expect(occlusionOf(runAudit(), "ship")).toMatchObject({
+      severity: "error",
+      message: "Text is hidden beneath an opaque element.",
+    });
+  });
+
   it("respects data-layout-allow-occlusion", () => {
     installVideoScene({
       text: SHIP,
@@ -337,22 +396,32 @@ describe("layout-audit.browser text behind a <video>", () => {
       reason: "its source is cross-origin",
     },
     {
+      name: "a rotated video",
+      video: {},
+      videoStyle: { transform: "matrix(0, 1, -1, 0, 0, 0)" },
+      alphaAt: subjectLeftOf(400),
+      reason: "it is rotated, skewed or transformed in 3D",
+    },
+    {
       name: "a frame that reads back fully transparent",
       video: {},
       alphaAt: () => 0,
       reason: "its frame read back fully transparent",
     },
-  ])("falls back to opaque with an info note for $name", ({ video, alphaAt, reason }) => {
-    installVideoScene({ text: SHIP, video, alphaAt });
-    const issues = runAudit();
-    expect(occlusionOf(issues, "ship")).toMatchObject({ severity: "error", coveredFraction: 1 });
-    expect(issues).toContainEqual(
-      expect.objectContaining({
-        code: "video_alpha_unread",
-        severity: "info",
-        selector: "#clip",
-        message: `Could not read this video's frame alpha (${reason}), so text under it was judged as if the video were opaque.`,
-      }),
-    );
-  });
+  ])(
+    "falls back to opaque with an info note for $name",
+    ({ video, videoStyle, alphaAt, reason }) => {
+      installVideoScene({ text: SHIP, video, videoStyle, alphaAt });
+      const issues = runAudit();
+      expect(occlusionOf(issues, "ship")).toMatchObject({ severity: "error", coveredFraction: 1 });
+      expect(issues).toContainEqual(
+        expect.objectContaining({
+          code: "video_alpha_unread",
+          severity: "info",
+          selector: "#clip",
+          message: `Could not read this video's frame alpha (${reason}), so text under it was judged as if the video were opaque.`,
+        }),
+      );
+    },
+  );
 });

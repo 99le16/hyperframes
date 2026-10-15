@@ -862,9 +862,15 @@ An opaque video covers its whole box, as an opaque image does. A video with
 transparency, such as a `remove-background` cutout, covers only where its
 alpha is: a word partly behind the subject is an info finding whose
 `coveredFraction` is the most covered word's share, and a word 80% hidden or two
-neighbouring words each half hidden are an error. When a video's frame cannot
-be read (not decoded yet, or cross-origin), the audit treats the video as
-opaque and adds a `video_alpha_unread` info finding saying why.
+neighbouring words each half hidden are an error. A CSS background on the video
+still covers its whole box, and a mirrored video (`scaleX(-1)`) is read on the
+side it is painted. When a video's frame cannot be read, the audit treats the
+video as opaque and adds a `video_alpha_unread` info finding saying why: no frame
+decoded yet, the seek still landing, a cross-origin source, no frame size, a
+rotated, skewed or 3D-transformed video, or a frame that reads back fully
+transparent. A fully transparent frame is treated as unread on purpose, since a
+failed draw looks the same; mark text that sits under a cutout before its subject
+enters with `data-layout-allow-occlusion`.
 
 Contrast failures are errors, and each one reports the sampled foreground and
 background colours, the measured ratio against the required one, and a
