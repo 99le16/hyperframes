@@ -15,14 +15,14 @@ function random(seed = 3) {
 }
 
 /** A drum pattern on a known grid: a kick with a low thump on each bar's first beat, a click on the others. */
-function drums(beatTimes: number[], meter: number, seconds: number): AudioSignal {
-  const samples = new Float32Array(Math.round(seconds * RATE));
+function drums(beatTimes: number[], meter: number, seconds: number, rate = RATE): AudioSignal {
+  const samples = new Float32Array(Math.round(seconds * rate));
   const noise = random();
   beatTimes.forEach((t, k) => {
     const downbeat = k % meter === 0;
-    const start = Math.round(t * RATE);
-    for (let i = 0; i < 0.12 * RATE && start + i < samples.length; i++) {
-      const since = i / RATE;
+    const start = Math.round(t * rate);
+    for (let i = 0; i < 0.12 * rate && start + i < samples.length; i++) {
+      const since = i / rate;
       const click = (downbeat ? 0.5 : 0.35) * noise() * Math.exp(-since / 0.02);
       const thump = downbeat
         ? 0.8 * Math.sin(2 * Math.PI * 55 * since) * Math.exp(-since / 0.06)
@@ -30,7 +30,7 @@ function drums(beatTimes: number[], meter: number, seconds: number): AudioSignal
       samples[start + i]! += click + thump;
     }
   });
-  return { sampleRate: RATE, channels: [samples] };
+  return { sampleRate: rate, channels: [samples] };
 }
 
 const grid = (from: number, period: number, until: number) =>
@@ -66,6 +66,15 @@ describe("rhythm", () => {
     expect(curve[curve.length - 1]!.bpm).toBeCloseTo(133, -1);
   });
 
+  it("gives the same beats at any sample rate and for mono or the same sound on two channels", () => {
+    const truth = grid(0.25, 0.5, 19.5);
+    const reference = rhythm(drums(truth, 4, 20)).beats.times;
+    const wide = drums(truth, 4, 20, 44_100).channels[0]!;
+    const stereo = rhythm({ sampleRate: 44_100, channels: [wide, wide.slice()] }).beats.times;
+    expect(stereo).toHaveLength(reference.length);
+    stereo.forEach((t, k) => expect(Math.abs(t - reference[k]!)).toBeLessThanOrEqual(0.011));
+  });
+
   it("finds no steady beat in silence or in noise, and none in a clip too short to tell", () => {
     const silent = rhythm({ sampleRate: RATE, channels: [new Float32Array(10 * RATE)] });
     expect(silent.beats).toMatchObject({ times: [], reason: "no steady beat" });
@@ -75,6 +84,7 @@ describe("rhythm", () => {
       channels: [Float32Array.from({ length: 10 * RATE }, () => 0.3 * noise())],
     });
     expect(hiss.beats.times).toEqual([]);
+    expect(hiss.downbeats.times).toEqual([]);
     const short = rhythm(drums(grid(0.25, 0.5, 3), 4, 3));
     expect(short.beats).toMatchObject({ times: [], reason: "too short for a steady beat" });
   });

@@ -4,6 +4,7 @@
  */
 
 import type { AudioSignal } from "./audioAnalysis";
+import { resample } from "./audioResample";
 import { fft } from "./fft";
 
 export interface Beats {
@@ -45,6 +46,9 @@ export interface BandFrames {
   bands: Float64Array[];
 }
 
+/** Every signal is analyzed at this rate and as the mean of its channels' power, so decode rate and layout cannot change a result. */
+const ANALYSIS_RATE = 22050;
+const FRAME_SIZE = 1024;
 const FRAMES_PER_SECOND = 100;
 const LOW_BAND_HZ = 150;
 const SLOWEST_BPM = 40;
@@ -53,13 +57,15 @@ const TIGHTNESS = 100;
 
 const round = (t: number) => Math.round(t * 1000) / 1000;
 
-function bandEdges(sampleRate: number, size: number): number[] {
-  const binHz = sampleRate / size;
+function bandEdges(): number[] {
+  const binHz = ANALYSIS_RATE / FRAME_SIZE;
   const edges: number[] = [];
-  for (let hz = 30; hz < Math.min(9000, sampleRate / 2); hz *= 2 ** (1 / 5))
-    edges.push(Math.max(1, Math.round(hz / binHz)));
+  for (let hz = 30; hz < 9000; hz *= 2 ** (1 / 5)) edges.push(Math.max(1, Math.round(hz / binHz)));
   return edges;
 }
+
+const hann = (size: number) =>
+  Float64Array.from({ length: size }, (_, i) => 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / size));
 
 /** Add each band's power in the Hann-windowed frame centred on `center` into `into`. */
 function addFramePower(
@@ -86,24 +92,25 @@ function addFramePower(
   }
 }
 
-/** Per-band log power, summed over channels so a polarity-flipped channel cannot cancel. */
-export function bandFrames(signal: AudioSignal): BandFrames {
-  const { sampleRate, channels } = signal;
-  const hop = Math.max(1, Math.round(sampleRate / FRAMES_PER_SECOND));
-  const size = 2 ** Math.round(Math.log2(sampleRate * 0.046));
-  const window = Float64Array.from(
-    { length: size },
-    (_, i) => 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / size),
-  );
-  const edges = bandEdges(sampleRate, size);
-  const length = channels[0]?.length ?? 0;
+/** Per-band log power of every frame, averaged over channels so a polarity-flipped channel cannot cancel. */
+function bandPower(channels: Float32Array[]): Float64Array[] {
+  const window = hann(FRAME_SIZE);
+  const edges = bandEdges();
+  const hop = ANALYSIS_RATE / FRAMES_PER_SECOND;
   const bands: Float64Array[] = [];
-  for (let center = 0; center < length; center += hop) {
-    const power = new Float64Array(Math.max(0, edges.length - 1));
-    for (const channel of channels) addFramePower(channel, center, window, edges, power);
-    bands.push(power.map((p) => Math.log1p(1e9 * p)));
+  for (let f = 0; Math.round(f * hop) < (channels[0]?.length ?? 0); f++) {
+    const power = new Float64Array(edges.length - 1);
+    for (const channel of channels)
+      addFramePower(channel, Math.round(f * hop), window, edges, power);
+    bands.push(power.map((p) => Math.log1p((1e9 * p) / channels.length)));
   }
-  return { fps: sampleRate / hop, bands };
+  return bands;
+}
+
+/** Band energies of `signal`, resampled to the analysis rate first. */
+function bandFrames(signal: AudioSignal): BandFrames {
+  const channels = signal.channels.map((c) => resample(c, signal.sampleRate, ANALYSIS_RATE));
+  return { fps: FRAMES_PER_SECOND, bands: bandPower(channels) };
 }
 
 /** Subtract the mean of the surrounding ±`radius` frames and keep what rises above it. */
@@ -131,10 +138,9 @@ interface OnsetCurves {
   low: Float64Array;
 }
 
-function onsetCurves({ fps, bands }: BandFrames, sampleRate: number): OnsetCurves {
-  const size = 2 ** Math.round(Math.log2(sampleRate * 0.046));
-  const lowBands = bandEdges(sampleRate, size).filter(
-    (bin) => (bin * sampleRate) / size < LOW_BAND_HZ,
+function onsetCurves({ fps, bands }: BandFrames): OnsetCurves {
+  const lowBands = bandEdges().filter(
+    (bin) => (bin * ANALYSIS_RATE) / FRAME_SIZE < LOW_BAND_HZ,
   ).length;
   const broad = new Float64Array(bands.length);
   const low = new Float64Array(bands.length);
@@ -322,6 +328,16 @@ function barPhase(beats: number[], curves: OnsetCurves): { meter: number; phase:
   return best;
 }
 
+/** Every `meter`th beat from the bar phase, once there are enough beats to tell one. */
+function downbeatsOf(beatList: number[], times: number[], curves: OnsetCurves): Downbeats {
+  const bar = beatList.length >= 6 ? barPhase(beatList, curves) : null;
+  return {
+    times: bar ? times.filter((_, k) => (k - bar.phase) % bar.meter === 0) : [],
+    meter: bar?.meter ?? null,
+    confidence: "low",
+  };
+}
+
 export function medianInterval(times: readonly number[]): number | null {
   const gaps = times
     .slice(1)
@@ -339,15 +355,15 @@ const noRhythm = (confidence: number, reason = "no steady beat"): Rhythm => ({
 const SHORTEST_SECONDS = 6;
 
 /** Below this the beats are more likely the tracker's own grid than the music's. */
-export const STEADY_BEAT_CONFIDENCE = 0.05;
+export const STEADY_BEAT_CONFIDENCE = 0.15;
 
 /** Clarity of the period, scaled down when the beats are under three times as strong as the onsets around them. */
 const beatConfidence = (clarity: number, lift: number) =>
   round(Math.max(0, Math.min(1, clarity)) * Math.max(0, Math.min(1, lift / 3)));
 
-/** Beats and downbeats of `frames`, the band energies of a signal at `sampleRate`. */
-export function rhythmOf(frames: BandFrames, sampleRate: number): Rhythm {
-  const curves = onsetCurves(frames, sampleRate);
+/** Beats and downbeats of `frames`, a signal's band energies. */
+function rhythmOf(frames: BandFrames): Rhythm {
+  const curves = onsetCurves(frames);
   const { period, clarity } = beatPeriod(curves.broad, curves.fps);
   if (curves.broad.length < SHORTEST_SECONDS * curves.fps)
     return noRhythm(0, "too short for a steady beat");
@@ -356,15 +372,7 @@ export function rhythmOf(frames: BandFrames, sampleRate: number): Rhythm {
   const confidence = beatConfidence(clarity, onsetLift(beatList, local));
   if (beatList.length < 4 || confidence < STEADY_BEAT_CONFIDENCE) return noRhythm(confidence);
   const times = beatList.map((f) => round(f / curves.fps));
-  const bar = beatList.length >= 6 ? barPhase(beatList, curves) : null;
-  return {
-    beats: { times, confidence },
-    downbeats: {
-      times: bar ? times.filter((_, k) => (k - bar.phase) % bar.meter === 0) : [],
-      meter: bar?.meter ?? null,
-      confidence: "low",
-    },
-  };
+  return { beats: { times, confidence }, downbeats: downbeatsOf(beatList, times, curves) };
 }
 
 const TEMPO_STEP_SECONDS = 4;
@@ -405,5 +413,5 @@ export function bandFramesOf(signal: AudioSignal): BandFrames {
 export function rhythm(signal: AudioSignal): Rhythm {
   const frames = bandFramesOf(signal);
   const entry = measured.get(signal)!;
-  return (entry.rhythm ??= rhythmOf(frames, signal.sampleRate));
+  return (entry.rhythm ??= rhythmOf(frames));
 }
