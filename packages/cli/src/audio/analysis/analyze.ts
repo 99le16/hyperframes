@@ -2,12 +2,19 @@ import {
   runLadder,
   signalDuration,
   signalProvider,
+  tempoOf,
   type AnalysisQuality,
   type AudioAnalysisProvider,
   type AudioCapability,
   type AudioSignal,
+  type Beats,
+  type LadderResult,
   type LadderStep,
 } from "@hyperframes/core/audio-analysis";
+import { apiProvider } from "./providers/api.js";
+import { appleMuProvider, appleSoundProvider } from "./providers/apple.js";
+import { beatThisProvider } from "./providers/beatThis.js";
+import { shiftedTimes } from "./fileTime.js";
 
 /** What `hyperframes audio` asks for when `--only` is not given. */
 export const DEFAULT_CAPABILITIES: readonly AudioCapability[] = [
@@ -19,9 +26,12 @@ export const DEFAULT_CAPABILITIES: readonly AudioCapability[] = [
   "envelope",
 ];
 
-/** Every provider the CLI knows, in default ladder order. Model and service providers join this list. */
+/**
+ * Every provider the CLI knows, in default ladder order: each capability tries the ones that offer it in this order.
+ * beats, downbeats: api, apple-mu, beat-this, signal. sections: api, apple-mu, signal. describe: api, apple-sound.
+ */
 function audioAnalysisProviders(): AudioAnalysisProvider<AudioSignal>[] {
-  return [signalProvider];
+  return [apiProvider, appleMuProvider, beatThisProvider, appleSoundProvider, signalProvider];
 }
 
 export interface AnalyzeOptions {
@@ -53,36 +63,6 @@ export function envelopeHopMs(seconds: number, asked?: number): number {
 }
 
 const round = (t: number) => Math.round(t * 1000) / 1000;
-
-/** Move a capability's times from signal seconds to file seconds. */
-function toFileTime(capability: AudioCapability, value: unknown, offset: number): unknown {
-  if (value === null || typeof value !== "object") return value;
-  const at = (t: number) => round(t + offset);
-  switch (capability) {
-    case "moments": {
-      const m = value as Record<string, number>;
-      return Object.fromEntries(Object.entries(m).map(([k, t]) => [k, at(t)]));
-    }
-    case "onsets": {
-      const o = value as { events: { t: number; strength: number }[] };
-      return { ...o, events: o.events.map((e) => ({ ...e, t: at(e.t) })) };
-    }
-    case "silence":
-      return (value as { start: number; end: number }[]).map((s) => ({
-        start: at(s.start),
-        end: at(s.end),
-      }));
-    case "loudness": {
-      const l = value as { clipping: { count: number; firstAt: number | null } };
-      const firstAt = l.clipping.firstAt === null ? null : at(l.clipping.firstAt);
-      return { ...l, clipping: { ...l.clipping, firstAt } };
-    }
-    case "envelope":
-      return { startsAt: round(offset), ...(value as object) };
-    default:
-      return value;
-  }
-}
 
 function within(value: unknown, from: number, to: number): unknown {
   if (!value || typeof value !== "object" || !("events" in value)) return value;
@@ -131,20 +111,38 @@ export async function analyzeSignal(
     ladder: {},
     warnings: [],
   };
+  const ladders = new Map<AudioCapability, Promise<LadderResult>>();
+  const ladderFor = (capability: AudioCapability) => {
+    let result = ladders.get(capability);
+    if (!result) {
+      // Onsets see the context, so a window's edge is not mistaken for a hit, then keep only the window's own.
+      const withContext = capability === "onsets" && framing.cut;
+      result = runLadder(capability, withContext ? signal : framing.windowed, providers, {
+        quality: request.quality,
+        provider: request.provider?.[capability],
+        options: optionsFor(capability, request, analysis.analyzed),
+      });
+      ladders.set(capability, result);
+    }
+    return result;
+  };
   for (const capability of request.capabilities) {
-    // Onsets see the context, so a window's edge is not mistaken for a hit, then keep only the window's own.
     const withContext = capability === "onsets" && framing.cut;
-    const result = await runLadder(capability, withContext ? signal : framing.windowed, providers, {
-      quality: request.quality,
-      provider: request.provider?.[capability],
-      options: optionsFor(capability, request, analysis.analyzed),
-    });
+    const result =
+      capability === "bpm" ? tempoFromBeats(await ladderFor("beats")) : await ladderFor(capability);
     const value = withContext ? within(result.value, framing.before, framing.end) : result.value;
     const offset = (request.fileOffset ?? 0) - (withContext ? framing.before : 0);
-    analysis.values[capability] = toFileTime(capability, value, offset);
+    analysis.values[capability] = shiftedTimes(capability, value, offset);
     analysis.provenance[capability] = result.provenance;
     analysis.ladder[capability] = result.steps;
-    analysis.warnings.push(...result.warnings);
+    const said = new Set(analysis.warnings);
+    analysis.warnings.push(...result.warnings.filter((w) => !said.has(w)));
   }
   return analysis;
+}
+
+/** Tempo is read off the beats of whichever provider placed them, so the two never disagree. */
+function tempoFromBeats(beats: LadderResult): LadderResult {
+  const times = (beats.value as Beats | null)?.times;
+  return { ...beats, value: times ? tempoOf(times) : null };
 }

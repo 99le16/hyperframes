@@ -240,7 +240,28 @@ describe("runLadder", () => {
   it("falls through a failing provider and says so", async () => {
     const result = await runLadder("moments", tone, [broken, signalProvider]);
     expect(result.provenance).toBe("signal");
-    expect(result.warnings).toEqual(["moments: broken failed (model missing); used signal"]);
+    expect(result.warnings).toEqual(["moments: used signal; broken failed (model missing)"]);
+  });
+
+  it("falls through a provider that cannot run here, or whose check throws, and says why", async () => {
+    const keyless = { ...service, available: () => ({ ok: false as const, reason: "no key" }) };
+    const throwing = {
+      ...broken,
+      id: "throwing",
+      available: () => {
+        throw new Error("probe crashed");
+      },
+    };
+    const result = await runLadder("moments", tone, [keyless, throwing, signalProvider]);
+    expect(result.provenance).toBe("signal");
+    expect(result.steps.map((s) => [s.provider, s.outcome, s.reason])).toEqual([
+      ["service", "unavailable", "no key"],
+      ["throwing", "unavailable", "probe crashed"],
+      ["signal", "answered", undefined],
+    ]);
+    expect(result.warnings).toEqual([
+      "moments: used signal; service unavailable (no key); throwing unavailable (probe crashed)",
+    ]);
   });
 
   it("follows a ladder given in place of the default, and reports a capability no provider offers", async () => {
@@ -248,8 +269,8 @@ describe("runLadder", () => {
       ladder: ["signal", "service"],
     });
     expect(result.provenance).toBe("signal");
-    const beats = await runLadder("beats", tone, [signalProvider]);
-    expect(beats).toMatchObject({ value: null, provenance: null });
-    expect(beats.warnings).toEqual(["beats: no provider answered (none offers it)"]);
+    const described = await runLadder("describe", tone, [signalProvider]);
+    expect(described).toMatchObject({ value: null, provenance: null });
+    expect(described.warnings).toEqual(["describe: no provider answered (none offers it)"]);
   });
 });

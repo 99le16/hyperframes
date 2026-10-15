@@ -3,8 +3,10 @@
  * Pure functions of PCM samples, so they run the same in Node, Bun and the browser. Times are seconds into the signal.
  */
 
-import type { AudioAnalysisProvider } from "./audioAnalysisLadder";
+import type { AudioAnalysisProvider, AudioCapability } from "./audioAnalysisLadder";
 import { fft } from "./fft";
+import { rhythm } from "./audioRhythm";
+import { sections, type SectionOptions } from "./audioSections";
 
 /** Decoded audio: one Float32Array per channel, all the same length. */
 export interface AudioSignal {
@@ -595,29 +597,43 @@ export function classify(signal: AudioSignal): KindGuess {
 }
 
 export * from "./audioAnalysisLadder";
+export * from "./audioRhythm";
+export * from "./audioSections";
+export * from "./audioSnap";
+
+const SIGNAL_MEASURES: Partial<
+  Record<AudioCapability, (input: AudioSignal, options: Record<string, unknown>) => unknown>
+> = {
+  beats: (input) => rhythm(input).beats,
+  downbeats: (input) => rhythm(input).downbeats,
+  sections: (input, options) => sections(input, options as SectionOptions),
+  envelope: (input, options) => envelope(input, options as EnvelopeOptions),
+  onsets: (input, options) => onsets(input, options as OnsetOptions),
+  moments: (input, options) => moments(input, options as MomentOptions),
+  loudness: (input) => loudness(input),
+  silence: (input, options) => silence(input, options as SilenceOptions),
+  kind: (input) => classify(input),
+};
 
 /** Signal processing as a ladder provider: always available, the measured ground every other provider snaps to. */
 export const signalProvider: AudioAnalysisProvider<AudioSignal> = {
   id: "signal",
   local: true,
   signal: true,
-  capabilities: ["envelope", "onsets", "moments", "loudness", "silence", "kind"],
+  capabilities: [
+    "envelope",
+    "onsets",
+    "moments",
+    "loudness",
+    "silence",
+    "kind",
+    "beats",
+    "downbeats",
+    "sections",
+  ],
   async analyze(capability, input, options) {
-    switch (capability) {
-      case "envelope":
-        return envelope(input, options as EnvelopeOptions);
-      case "onsets":
-        return onsets(input, options as OnsetOptions);
-      case "moments":
-        return moments(input, options as MomentOptions);
-      case "loudness":
-        return loudness(input);
-      case "silence":
-        return silence(input, options as SilenceOptions);
-      case "kind":
-        return classify(input);
-      default:
-        throw new Error(`signal processing does not measure ${capability}`);
-    }
+    const measure = SIGNAL_MEASURES[capability];
+    if (!measure) throw new Error(`signal processing does not measure ${capability}`);
+    return measure(input, options);
   },
 };
