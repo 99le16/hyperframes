@@ -1,3 +1,4 @@
+// @vitest-environment node
 import * as fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import {
