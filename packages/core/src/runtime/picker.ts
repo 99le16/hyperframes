@@ -139,11 +139,13 @@ export function createPickerModule(deps: PickerModuleDeps): PickerModule {
   }
 
   function isFilterDefinition(el: Element): boolean {
+    if (el.namespaceURI !== "http://www.w3.org/2000/svg") return false;
     const tag = el.tagName.toLowerCase();
     return tag === "filter" || tag === "defs" || tag.startsWith("fe");
   }
 
   function isFilterRect(el: Element): boolean {
+    if (el.namespaceURI !== "http://www.w3.org/2000/svg") return false;
     if (el.tagName.toLowerCase() !== "rect") return false;
     const attr = (el.getAttribute("filter") ?? "").trim();
     if (attr && attr !== "none") return true;

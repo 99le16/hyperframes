@@ -71,11 +71,29 @@ const PAGE_RESET = new Set(["*", "html", "body", ":root", "html *", "body *", ":
 function selectorAlternatives(selector: string): string[] {
   const parts: string[] = [];
   let depth = 0;
+  let quote: string | undefined;
   let start = 0;
   for (let i = 0; i < selector.length; i += 1) {
     const ch = selector[i];
-    if (ch === "(") depth += 1;
-    else if (ch === ")") depth = Math.max(0, depth - 1);
+    if (ch === "\\") {
+      i += 1;
+      continue;
+    }
+    if (quote) {
+      if (ch === quote) quote = undefined;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "/" && selector[i + 1] === "*") {
+      const end = selector.indexOf("*/", i + 2);
+      i = end < 0 ? selector.length : end + 1;
+      continue;
+    }
+    if (ch === "(" || ch === "[") depth += 1;
+    else if (ch === ")" || ch === "]") depth = Math.max(0, depth - 1);
     else if (ch === "," && depth === 0) {
       parts.push(selector.slice(start, i));
       start = i + 1;
@@ -87,8 +105,8 @@ function selectorAlternatives(selector: string): string[] {
 
 export function authoredCssSelector(selector: string): string | null {
   const specific = selectorAlternatives(selector)
-    .map((part) => part.trim().replace(/\s+/g, " "))
-    .filter((part) => part && !PAGE_RESET.has(part.toLowerCase()));
+    .map((part) => part.trim())
+    .filter((part) => part && !PAGE_RESET.has(part.replace(/\s+/g, " ").toLowerCase()));
   return specific.length > 0 ? specific.join(", ") : null;
 }
 

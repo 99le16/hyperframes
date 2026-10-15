@@ -313,6 +313,15 @@ describe("createPickerModule", () => {
       ).toEqual(["#photo", "#scene"]);
     });
 
+    it("keeps faint HTML custom elements whose names begin with fe pickable", () => {
+      const picker = createPickerModule({ postMessage: createMockPostMessage() });
+      picker.installPickerApi();
+      document.body.innerHTML =
+        '<div id="scene"><feed-card id="card" style="opacity:0.07"></feed-card></div>';
+      const el = (id: string) => document.getElementById(id)!;
+      expect(candidatesUnder(() => [el("card"), el("scene")])).toEqual(["#card", "#scene"]);
+    });
+
     it("still picks a filtered rect in an opaque SVG", () => {
       const picker = createPickerModule({ postMessage: createMockPostMessage() });
       picker.installPickerApi();
