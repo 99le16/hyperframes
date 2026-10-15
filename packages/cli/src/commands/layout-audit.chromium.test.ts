@@ -144,6 +144,31 @@ describe.runIf(executablePath)("layout audit in Chromium", () => {
       layered: true,
     },
     {
+      name: "clip path",
+      content: '<div style="clip-path:inset(0)">Gradient text</div>',
+      layered: true,
+    },
+    {
+      name: "prefixed clip path",
+      content: '<div style="-webkit-clip-path:inset(0)">Gradient text</div>',
+      layered: true,
+    },
+    {
+      name: "clip path hint",
+      content: '<div style="will-change:clip-path">Gradient text</div>',
+      layered: true,
+    },
+    {
+      name: "view transition",
+      content: '<div style="view-transition-name:headline">Gradient text</div>',
+      layered: true,
+    },
+    {
+      name: "clip-path wrapper",
+      content: '<div style="clip-path:inset(0)"><span>Gradient text</span></div>',
+      layered: true,
+    },
+    {
       name: "separately painted flex item",
       content: '<div style="display:flex"><div style="z-index:1">Gradient text</div></div>',
       layered: true,
@@ -159,6 +184,7 @@ describe.runIf(executablePath)("layout audit in Chromium", () => {
     } else {
       if (layered) {
         expect(descendant.image).not.toEqual(direct.image);
+        expect(descendant.image).toEqual((await gradientFrame(gradientHeading(""))).image);
         expect(descendant.codes).toContain("text_not_painted");
       } else {
         expect(descendant.image).toEqual(direct.image);
@@ -181,12 +207,20 @@ describe.runIf(executablePath)("layout audit in Chromium", () => {
       backgroundStyle: "background-clip:border-box,text;background-image:none,",
       layered: false,
     },
+    {
+      name: "image-set background",
+      content: "<span>Gradient text</span>",
+      backgroundStyle: "background-image:image-set(url('IMAGE') 1x)",
+      layered: false,
+    },
   ])(
     "recognizes ancestor image paint for a $name",
     async ({ content, backgroundStyle, layered }) => {
-      const background = backgroundStyle
-        ? `${backgroundStyle}url('${OPAQUE_IMAGE}')`
-        : `background-image:url('${OPAQUE_IMAGE}')`;
+      const background = backgroundStyle?.includes("IMAGE")
+        ? backgroundStyle.replace("IMAGE", OPAQUE_IMAGE)
+        : backgroundStyle
+          ? `${backgroundStyle}url('${OPAQUE_IMAGE}')`
+          : `background-image:url('${OPAQUE_IMAGE}')`;
       const direct = await gradientFrame(gradientHeading("Gradient text", background));
       const descendant = await gradientFrame(gradientHeading(content, background));
       const empty = await gradientFrame(gradientHeading("", background));

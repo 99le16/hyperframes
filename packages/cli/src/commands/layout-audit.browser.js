@@ -1221,7 +1221,7 @@
       const imagePaints = images.some(
         (image, index) =>
           clips[index % clips.length] === "text" &&
-          (/^\s*url\(/i.test(image) ||
+          (/url\(/i.test(image) ||
             (/(?:linear|radial|conic)-gradient\(/i.test(image) && gradientMaxAlpha(image) > 0.05)),
       );
       const colorPaints =
@@ -1248,6 +1248,9 @@
           style.webkitBackdropFilter,
           style.maskImage,
           style.webkitMaskImage,
+          style.clipPath,
+          style.webkitClipPath,
+          style.viewTransitionName,
         ].some((value) => value && value !== "none")
       )
         return true;
@@ -1272,7 +1275,7 @@
           .split(",")
           .some(
             (property) =>
-              /^(?:opacity|filter|backdrop-filter|position|isolation|mix-blend-mode|mask|mask-image)$/.test(
+              /^(?:opacity|filter|backdrop-filter|position|isolation|mix-blend-mode|mask|mask-image|clip-path)$/.test(
                 property.trim(),
               ) ||
               (!isInline &&

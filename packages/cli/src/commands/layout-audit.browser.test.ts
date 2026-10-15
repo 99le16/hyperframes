@@ -965,6 +965,10 @@ describe("layout-audit.browser invisible text", () => {
     const gradient = document.getElementById("gradient");
     const headline = document.getElementById("headline");
     if (!gradient || !headline) throw new Error("Missing gradient text fixture");
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: () => headline,
+    });
     Object.defineProperties(gradient, {
       offsetLeft: { configurable: true, value: 40 },
       offsetTop: { configurable: true, value: 140 },
@@ -1039,6 +1043,10 @@ describe("layout-audit.browser invisible text", () => {
   it.each([
     { name: "image background", css: { backgroundImage: 'url("texture.png")' } },
     {
+      name: "image-set background",
+      css: { backgroundImage: 'image-set(url("texture.png") 1x)' },
+    },
+    {
       name: "image on a second clipped layer",
       css: { backgroundClip: "border-box, text", backgroundImage: 'none, url("texture.png")' },
     },
@@ -1067,6 +1075,13 @@ describe("layout-audit.browser invisible text", () => {
     {
       name: "image on a different background layer",
       css: { backgroundClip: "border-box, text", backgroundImage: 'url("texture.png"), none' },
+    },
+    {
+      name: "image-set on a different background layer",
+      css: {
+        backgroundClip: "border-box, text",
+        backgroundImage: 'image-set(url("texture.png") 1x), none',
+      },
     },
     {
       name: "unclipped image",
@@ -1105,6 +1120,17 @@ describe("layout-audit.browser invisible text", () => {
     expect(flagged(ancestorGradientScene({}, { transform: "matrix(1, 0, 0, 1, 0, 0)" }, 148))).toBe(
       true,
     );
+  });
+
+  it.each([
+    { name: "clip path", css: { clipPath: "inset(0px)" } },
+    { name: "prefixed clip path", css: { webkitClipPath: "inset(0px)" } },
+    { name: "clip path hint", css: { willChange: "clip-path" } },
+    { name: "view transition", css: { viewTransitionName: "headline" } },
+  ])("reports an invisible $name descendant only on older Chrome", ({ css }) => {
+    expect(flagged(ancestorGradientScene({}, css, 148))).toBe(true);
+    expect(flagged(ancestorGradientScene({}, css, 152))).toBe(false);
+    expect(flagged(ancestorGradientScene({}, {}, 148, false, undefined, css))).toBe(true);
   });
 
   it("accepts ordinary nested text painted by an ancestor gradient on Chrome 148", () => {
