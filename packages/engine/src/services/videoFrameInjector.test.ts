@@ -481,6 +481,9 @@ describe("HDR untimed overlay stacking", () => {
           <video id="plate" data-start="0"></video>
           <img id="__render_frame_plate__" style="position:absolute;z-index:2">
         </div>
+        <div id="lower-third" style="position:absolute;z-index:1">
+          <div><div id="badge" style="position:absolute;z-index:3"></div></div>
+        </div>
         <div id="caps" style="position:absolute;z-index:4"><div id="cap"></div></div>
       </div></body></html>
     `);
@@ -509,10 +512,12 @@ describe("HDR untimed overlay stacking", () => {
     try {
       const stacking = await queryElementStacking(page, new Set());
       expect(stacking.map((el) => el.id)).toContain("caps");
+      expect(stacking.map((el) => el.id)).not.toContain("badge");
       expect(stacking.map((el) => el.id)).not.toContain("__render_frame_plate__");
       const layers = groupIntoLayers(stacking.map((el) => ({ ...el, isHdr: el.id === "plate" })));
       expect(layers.map((layer) => layer.type)).toEqual(["dom", "hdr", "dom"]);
       expect(layers.at(-1)).toEqual({ type: "dom", elementIds: ["caps"] });
+      expect(layers[0]?.elementIds).toContain("lower-third");
       const wrapper = document.querySelector("video")?.parentElement;
       expect(wrapper?.getAttribute("data-hf-render-id")).toBeTruthy();
       expect((await queryElementStacking(page, new Set())).map((el) => el.id)).toEqual(

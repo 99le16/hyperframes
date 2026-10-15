@@ -715,7 +715,20 @@ export async function queryElementStacking(
         const isTimed = el.hasAttribute("data-start");
         const isCompositionChild = el.parentElement?.hasAttribute("data-composition-id");
         const hasStackingOrder = style.position !== "static" && style.zIndex !== "auto";
-        if (!isTimed && !hdrSet.has(id) && !isCompositionChild && !hasStackingOrder) continue;
+        if (!isTimed && !hdrSet.has(id)) {
+          if (!isCompositionChild && !hasStackingOrder) continue;
+          let ancestor = el.parentElement;
+          let capturedByAncestor = false;
+          while (ancestor && !ancestor.hasAttribute("data-composition-id")) {
+            const ancestorStyle = window.getComputedStyle(ancestor);
+            if (ancestorStyle.position !== "static" && ancestorStyle.zIndex !== "auto") {
+              capturedByAncestor = true;
+              break;
+            }
+            ancestor = ancestor.parentElement;
+          }
+          if (capturedByAncestor) continue;
+        }
         if (!id) {
           let index = 0;
           do {
