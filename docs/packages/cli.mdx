@@ -110,6 +110,7 @@ npx hyperframes init my-video --tailwind
 | `--tailwind`        | Add Tailwind CSS browser-runtime support to the scaffolded HTML                                                                                                                                                                                                                      |
 | `--non-interactive` | Never prompt. For agents and CI.                                                                                                                                                                                                                                                     |
 | `--skip-transcribe` | Skip the automatic Whisper transcription                                                                                                                                                                                                                                             |
+| `--keep-original`   | Copy the `--video` file as is instead of converting a non-web codec to H.264 MP4                                                                                                                                                                                                     |
 | `--model`           | Whisper model for that transcription (for example `small.en`, `medium.en`, `large`)                                                                                                                                                                                                   |
 | `--language`        | Language code for transcription (`en`, `es`, `ja`, …). Filters out speech in other languages.                                                                                                                                                                                         |
 | `--skip-skills`     | Currently ignored. Set `HYPERFRAMES_SKIP_SKILLS=1` to opt out in CI or tests.                                                                                                                                                                                                         |
@@ -737,7 +738,7 @@ cover every finding from the full check.
 | Flag                                         | Description                                                                                                                 |
 | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `--json`                                     | One aggregated envelope. Every finding carries a selector, `data-*` identity, source file, bbox, and sample time.           |
-| `--snapshots`                                | Save the five audited frames under `snapshots/`, plus a `finding-NN-<code>.png` crop per finding                             |
+| `--snapshots`                                | Save the five audited frames under `.hyperframes/artifacts/snapshots/`, plus a `finding-NN-<code>.png` crop per finding      |
 | `--samples`                                  | Midpoint samples across the duration (default 9)                                                                            |
 | `--at`                                       | Explicit timestamps in seconds, comma-separated                                                                             |
 | `--at-transitions`                           | Also sample every tween start and end, to catch transient overlaps at transition seams                                       |
@@ -854,10 +855,10 @@ npx hyperframes snapshot my-project --at 1.5,4.3 --against ref.mp4
 ```
 ◆  Capturing 3 frames at [2.9s, 10.4s, 18.7s] from my-project
 
-◇  3 snapshots saved to snapshots/
-   snapshots/frame-00-at-2.9s.png
-   snapshots/frame-01-at-10.4s.png
-   snapshots/frame-02-at-18.7s.png
+◇  3 snapshots saved to <project>/.hyperframes/artifacts/snapshots/<id>
+   .hyperframes/artifacts/snapshots/<id>/frame-00-at-2.9s.png
+   .hyperframes/artifacts/snapshots/<id>/frame-01-at-10.4s.png
+   .hyperframes/artifacts/snapshots/<id>/frame-02-at-18.7s.png
 ```
 
 | Flag                    | Description                                                                                                                                                        |
@@ -866,8 +867,9 @@ npx hyperframes snapshot my-project --at 1.5,4.3 --against ref.mp4
 | `--frames`              | Evenly spaced frames instead (default 5)                                                                                                                            |
 | `--range <start,end>`   | Spread `--frames` across this interval only, in root-timeline seconds, with no end-of-timeline frame added                                                          |
 | `--composition <id>`    | Spread `--frames` across the visible interval of the element with this `data-composition-id`. Use one of `--at`, `--range` or `--composition`.                      |
-| `--output, -o`          | Where the PNGs go (default `<project>/snapshots`)                                                                                                                   |
+| `--output, -o`          | Where the PNGs go (default: a new `<project>/.hyperframes/artifacts/snapshots/<id>` per run)                                                                       |
 | `--end` / `--no-end`    | Always add a readable end-of-timeline frame (default: on). `--no-end` captures only your `--at` times.                                                              |
+| `--keep`                | Add to `--output` instead of clearing it, naming each still for its time: `at-0s.png`, `at-1.5s.png`, `at-12.25s.png` (no trailing zeros). Snapshotting one moment again replaces only that still. No contact sheet. |
 | `--zoom`                | Crop to a CSS selector or an exact `x,y,w,h` region, using a raised device scale factor. Layout is untouched — never CSS zoom or a resized viewport. A selector that matches nothing is an error. |
 | `--against`             | A reference video, such as footage you are rebuilding. For every captured time also saves its frame-exact frame (`ref-XX-…png`) and a labelled render / reference pair (`pair-XX-…jpg`). |
 | `--zoom-scale`          | Pixel density for `--zoom` crops (default 3)                                                                                                                        |
@@ -1045,11 +1047,17 @@ npx hyperframes history undo --who claude            # undo your newest turn
 | `restore <ref> [--who]` | Make the files what they were right after an entry, a time, or `start`                                 |
 | `peek <ref> [path]`     | List the files at an entry, a time, or `start` without changing anything; with a path, print that file |
 | `pin <ref> [--off]`     | Keep an entry, and what it needs, when old history is trimmed. `--off` unpins it.                      |
-| `begin --who --label`   | Start a turn: your writes until `end` become one entry under your name                                 |
-| `end`                   | End your turn and print its entry                                                                      |
+| `begin --who --label`   | Start a turn: your writes until `end` become one entry under your name. Another agent's open turn is ended first, or with `--exclusive` the command refuses instead. |
+| `end`                   | End your turn and print its entry. `--who <name>` refuses unless the open turn is that name's; `--if-open` succeeds when no turn is open. |
 
 Every command also takes `--dir` and `--json`. A ref is an entry id or a unique
 prefix of one; a time is a local date or date-time such as `2026-09-24T14:30`.
+
+Without a running preview, `history` keeps its data under `~/.cache/hyperframes/history`, or under
+`HYPERFRAMES_HISTORY_ROOT` when that is set, which keeps an agent run or a test apart from your own
+history. That path is resolved to an absolute one, and every agent on a project has to share it: the
+lock lives there, while the turn marker lives in the project. A running preview server records to
+its own location.
 
 When a file in the entry has changed since, `undo` writes nothing, exits 2 and
 lists the newer entries. Run it again with `--just-this` to put back only that
@@ -1339,7 +1347,7 @@ Find and remove what HyperFrames left on disk.
 ```bash
 npx hyperframes clean --dry-run   # list it, remove nothing
 npx hyperframes clean
-npx hyperframes clean --snapshots # also remove snapshots/ folders
+npx hyperframes clean --snapshots # also remove snapshots and saved check reports
 npx hyperframes clean --json
 ```
 
@@ -1350,7 +1358,7 @@ It looks in the current project (not its subfolders) and every project the Studi
 - the history of projects that no longer exist;
 - extracted video frames and video proxies nobody has used for an hour (they rebuild on demand).
 
-`snapshots/` folders are listed as also reclaimable and removed only with `--snapshots`. Rendered outputs, source
+`snapshots/` folders and the saved snapshots and check reports under `.hyperframes/artifacts/` are listed as also reclaimable and removed only with `--snapshots`. Rendered outputs, source
 files, the browser download and models are never touched.
 
 ### `info` and `compositions`

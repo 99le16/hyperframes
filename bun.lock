@@ -17,6 +17,7 @@
         "lefthook": "^2.1.4",
         "oxfmt": "^0.41.0",
         "oxlint": "^1.56.0",
+        "picomatch": "^4.0.4",
         "tsx": "^4.21.0",
         "typescript": "^5.0.0",
         "vitest": "^4.1.11",
@@ -197,9 +198,10 @@
     },
     "packages/inspector": {
       "name": "@hyperframes/inspector",
-      "version": "0.8.140",
+      "version": "0.8.150",
       "dependencies": {
         "@hyperframes/core": "workspace:*",
+        "@hyperframes/parsers": "workspace:*",
         "@jridgewell/trace-mapping": "^0.3.29",
         "acorn": "^8.17.0",
         "esbuild": "^0.25.12",

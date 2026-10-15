@@ -86,6 +86,12 @@ export function installInspection(win: InspectorWindow, generation: string, limi
     }
     return value;
   };
+  const ancestorId = (el: Element) => {
+    for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+      if (parent.id) return parent.id;
+    }
+    return "";
+  };
   const describe = (el: Element): ElementRef => ({
     ref: ref(el),
     tag: el.tagName.toLowerCase(),
@@ -93,6 +99,7 @@ export function installInspection(win: InspectorWindow, generation: string, limi
     hfId: el.getAttribute("data-hf-id"),
     classes: [...el.classList],
     composition: el.closest("[data-composition-id]")?.getAttribute("data-composition-id") ?? null,
+    withinId: ancestorId(el),
   });
   function record(value: unknown, stack: string) {
     if (animation(value) && !records.has(value) && count < limit) {

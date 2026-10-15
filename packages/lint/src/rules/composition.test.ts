@@ -2531,8 +2531,8 @@ ${body}
     // One frame carried the same `z-index: -1` band under isolation:isolate,
     // transform, opacity<1, filter, contain:paint and will-change -- all six
     // PRESENT at full coverage, the no-stacking-context control ABSENT at zero.
-    // This rule matches CSS text and cannot resolve the cascade, so it fires on
-    // both shapes; the message must therefore stay conditional.
+    // Without a stacking-context ancestor the message must stay conditional.
+    // A parent this file sets to isolation:isolate is covered separately and stays quiet.
     it("states the stacking-context CONDITION rather than asserting absence", async () => {
       const result = await lintHyperframeHtml(
         wrap(
@@ -2578,6 +2578,36 @@ ${body}
       expect(finding?.selector).toBe("#under");
     });
 
+    it("still flags a negative z-index hidden by a card under an isolated stage", async () => {
+      const result = await lintHyperframeHtml(
+        wrap(
+          ".stage { isolation: isolate; } .card { background: #fff; } .bg { position: absolute; z-index: -1; }",
+          `    <div class="stage"><div class="card"><i class="bg"></i></div></div>`,
+        ),
+      );
+      expect(result.findings.some((f) => f.code === "negative_z_index")).toBe(true);
+    });
+
+    it("stays quiet when a parent in the same file forms a stacking context", async () => {
+      const result = await lintHyperframeHtml(
+        wrap(
+          ".wrap { position: relative; isolation: isolate; } .bar { position: absolute; z-index: -1; }",
+          `    <span class="wrap">product.<i class="bar"></i></span>`,
+        ),
+      );
+      expect(result.findings.some((f) => f.code === "negative_z_index")).toBe(false);
+    });
+
+    it("still flags a negative z-index when isolation is on an unrelated element", async () => {
+      const result = await lintHyperframeHtml(
+        wrap(
+          ".wrap { isolation: isolate; } .bar { z-index: -1; }",
+          `    <span class="wrap"></span><i class="bar"></i>`,
+        ),
+      );
+      expect(result.findings.some((f) => f.code === "negative_z_index")).toBe(true);
+    });
+
     it("does not flag zero or positive z-index", async () => {
       const result = await lintHyperframeHtml(
         wrap(
@@ -2620,6 +2650,56 @@ ${body}
         wrap("#a { z-index: -1; } #b { z-index: -2; }", `    <div id="a"></div>`),
       );
       expect(result.findings.filter((f) => f.code === "negative_z_index")).toHaveLength(2);
+    });
+  });
+
+  describe("subcomposition_root_styled_by_class", () => {
+    it("flags when the root class is used as a CSS selector in a sub-composition", async () => {
+      const html = `<!doctype html><html><body>
+        <style>
+          .my-root { background: red; }
+        </style>
+        <div data-composition-id="main" class="my-root" data-start="0" data-duration="5"></div>
+      </body></html>`;
+
+      const result = await lintHyperframeHtml(html, { isSubComposition: true });
+      expect(result.findings).toContainEqual(
+        expect.objectContaining({
+          code: "subcomposition_root_styled_by_class",
+          severity: "error",
+        }),
+      );
+    });
+
+    it("passes when styling via #root and descendant selectors", async () => {
+      const html = `<!doctype html><html><body>
+        <style>
+          #root { background: red; }
+          .child { color: blue; }
+        </style>
+        <div data-composition-id="main" id="root" class="my-root" data-start="0" data-duration="5">
+          <div class="child"></div>
+        </div>
+      </body></html>`;
+
+      const result = await lintHyperframeHtml(html, { isSubComposition: true });
+      expect(result.findings.some((f) => f.code === "subcomposition_root_styled_by_class")).toBe(
+        false,
+      );
+    });
+
+    it("passes if it is not a sub-composition", async () => {
+      const html = `<!doctype html><html><body>
+        <style>
+          .my-root { background: red; }
+        </style>
+        <div data-composition-id="main" class="my-root" data-start="0" data-duration="5"></div>
+      </body></html>`;
+
+      const result = await lintHyperframeHtml(html, { isSubComposition: false });
+      expect(result.findings.some((f) => f.code === "subcomposition_root_styled_by_class")).toBe(
+        false,
+      );
     });
   });
 });

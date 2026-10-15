@@ -1,3 +1,6 @@
+import { BrowserCleanupError } from "../browser/launch.js";
+import { CheckDeadline, CheckDeadlineError } from "./checkDeadline.js";
+import { checkSnapshotDirectory } from "./checkSnapshotDirectory.js";
 import { findingElementKey, groupSampledFindings } from "./checkFindings.js";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -1274,30 +1277,62 @@ export async function runCheckPipeline(
         ]
       : [];
 
-  let browser: CheckBrowserResult;
+  const deadline = new CheckDeadline();
+  let outcome: { kind: "report"; report: CheckReport } | { kind: "failed"; error: unknown };
   try {
-    browser = await dependencies.runBrowserCheck(project, options, motion);
-  } catch (error) {
-    browser = emptyBrowserResult();
-    browser.runtimeFindings.push(runtimeFailure(error));
-  }
+    let browser: CheckBrowserResult;
+    try {
+      browser = await deadline.run(() =>
+        dependencies.runBrowserCheck(project, options, motion, deadline),
+      );
+    } catch (error) {
+      browser = emptyBrowserResult();
+      browser.runtimeFindings.push(runtimeFailure(error));
+    }
 
-  const snapshotFiles = options.snapshots
-    ? await writeContrastSnapshots(dependencies, project.dir, browser)
-    : [];
-  const report = buildReport(
-    options,
-    lint,
-    browser,
-    motion,
-    specFindings,
-    snapshotFiles,
-    hdrPromotion,
-    hdrInspection,
-  );
-  return options.snapshots
-    ? await withFindingCrops(dependencies, project, options, report)
-    : report;
+    const snapshotFiles = options.snapshots
+      ? await writeContrastSnapshots(dependencies, project.dir, browser)
+      : [];
+    const report = buildReport(
+      options,
+      lint,
+      browser,
+      motion,
+      specFindings,
+      snapshotFiles,
+      hdrPromotion,
+      hdrInspection,
+    );
+    outcome = {
+      kind: "report",
+      report: options.snapshots
+        ? await withFindingCrops(dependencies, project, options, report, deadline)
+        : report,
+    };
+  } catch (error) {
+    outcome = { kind: "failed", error };
+  }
+  try {
+    await deadline.close();
+  } catch (error) {
+    if (outcome.kind === "failed") {
+      throw new BrowserCleanupError(
+        [outcome.error, error],
+        `${normalizeErrorMessage(outcome.error)}; ${normalizeErrorMessage(error)}`,
+      );
+    }
+    const report = outcome.report;
+    return {
+      ...report,
+      ok: false,
+      runtime: section([
+        ...report.runtime.findings,
+        runtimeFailure(error, "check_cleanup_failure"),
+      ]),
+    };
+  }
+  if (outcome.kind === "failed") throw outcome.error;
+  return outcome.report;
 }
 
 /** Persists the contrast pass's already-captured overview PNGs (or the
@@ -1329,13 +1364,20 @@ async function withFindingCrops(
   project: ProjectDir,
   options: CheckOptions,
   report: CheckReport,
+  deadline: CheckDeadline,
 ): Promise<CheckReport> {
   const cropRequests = selectFindingCropRequests(report);
   if (cropRequests.length === 0) return report;
   try {
-    const findingFiles = await dependencies.captureFindingCrops(project, options, cropRequests);
+    const findingFiles = await deadline.run(() =>
+      dependencies.captureFindingCrops(project, options, cropRequests, deadline),
+    );
     return { ...report, snapshots: { ...report.snapshots, findingFiles } };
   } catch (error) {
+    if (error instanceof CheckDeadlineError) {
+      const finding = runtimeFailure(error);
+      return { ...report, ok: false, runtime: section([...report.runtime.findings, finding]) };
+    }
     // Still non-gating, but observable: rollouts need the crop-failure rate
     // (a second Chrome launch failing/timing out) without failing the run.
     console.error("   finding crops skipped: " + normalizeErrorMessage(error));
@@ -1681,7 +1723,12 @@ function emptyBrowserResult(): CheckBrowserResult {
 }
 
 function runtimeFailure(error: unknown, code = "check_runtime_failure"): CheckFinding {
-  return findingAtRoot(code, "error", normalizeErrorMessage(error), "index.html");
+  return findingAtRoot(
+    code,
+    "error",
+    normalizeErrorMessage(error),
+    error instanceof CheckDeadlineError ? (error.sourceFile ?? "index.html") : "index.html",
+  );
 }
 
 function findingAtRoot(
@@ -1736,11 +1783,12 @@ async function runBrowserCheck(
   project: ProjectDir,
   options: CheckOptions,
   motion: MotionSpecResolution,
+  deadline?: CheckDeadline,
 ): Promise<CheckBrowserResult> {
   const module = await import("./checkBrowser.js");
   // runAuditGrid is handed over as a callback so checkBrowser never imports
   // this module back (no import cycle).
-  return module.runBrowserCheck(project, options, motion, runAuditGrid);
+  return module.runBrowserCheck(project, options, motion, runAuditGrid, deadline);
 }
 
 async function writeSnapshot(
@@ -1749,22 +1797,23 @@ async function writeSnapshot(
   time: number,
   pngBase64: string,
 ): Promise<string> {
-  const snapshotDir = join(projectDir, "snapshots");
+  const snapshotDir = checkSnapshotDirectory(projectDir);
   mkdirSync(snapshotDir, { recursive: true });
   const filename = `frame-${String(index).padStart(2, "0")}-at-${time.toFixed(1)}s.png`;
   const path = join(snapshotDir, filename);
   writeFileSync(path, Buffer.from(pngBase64, "base64"));
-  return join("snapshots", filename);
+  return relative(projectDir, path);
 }
 
 async function captureFindingCrops(
   project: ProjectDir,
   options: CheckOptions,
   requests: CheckFindingCropRequest[],
+  deadline?: CheckDeadline,
 ): Promise<string[]> {
   const module = await import("./checkBrowser.js");
   // Handed over the same way runBrowserCheck is (checkBrowser never imports this module back).
-  return module.captureFindingCrops(project, options, requests);
+  return module.captureFindingCrops(project, options, requests, deadline);
 }
 
 const DEFAULT_DEPENDENCIES: CheckDependencies = {
