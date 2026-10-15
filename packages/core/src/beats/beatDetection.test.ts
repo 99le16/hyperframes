@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { AudioSignal } from "../audioAnalysis";
+import { signalProvider, type AudioSignal } from "../audioAnalysis";
+import { STEADY_BEAT_CONFIDENCE, rhythm } from "../audioRhythm";
 import { analyzeMusicFromBuffer, analyzeMusicFromSignal } from "./beatDetection";
 
 const RATE = 22_050;
@@ -103,6 +104,17 @@ describe("analyzeMusicFromSignal", () => {
       const analysis = await analyzeMusicFromSignal(mono(samples));
       expect(analysis).toMatchObject({ beatTimes: [], bpm: null, bpmConfidence: "uncertain" });
     }
+  });
+
+  it("refuses an ambient pad in the tracker itself, so every caller of the signal tracker agrees", async () => {
+    const ambient = mono(pad(30));
+    const { beats, downbeats } = rhythm(ambient);
+    expect(beats).toMatchObject({ times: [], reason: "no steady beat" });
+    expect(beats.confidence).toBeLessThan(STEADY_BEAT_CONFIDENCE);
+    expect(downbeats.times).toEqual([]);
+    await expect(signalProvider.analyze("beats", ambient, {})).resolves.toMatchObject({
+      times: [],
+    });
   });
 
   it("waits on the caller's pause before each long stage", async () => {
