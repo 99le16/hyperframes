@@ -82,7 +82,7 @@ const PARAKEET_MODEL_FILES: readonly ModelFile[] = [
   },
 ];
 
-/** At least 30 minutes, and twice the audio length for slow CPUs: whole milliseconds, at most what Node's timers take. */
+/** At least 30 minutes, twice the audio length for slow CPUs; whole ms, within Node's timer limit. */
 export const decodeTimeoutMs = (audioSeconds: number) =>
   Math.min(2 ** 31 - 1, Math.max(1_800_000, Math.ceil(audioSeconds * 2000)));
 
