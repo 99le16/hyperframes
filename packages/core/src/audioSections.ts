@@ -95,7 +95,7 @@ function boundaryBlocks(curve: number[], minBlocks: number): number[] {
   const peaks: number[] = [];
   for (let i = minBlocks; i <= curve.length - minBlocks; i++) {
     const neighbourhood = curve.slice(Math.max(0, i - minBlocks), i + minBlocks + 1);
-    if (curve[i]! < Math.max(...neighbourhood) || curve[i]! < mean + spread) continue;
+    if (curve[i]! < Math.max(...neighbourhood) || curve[i]! <= mean + spread) continue;
     if (!peaks.length || i - peaks[peaks.length - 1]! >= minBlocks) peaks.push(i);
   }
   return peaks;

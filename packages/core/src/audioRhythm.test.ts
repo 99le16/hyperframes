@@ -127,6 +127,14 @@ describe("sections", () => {
     expect(found.snap).toMatchObject({ reference: "signal beats", snapped: 2, unsnapped: [] });
   });
 
+  it.each([1, 4, 8])(
+    "keeps 30 seconds of silence as one section with a %s-second minimum",
+    (minSeconds) => {
+      const signal = { sampleRate: RATE, channels: [new Float32Array(30 * RATE)] };
+      expect(sections(signal, { minSeconds }).spans).toEqual([{ start: 0, end: 30, label: "A" }]);
+    },
+  );
+
   it("keeps a short sound as one section", () => {
     expect(sections(parts([{ seconds: 5, bright: true }])).spans).toEqual([
       { start: 0, end: 5, label: "A" },
