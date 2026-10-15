@@ -66,6 +66,33 @@ const reserved = new Set([
   "defaults",
 ]);
 
+const PAGE_RESET = new Set(["*", "html", "body", ":root", "html *", "body *", ":root *", "* *"]);
+
+function selectorAlternatives(selector: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < selector.length; i += 1) {
+    const ch = selector[i];
+    if (ch === "(") depth += 1;
+    else if (ch === ")") depth = Math.max(0, depth - 1);
+    else if (ch === "," && depth === 0) {
+      parts.push(selector.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(selector.slice(start));
+  return parts;
+}
+
+/** A page reset (`*`, `html`, `body`) matches every element, so it is not that element's CSS. */
+export function authoredCssSelector(selector: string): string | null {
+  const specific = selectorAlternatives(selector)
+    .map((part) => part.trim().replace(/\s+/g, " "))
+    .filter((part) => part && !PAGE_RESET.has(part.toLowerCase()));
+  return specific.length > 0 ? specific.join(", ") : null;
+}
+
 export function installInspection(win: InspectorWindow, generation: string, limit = 20_000) {
   const records = new WeakMap<Animation, string>();
   const attachments = new WeakMap<Animation, string>();
@@ -262,8 +289,10 @@ export function installInspection(win: InspectorWindow, generation: string, limi
         });
         const css = q.cssRules
           .filter((rule) => {
+            const selector = authoredCssSelector(rule.selector);
+            if (!selector) return false;
             try {
-              return scope.some((el) => el.matches(rule.selector));
+              return scope.some((el) => el.matches(selector));
             } catch {
               return false;
             }
