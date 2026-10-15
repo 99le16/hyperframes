@@ -301,6 +301,36 @@ describe("createPickerModule", () => {
       expect(candidatesUnder(() => [el("photo"), el("wash"), el("scene")])).toContain("#photo");
     });
 
+    it("picks the picture under a faint SVG filter grain", () => {
+      const picker = createPickerModule({ postMessage: createMockPostMessage() });
+      picker.installPickerApi();
+      document.head.innerHTML = "<style>#world-grain { opacity: 0.07 }</style>";
+      document.body.innerHTML =
+        '<div id="scene"><img id="photo" alt=""><svg id="world-grain"><filter id="world-noise"><feTurbulence /></filter><rect id="grain-rect" filter="url(#world-noise)" /></svg></div>';
+      const el = (id: string) => document.getElementById(id)!;
+      expect(
+        candidatesUnder(() => [el("grain-rect"), el("world-grain"), el("photo"), el("scene")]),
+      ).toEqual(["#photo", "#scene"]);
+    });
+
+    it("keeps faint HTML custom elements whose names begin with fe pickable", () => {
+      const picker = createPickerModule({ postMessage: createMockPostMessage() });
+      picker.installPickerApi();
+      document.body.innerHTML =
+        '<div id="scene"><feed-card id="card" style="opacity:0.07"></feed-card></div>';
+      const el = (id: string) => document.getElementById(id)!;
+      expect(candidatesUnder(() => [el("card"), el("scene")])).toEqual(["#card", "#scene"]);
+    });
+
+    it("still picks a filtered rect in an opaque SVG", () => {
+      const picker = createPickerModule({ postMessage: createMockPostMessage() });
+      picker.installPickerApi();
+      document.body.innerHTML =
+        '<svg id="chart"><filter id="glow"><feGaussianBlur /></filter><rect id="bar" filter="url(#glow)" /></svg>';
+      const el = (id: string) => document.getElementById(id)!;
+      expect(candidatesUnder(() => [el("bar"), el("chart")])).toEqual(["#bar", "#chart"]);
+    });
+
     it("does not pick a faint texture veil that covers the frame", () => {
       const picker = createPickerModule({ postMessage: createMockPostMessage() });
       picker.installPickerApi();
