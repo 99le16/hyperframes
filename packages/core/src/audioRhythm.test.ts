@@ -84,6 +84,13 @@ describe("tempoOf", () => {
   it("has no tempo without two beats", () => {
     expect(tempoOf([1])).toEqual({ value: null, curve: [] });
   });
+
+  it("reads 96 BPM off beats placed on 10 ms frames, though no interval between them is 625 ms", () => {
+    const beats = grid(0.4, 0.625, 20).map((t) => Math.round(t * 100) / 100);
+    const tempo = tempoOf(beats);
+    expect(tempo.value).toBeCloseTo(96, 0);
+    expect(tempo.curve.every((point) => Math.abs(point.bpm - 96) < 0.5)).toBe(true);
+  });
 });
 
 describe("sections", () => {

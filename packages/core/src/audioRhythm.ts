@@ -369,15 +369,26 @@ export function rhythmOf(frames: BandFrames, sampleRate: number): Rhythm {
 
 const TEMPO_STEP_SECONDS = 4;
 
-/** Tempo from beat times, by whichever provider placed them: the median interval, and a curve over ±4 s windows. */
+/** The mean of the intervals within 10% of the median: as robust as the median, without its frame-sized steps. */
+function steadyInterval(times: readonly number[]): number | null {
+  const median = medianInterval(times);
+  if (!median) return null;
+  const near = times
+    .slice(1)
+    .map((t, i) => t - times[i]!)
+    .filter((gap) => Math.abs(gap - median) <= 0.1 * median);
+  return near.reduce((a, b) => a + b, 0) / near.length;
+}
+
+/** Tempo from beat times, by whichever provider placed them: the steady interval, and a curve over ±4 s windows. */
 export function tempoOf(times: readonly number[]): Tempo {
-  const interval = medianInterval(times);
+  const interval = steadyInterval(times);
   if (!interval) return { value: null, curve: [] };
   const bpm = (gap: number) => Math.round(600 / gap) / 10;
   const curve: TempoPoint[] = [];
   const last = times[times.length - 1]!;
   for (let t = times[0]!; t <= last; t += TEMPO_STEP_SECONDS) {
-    const gap = medianInterval(times.filter((b) => Math.abs(b - t) <= TEMPO_STEP_SECONDS));
+    const gap = steadyInterval(times.filter((b) => Math.abs(b - t) <= TEMPO_STEP_SECONDS));
     if (gap) curve.push({ t: round(t), bpm: bpm(gap) });
   }
   return { value: bpm(interval), curve };
