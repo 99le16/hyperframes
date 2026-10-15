@@ -85,7 +85,6 @@ function selectorAlternatives(selector: string): string[] {
   return parts;
 }
 
-/** A page reset (`*`, `html`, `body`) matches every element, so it is not that element's CSS. */
 export function authoredCssSelector(selector: string): string | null {
   const specific = selectorAlternatives(selector)
     .map((part) => part.trim().replace(/\s+/g, " "))

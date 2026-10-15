@@ -135,9 +135,6 @@ export function createPickerModule(deps: PickerModuleDeps): PickerModule {
       const image = style.backgroundImage;
       if (image && image !== "none") return true;
     }
-    // Grain is an SVG filter rect. Its 0.07 opacity is on the parent <svg>, and the rect
-    // has no background-image, so the check above never sees it. The rect is still the hit
-    // target over the picture underneath.
     return faintFilterPaint(el, win);
   }
 
@@ -154,7 +151,6 @@ export function createPickerModule(deps: PickerModuleDeps): PickerModule {
     return painted.startsWith("url(");
   }
 
-  // A texture layer: filter markup and the rect that displays it, with no text and no other shapes.
   function isOnlyFilterPaint(el: Element): boolean {
     if ((el.textContent ?? "").trim()) return false;
     if (isFilterDefinition(el) || isFilterRect(el)) return true;
