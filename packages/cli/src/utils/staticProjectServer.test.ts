@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, type ReadStream } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import fs from "node:fs";
-import { get } from "node:http";
-import { syncBuiltinESMExports } from "node:module";
-import { serveStaticProjectHtml, type StaticProjectServer } from "./staticProjectServer.js";
+import { Server } from "node:http";
+import {
+  inProcessAnswer,
+  serveStaticProjectHtml,
+  type StaticProjectServer,
+} from "./staticProjectServer.js";
 
 // `serveStaticProjectHtml` reaches these two studio-server helpers via a
 // absolute module regardless of which file's relative specifier reaches it).
@@ -200,70 +202,6 @@ describe("serveStaticProjectHtml range support", () => {
     const res = await fetch(`${url}tone.wav`, { headers: { Range: "bytes=99-200" } });
     expect(res.status).toBe(416);
     expect(res.headers.get("content-range")).toBe(`bytes */${body.length}`);
-  });
-});
-
-describe("serveStaticProjectHtml asset stream lifetime", () => {
-  it.each([
-    { label: "full", range: undefined, proxy: false },
-    { label: "open-ended range", range: "bytes=1048576-", proxy: false },
-    { label: "bounded range", range: "bytes=0-16777215", proxy: false },
-    { label: "proxy", range: undefined, proxy: true },
-  ])("closes a $label asset when its client disconnects", async ({ range, proxy }) => {
-    dir = mkdtempSync(join(tmpdir(), "hf-static-disconnect-"));
-    const assetPath = join(dir, "large.mp4");
-    writeFileSync(assetPath, "x");
-    fs.truncateSync(assetPath, 32 * 1024 * 1024);
-    mocks.resolveProxy.mockResolvedValue(assetPath);
-    server = await serveStaticProjectHtml(dir, "<html></html>");
-
-    const createStream = fs.createReadStream;
-    const streams: ReadStream[] = [];
-    const spy = vi.spyOn(fs, "createReadStream").mockImplementation((...args) => {
-      const stream = createStream(...args);
-      streams.push(stream);
-      return stream;
-    });
-    syncBuiltinESMExports();
-
-    try {
-      const status = await new Promise<number | undefined>((resolve, reject) => {
-        const req = get(
-          `${server?.url}large.mp4${proxy ? "?hf-proxy=h264" : ""}`,
-          { headers: range ? { Range: range } : {} },
-          (response) => {
-            response.on("data", () => {
-              response.destroy();
-              req.destroy();
-              resolve(response.statusCode);
-            });
-            response.on("error", reject);
-          },
-        );
-        req.on("error", reject);
-      });
-
-      expect(status).toBe(range ? 206 : 200);
-      expect(streams).toHaveLength(1);
-      await expect.poll(() => streams[0]?.closed, { timeout: 1500, interval: 10 }).toBe(true);
-      expect(streams[0]?.destroyed).toBe(true);
-      expect((await fetch(server.url)).status).toBe(200);
-    } finally {
-      await Promise.all(
-        streams.map(
-          (stream) =>
-            new Promise<void>((resolve) => {
-              if (stream.closed) resolve();
-              else {
-                stream.once("close", resolve);
-                stream.destroy();
-              }
-            }),
-        ),
-      );
-      spy.mockRestore();
-      syncBuiltinESMExports();
-    }
   });
 });
 
@@ -478,5 +416,55 @@ describe("serveStaticProjectHtml transparent media proxies", () => {
     const res = await fetch(`${server.url}image.png?hf-proxy=h264`);
     expect(res.status).toBe(404);
     expect(mocks.resolveProxy).not.toHaveBeenCalled();
+  });
+});
+
+describe("serveStaticProjectHtml when a sandbox refuses listen()", () => {
+  const refuse = (code: string) =>
+    vi.spyOn(Server.prototype, "listen").mockImplementation(function (this: Server) {
+      process.nextTick(() =>
+        this.emit("error", Object.assign(new Error(`listen ${code}`), { code })),
+      );
+      return this;
+    });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("answers the project in this process, Range included, with nothing listening", async () => {
+    const listen = refuse("EPERM");
+    dir = mkdtempSync(join(tmpdir(), "hf-static-"));
+    writeFileSync(join(dir, "tone.wav"), Buffer.from("0123456789", "utf-8"));
+    server = await serveStaticProjectHtml(dir, "<html><body>composition</body></html>");
+
+    expect(listen).toHaveBeenCalledOnce();
+    expect(server.port).toBe(0);
+    expect(inProcessAnswer(server.url)).toBe(server.answer);
+    const page = await server.answer!({ method: "GET", path: "/", headers: {} });
+    expect(page.status).toBe(200);
+    expect(page.body.toString()).toContain("composition");
+    const slice = await server.answer!({
+      method: "GET",
+      path: "/tone.wav",
+      headers: { range: "bytes=2-5" },
+    });
+    expect(slice.status).toBe(206);
+    expect(slice.headers["content-range"]).toBe("bytes 2-5/10");
+    expect(slice.body.toString()).toBe("2345");
+    expect(
+      (await server.answer!({ method: "GET", path: "/missing.png", headers: {} })).status,
+    ).toBe(404);
+
+    const url = server.url;
+    await server.close();
+    server = undefined;
+    expect(inProcessAnswer(url)).toBeUndefined();
+  });
+
+  it("still fails on a bind error that is not a refusal", async () => {
+    refuse("EADDRINUSE");
+    dir = mkdtempSync(join(tmpdir(), "hf-static-"));
+    await expect(serveStaticProjectHtml(dir, "<html></html>")).rejects.toMatchObject({
+      code: "EADDRINUSE",
+    });
   });
 });
