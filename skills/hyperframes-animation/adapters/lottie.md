@@ -19,9 +19,13 @@ The adapter seeks `lottie-web` with `goToAndStop(timeMs, false)` and dotLottie w
 
 ## lottie-web Pattern
 
+Before rendering, copy lottie.min.js from a pinned `lottie-web` release into
+`lib/lottie-web/` in the project. For example, version 5.12.2 is available at
+https://cdnjs.cloudflare.com/ajax/libs/bodymovin/5.12.2/lottie.min.js.
+
 ```html
 <div id="logo-lottie" class="lottie-layer"></div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/bodymovin/5.12.2/lottie.min.js"></script>
+<script src="lib/lottie-web/lottie.min.js"></script>
 <script>
   const anim = lottie.loadAnimation({
     container: document.getElementById("logo-lottie"),
