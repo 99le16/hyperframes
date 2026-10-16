@@ -30,6 +30,8 @@ import {
 } from "../utils/authoredSource";
 import { serializeStudioFileMutations } from "../utils/studioFileMutationCoordinator";
 
+import { pasteSystemElement, readSystemClipboardText } from "./elementClipboardPaste";
+
 type InPlace = { inPlace?: boolean };
 
 const pasteStart = (
@@ -58,6 +60,7 @@ interface RecordEditInput {
 
 export interface UseClipboardOptions {
   projectId: string | null;
+  readOnlyPreview?: boolean;
   activeCompPath: string | null;
   domEditSelectionRef: React.MutableRefObject<DomEditSelection | null>;
   showToast: (message: string, tone?: "error" | "info") => void;
@@ -252,6 +255,7 @@ export function pasteTimelineClips(
 
 export function useClipboard({
   projectId,
+  readOnlyPreview = false,
   activeCompPath,
   domEditSelectionRef,
   showToast,
@@ -264,6 +268,7 @@ export function useClipboard({
   waitForPendingDomEditSaves,
 }: UseClipboardOptions) {
   const clipboardRef = useRef<Promise<ClipboardPayload | null> | null>(null);
+  const ignoredSystemText = useRef<Promise<string | null>>(Promise.resolve(null));
   const projectIdRef = useRef(projectId);
   projectIdRef.current = projectId;
 
@@ -373,6 +378,7 @@ export function useClipboard({
       return null;
     }
     if (!pending) return null;
+    ignoredSystemText.current = readSystemClipboardText();
     const own = pending.catch((error: unknown) => {
       showToast(error instanceof Error ? error.message : "Failed to copy", "error");
       return null;
@@ -392,6 +398,23 @@ export function useClipboard({
   // fallow-ignore-next-line complexity
   const handlePaste = useCallback(
     async (options?: InPlace) => {
+      if (
+        await pasteSystemElement(
+          {
+            projectId: projectIdRef.current,
+            activeCompPath,
+            readOnlyPreview,
+            writeProjectFile,
+            recordEdit,
+            reloadPreview,
+            showToast,
+            waitForPendingDomEditSaves,
+            ignoredText: ignoredSystemText.current,
+          },
+          pasteTimelineClips,
+        )
+      )
+        return;
       const payload = await clipboardRef.current;
       if (!payload) {
         showToast("Nothing to paste.", "info");
@@ -447,7 +470,15 @@ export function useClipboard({
         showToast(message);
       }
     },
-    [activeCompPath, recordEdit, reloadPreview, showToast, writeProjectFile],
+    [
+      activeCompPath,
+      readOnlyPreview,
+      recordEdit,
+      reloadPreview,
+      showToast,
+      waitForPendingDomEditSaves,
+      writeProjectFile,
+    ],
   );
 
   // Duplicates the selection right after it, or with `inPlace` at its own time on a track of its own,
