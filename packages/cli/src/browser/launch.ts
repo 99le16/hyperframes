@@ -109,7 +109,6 @@ async function closeManagedBrowsers(): Promise<void> {
   if (errors.length) throw new AggregateError(errors, "Browser session shutdown failed.");
 }
 
-/** Session-owned resources must settle before signal shutdown requests root exit. */
 export function registerBrowserSessionCleanup(cleanup: () => Promise<void>): () => void {
   if (shutdown) throw new Error("The CLI is stopping; no browser session can start.");
   ownSignals();
