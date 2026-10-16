@@ -151,9 +151,11 @@ export function describeFfmpegFailure(
     );
   }
   if (result.exitCode !== null) return error;
-  // With no exit code, how it ended is the clue: its own signal, or a stop this process asked for.
-  const how = result.terminationReason === "exit" ? result.signal : result.terminationReason;
-  return how ? `FFmpeg ended without an exit code (${how}). ${error}` : error;
+  const signalOrRequestedStop =
+    result.terminationReason === "exit" ? result.signal : result.terminationReason;
+  return signalOrRequestedStop
+    ? `FFmpeg ended without an exit code (${signalOrRequestedStop}). ${error}`
+    : error;
 }
 
 function spawnFfmpeg(args: string[]): ChildProcess {
