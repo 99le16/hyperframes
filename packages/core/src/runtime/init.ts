@@ -971,7 +971,9 @@ export function initSandboxRuntimeModular(): void {
     for (const { el, priority } of displayNoneLiftedToMeasureShown) {
       el.style.setProperty("display", "none", priority);
     }
-    for (const el of clips) clipLayoutInputs.set(el, clipLayoutKey(el));
+    // Not while the page loads: a pass before its stylesheets apply reads computed sizes they will change.
+    if (document.readyState === "complete")
+      for (const el of clips) clipLayoutInputs.set(el, clipLayoutKey(el));
   };
 
   const createTimingResolver = (includeAuthoredTimingAttrs: boolean) =>
@@ -2907,7 +2909,7 @@ export function initSandboxRuntimeModular(): void {
     from: number,
     to: number,
     rootComp: HTMLElement | null,
-  ): ((node: HTMLElement) => boolean) | null => {
+  ): ((node: Element) => boolean) | null => {
     if (!rootComp || !(Math.abs(to - from) <= PLAYED_STEP_MAX_SECONDS)) return null;
     const index = resolveMediaClipIndex();
     let windows = mediaWindows.get(index);
