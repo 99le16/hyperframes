@@ -280,7 +280,8 @@ function sanitizeProbeFailure(reason: unknown, paths: readonly string[]): string
   // turned a returned failure result into a rejected promise, which is a
   // behaviour regression the cast introduced.
   const message = reason instanceof Error ? reason.message : String(reason);
-  return redactTelemetryString(redactKnownPaths(message, paths));
+  // Uncapped: this is the error the person reads, and ffmpeg names the cause at the end. Telemetry caps its own copy.
+  return redactTelemetryString(redactKnownPaths(message, paths), Number.POSITIVE_INFINITY);
 }
 
 /**
