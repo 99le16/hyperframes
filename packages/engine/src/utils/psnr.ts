@@ -104,9 +104,9 @@ export async function regionShift(a: Buffer, b: Buffer): Promise<number> {
  * undefined when HF_DE_VERIFY_MAX_SHIFT is unset: the gate is observe-only
  * by default, so the shift is still measured and logged per verified sample
  * but a breach feeds `verifyMaxShiftObserved` telemetry instead of falling
- * back. Fixture calibration (PR #3941 discussion) found clean renders sitting
- * at 18-27/255 on compositor-animated content, where any hard default trips.
- * A set value in [1, 64] turns the gate on at that ceiling.
+ * back: fixture calibration found clean renders sitting at 18-27/255 on
+ * compositor-animated content, where any hard default trips. A set value in
+ * [1, 64] turns the gate on at that ceiling.
  */
 export function resolveDeVerifyMaxShift(): number | undefined {
   const raw = process.env.HF_DE_VERIFY_MAX_SHIFT;
