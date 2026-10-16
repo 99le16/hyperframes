@@ -46,7 +46,6 @@ const sameCapabilities = (a: TimelineEditCapabilities, b: TimelineEditCapabiliti
   a.canTrimEnd === b.canTrimEnd &&
   a.readOnly === b.readOnly;
 
-/** A clip too narrow for a picture (the "frame" tier) mounts none: at a long film's fit zoom that is most clips. */
 const NO_PICTURE: TimelineProps["renderClipContent"] = () => null;
 
 const zoomKey = (p: TimelineLaneClipProps) =>

@@ -72,8 +72,6 @@ function observeDoc(
  */
 export const RECOMPUTE_INTERVAL_MS = 100;
 
-/** A rebuild's share of the main thread at most: the wait after one grows with what it cost, so a film of
- *  thousands of elements, where one rebuild outlasts the interval, does not spend playback on them. */
 const MAX_REBUILD_SHARE = 0.1;
 
 /** Dirty, and far enough past the last rebuild to be worth paying for another. */
@@ -81,7 +79,6 @@ export function rebuildDue(dirty: boolean, lastAt: number, now: number, lastCost
   return dirty && now - lastAt >= Math.max(RECOMPUTE_INTERVAL_MS, lastCostMs / MAX_REBUILD_SHARE);
 }
 
-/** Playback moves the picture every frame, so the indicators wait for it to stop rather than chase it. */
 const rebuildNow = (dirty: boolean, lastAt: number, now: number, lastCostMs: number) =>
   !usePlayerStore.getState().isPlaying && rebuildDue(dirty, lastAt, now, lastCostMs);
 
@@ -149,7 +146,6 @@ export function startOffCanvasIndicatorRefresh(
     lastRecomputeCostMs = performance.now() - now;
   };
   const unsubscribe = subscribeOverlayFrame(update);
-  // The rebuild playback held is owed once it stops.
   const unsubscribePlaying = usePlayerStore.subscribe((now, before) => {
     if (before.isPlaying && !now.isPlaying) requestOverlayFrames();
   });

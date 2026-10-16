@@ -58,8 +58,6 @@ function paintWaveformBars(
 
 type WaveformColors = { bar: string; muted: string; baseline: string };
 
-/** The waveform colours, read once per theme change for every clip: a per-clip `getComputedStyle` after the clip's
- * canvas was resized forced a style recalc per clip, which a long episode (1,177 audio clips) paid 2,354 times. */
 let colors: WaveformColors | null = null;
 const waveformColors = (canvas: HTMLCanvasElement): WaveformColors => {
   if (colors) return colors;
@@ -72,8 +70,6 @@ const waveformColors = (canvas: HTMLCanvasElement): WaveformColors => {
   return colors;
 };
 
-/** One watcher of the theme for every waveform: a change drops the cached colours and redraws the clips near the
- * screen; each clip watching on its own redrew all of them, on screen or not. */
 const themeListeners = new Set<() => void>();
 let themeWatch: MutationObserver | null = null;
 function onThemeChange(listener: () => void): () => void {
@@ -97,8 +93,6 @@ function onThemeChange(listener: () => void): () => void {
   };
 }
 
-/** `size` is the canvas's CSS box when the caller knows it: reading it back from a canvas whose box was just written
- * forces a layout of the whole timeline, once per clip drawn. */
 export function drawWaveformCanvas(
   canvas: HTMLCanvasElement,
   peaks: readonly number[],
@@ -274,8 +268,6 @@ export const AudioWaveform = memo(function AudioWaveform({
     canvas.style.left = `${span.from * 100}%`;
     canvas.style.width = `${(span.to - span.from) * 100}%`;
     if (span.to <= span.from) return;
-    // the canvas's box, from the strip already measured: its width is the drawn span's, its height the strip's below
-    // the label (a strip not yet measured is read from the canvas, as before)
     const size =
       strip.width > 0 && strip.height > 0
         ? { width: (span.to - span.from) * strip.width, height: strip.height - labelInset }

@@ -498,7 +498,6 @@ export function buildMissingCompositionElements(
   const hosts = doc.querySelectorAll("[data-composition-id][data-start]");
   const missing: TimelineElement[] = [];
 
-  // Built on first use: it indexes every timed node, and only a missing composition asks.
   let resolveEndOnce: ReturnType<typeof createReferenceEndResolver> | undefined;
   const resolveEnd: ReturnType<typeof createReferenceEndResolver> = (refId, visiting) =>
     (resolveEndOnce ??= createReferenceEndResolver(createTimedElementLookup(doc), iframeWin))(
@@ -531,10 +530,8 @@ export function buildMissingCompositionElements(
 
   // Patch existing elements that are missing compositionSrc
   let patched = false;
-  // Built on first use: this runs on every preview state message, and the index reads every id in the film.
   let findHost: ReturnType<typeof previewElementFinder> | undefined;
   const updatedEls = (currentEls as TimelineElement[]).map((existing) => {
-    // A media element is never a composition host.
     if (existing.compositionSrc || MEDIA_TAGS.has(existing.tag.toLowerCase())) return existing;
     findHost ??= previewElementFinder(doc);
     const host =

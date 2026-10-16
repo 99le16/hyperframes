@@ -126,9 +126,7 @@ export function applyCachedSourceDurations<
 
 /**
  * Probe (header-only, cheap) any media elements still missing sourceDuration
- * after the cache pass. Each source is probed once and `apply` gets every
- * element key that uses it in one call, so a timeline of many clips cut from
- * a few files costs one store update per file, not one per clip.
+ * after the cache pass, applying each source's duration via `apply(keys, secs)`.
  * Skips already-cached srcs.
  */
 export async function probeMissingSourceDurations<

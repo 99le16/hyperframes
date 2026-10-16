@@ -341,7 +341,7 @@
 /* A clip too narrow for a waveform (the frame tier) draws none; its content box, above any theme's pill
    layer, fills in the bars' colour so a long film's sound still reads at fit zoom. */
 .timeline-clip.is-audio[data-ladder="frame"]:not([data-audio-muted]) .timeline-clip__content {
-  background-color: rgba(var(--timeline-waveform-bar-rgb), 0.5);
+  background-color: var(--timeline-waveform-frame-fill);
 }
 
 /* Mute greys the pill in place. Hot path: no transition. */

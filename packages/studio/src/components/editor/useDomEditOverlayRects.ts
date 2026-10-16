@@ -53,7 +53,6 @@ interface UseDomEditOverlayRectsResult {
   childRects: OverlayRect[];
 }
 
-/** computeOverlayRootScale, read once and only when first asked for. */
 function lazyOverlayRootScale(
   overlayEl: HTMLDivElement,
   iframe: HTMLIFrameElement,
@@ -159,7 +158,6 @@ export function useDomEditOverlayRects({
       // or moves the canvas. Resolved per call it was one
       // `querySelector("[data-composition-id]")` and three layout reads EACH,
       // every frame.
-      // Measured on first use: a frame with nothing selected, grouped or hovered has no box to place.
       const scale = lazyOverlayRootScale(overlayEl, iframe, doc);
 
       if (sel) {

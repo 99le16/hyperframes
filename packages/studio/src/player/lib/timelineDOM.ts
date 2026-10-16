@@ -76,7 +76,6 @@ export function createTimelineElementFromManifestClip(params: {
   fallbackIndex: number;
   doc?: Document | null;
   hostEl?: Element | null;
-  /** The document's transition labels, when the caller builds many clips from one document. */
   transitionLabels?: ReadonlyMap<Element, string>;
 }): TimelineElement {
   const { clip, fallbackIndex, doc } = params;

@@ -153,7 +153,6 @@ export const TimelineClip = memo(function TimelineClip({
       data-clip-start={el.start}
       data-clip-end={el.start + el.duration}
       data-clip-hidden={el.hidden ? "true" : undefined}
-      // On the clip, not its waveform: a clip too narrow for one still greys out.
       data-audio-muted={isAudioClip && audioPillFlags(el).muted ? "true" : undefined}
       data-link-color={linkColor ?? undefined}
       data-ladder={ladder}
@@ -274,7 +273,6 @@ export const TimelineClip = memo(function TimelineClip({
       )}
     </button>
   );
-  // Only a waveform describes peaks, and a frame-wide clip draws none; selected keeps it, so focus survives a zoom.
   const describesPeaks = (isAudioClip || el.hasAudio) && (ladder !== "frame" || isSelected);
   return describesPeaks ? <ClipPeakTooltip>{clip}</ClipPeakTooltip> : clip;
 });
