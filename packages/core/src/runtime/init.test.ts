@@ -5346,6 +5346,47 @@ describe("initSandboxRuntimeModular", () => {
       }) as typeof window.getComputedStyle);
     };
 
+    it("lays a clip out again only once its layout inputs change", async () => {
+      const raf = createManualRaf();
+      vi.spyOn(performance, "now").mockImplementation(() => raf.now());
+      window.requestAnimationFrame =
+        raf.requestAnimationFrame as typeof window.requestAnimationFrame;
+      window.cancelAnimationFrame = raf.cancelAnimationFrame as typeof window.cancelAnimationFrame;
+      const root = makeRoot();
+      const clip = document.createElement("div");
+      clip.setAttribute("data-start", "0");
+      root.appendChild(clip);
+      const reads = vi.spyOn(window, "getComputedStyle");
+      const readsOfClip = () => reads.mock.calls.filter(([el]) => el === clip).length;
+      const frames = async (n: number) => {
+        for (let i = 0; i < n; i++) {
+          raf.step(1000 / 60);
+          await Promise.resolve();
+        }
+      };
+      const posts = vi.spyOn(window.parent, "postMessage");
+      const timelinePosts = () =>
+        posts.mock.calls.filter(([m]) => (m as { type?: string })?.type === "stage-size").length;
+
+      window.__timelines = { main: createMockTimeline(10) };
+      initSandboxRuntimeModular();
+      await frames(5);
+      const settled = readsOfClip();
+      const postedBefore = timelinePosts();
+      expect(settled).toBeGreaterThan(0);
+
+      // A timing edit posts the timeline again; the clip's layout inputs did not move.
+      clip.setAttribute("data-duration", "5");
+      await frames(60);
+      expect(timelinePosts()).toBeGreaterThan(postedBefore);
+      expect(readsOfClip()).toBe(settled);
+
+      clip.setAttribute("data-width", "640");
+      await frames(60);
+      expect(readsOfClip()).toBeGreaterThan(settled);
+      expect(clip.style.width).toBe("640px");
+    });
+
     it("force-absolutizes an authored data-start clip and leaves its position to CSS", () => {
       const root = makeRoot();
       const clip = document.createElement("div");

@@ -579,3 +579,55 @@ describe("seekGsapTimeline", () => {
     expect(film.calls()).toBe(1);
   });
 });
+
+describe("rerenderGsapTimelineAt with a structure key", () => {
+  // Steps at the root and inside a nested part that starts at 1 s, the shape of a caption track.
+  function film() {
+    const frames = [0, 1, 2].map(() => document.body.appendChild(document.createElement("div")));
+    let calls = 0;
+    const timeline = gsap.timeline({ paused: true });
+    for (let k = 0; k < 20; k++) timeline.set(frames[k % 3]!, { opacity: k % 2 }, k * 0.1);
+    const part = gsap.timeline();
+    for (let k = 0; k < 20; k++) part.set(frames[(k + 1) % 3]!, { x: k }, k * 0.05);
+    part.call(() => void calls++, [], 0.5);
+    timeline.add(part, 1);
+    const state = () => ({
+      dom: frames.map((frame) => frame.getAttribute("style")),
+      calls,
+      marks: (timeline.getChildren(true, true, true) as unknown as GsapMarks[]).map((child) => [
+        child.ratio,
+        child._zTime,
+        child._act,
+      ]),
+    });
+    return { timeline, state };
+  }
+  type GsapMarks = { ratio: number; _zTime?: number; _act?: number };
+
+  it("leaves the film exactly as a re-render that walks every child", () => {
+    const plain = film();
+    const keyed = film();
+    const key = { owner: keyed.timeline, version: "1" };
+    for (let frame = 0; frame <= 150; frame++) {
+      const t = frame / 60;
+      for (const [one, structure] of [
+        [plain, undefined],
+        [keyed, key],
+      ] as const) {
+        one.timeline.totalTime(t, false);
+        rerenderGsapTimelineAt(
+          {
+            totalTime: one.timeline.totalTime.bind(one.timeline),
+            totalDuration: one.timeline.totalDuration.bind(one.timeline),
+            getChildren: one.timeline.getChildren.bind(
+              one.timeline,
+            ) as RuntimeTimelineLike["getChildren"],
+          },
+          t,
+          structure,
+        );
+      }
+      expect(keyed.state()).toEqual(plain.state());
+    }
+  });
+});
