@@ -13,6 +13,7 @@ vi.mock("./captureProxy.js", () => ({
 vi.mock("../browser/launch.js", () => ({
   launchManagedBrowser: mocks.launch,
   closeManagedBrowser: mocks.browserClose,
+  registerBrowserSessionCleanup: () => () => {},
 }));
 vi.mock("puppeteer-core", () => ({ default: {} }));
 import { launchCaptureBrowser } from "./launchCaptureBrowser.js";

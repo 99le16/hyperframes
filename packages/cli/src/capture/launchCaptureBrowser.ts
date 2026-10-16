@@ -2,7 +2,11 @@ import type { Browser } from "puppeteer-core";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { launchManagedBrowser, closeManagedBrowser } from "../browser/launch.js";
+import {
+  launchManagedBrowser,
+  closeManagedBrowser,
+  registerBrowserSessionCleanup,
+} from "../browser/launch.js";
 import { captureBrowserArgs } from "./browserLaunchArgs.js";
 import { startCaptureProxy } from "./captureProxy.js";
 
@@ -16,6 +20,24 @@ export async function launchCaptureBrowser(options: {
 }): Promise<{ browser: Browser; close(): Promise<void> }> {
   const proxy = await startCaptureProxy();
   let profile: string | undefined;
+  let browser: Browser | undefined;
+  let closing: Promise<void> | undefined;
+  let unregister: (() => void) | undefined;
+  const close = () => {
+    closing ??= (async () => {
+      try {
+        await proxy.close();
+        if (browser) await closeManagedBrowser(browser);
+      } finally {
+        try {
+          if (profile) await rm(profile, { recursive: true, force: true });
+        } finally {
+          unregister?.();
+        }
+      }
+    })();
+    return closing;
+  };
   try {
     const profilePath = await mkdtemp(join(tmpdir(), "hf-capture-profile-"));
     profile = profilePath;
@@ -26,8 +48,9 @@ export async function launchCaptureBrowser(options: {
         webrtc: { ip_handling_policy: "disable_non_proxied_udp" },
       }),
     );
+    unregister = registerBrowserSessionCleanup(close);
     const puppeteer = await import("puppeteer-core");
-    const browser = await launchManagedBrowser(puppeteer.default, {
+    browser = await launchManagedBrowser(puppeteer.default, {
       headless: true,
       userDataDir: profile,
       executablePath: options.executablePath,
@@ -44,19 +67,10 @@ export async function launchCaptureBrowser(options: {
     browser.once("disconnected", () => void proxy.close());
     return {
       browser,
-      async close() {
-        // Stop network admission even if Chromium's own shutdown fails.
-        await proxy.close();
-        try {
-          await closeManagedBrowser(browser);
-        } finally {
-          await rm(profilePath, { recursive: true, force: true });
-        }
-      },
+      close,
     };
   } catch (error) {
-    await proxy.close();
-    if (profile) await rm(profile, { recursive: true, force: true });
+    await close();
     throw error;
   }
 }

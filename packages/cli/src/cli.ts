@@ -63,7 +63,11 @@ if (rootVersionRequested) {
 // Capture treats CWD as project data too: its early loader must use the same
 // allowlist/opt-out as output ancestors, before browser selection can observe it.
 const { applyDotEnv, CAPTURE_ENV_KEYS } = await import("./utils/dotEnv.js");
-const captureEnv = commandArg === "capture";
+// The root has no value-taking options: Citty skips flags up to the first
+// positional command, and stops subcommand selection at the -- separator.
+const separator = argv.indexOf("--");
+const commandArgs = separator < 0 ? argv : argv.slice(0, separator);
+const captureEnv = commandArgs.find((arg) => !arg.startsWith("-")) === "capture";
 if (!captureEnv || process.env.HYPERFRAMES_NO_CAPTURE_DOTENV !== "1") {
   try {
     const { readFileSync } = await import("node:fs");
