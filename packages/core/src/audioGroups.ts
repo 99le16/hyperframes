@@ -133,9 +133,6 @@ export function isMemberGroupHidden(
  * a sub-composition's root is skipped, so repeating one cannot stack chains.
  */
 export function resolveMasterBusElement(root: ParentNode): Element | null {
-  // The first root in document order is the only candidate: any composition above it would come first. Above
-  // `root` itself, one is above every match, and none is the top level. One match, not a scan of the document:
-  // the timeline reads this once per clip.
   const first = root.querySelector("[data-composition-id]");
   return first && !first.parentElement?.closest("[data-composition-id]") ? first : null;
 }

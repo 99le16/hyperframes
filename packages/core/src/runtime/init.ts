@@ -774,15 +774,10 @@ export function initSandboxRuntimeModular(): void {
     return parsed === null ? null : `${parsed}px`;
   };
 
-  // Asked several times a frame, and without a data-root the query scans the whole film twice. Kept
-  // for one timing revision: the observer that moves it watches composition ids and data-root
-  // (DURATION_FLOOR_INPUT_ATTRIBUTES).
   let rootCompositionCache: { revision: number; el: HTMLElement | null } | null = null;
-  // Set once the timing state below is declared: init asks for the root before that.
   let rootCompositionCacheReady = false;
   const resolveRootCompositionElement = (): HTMLElement | null => {
     if (!rootCompositionCacheReady) return findRootCompositionElement();
-    // A root with a declared length never reads the duration floors, which install the observer.
     watchCompositionTimingInputs();
     if (
       compositionTimingObserver &&
@@ -854,9 +849,6 @@ export function initSandboxRuntimeModular(): void {
     }
   };
 
-  // What applyClipLayout read and wrote for each clip, when it last laid that clip out. It runs on every
-  // timeline post, and a clip whose layout inputs have not moved would get the same answer: skipping it saves
-  // a display flip and a style read per clip, which on a film of thousands of clips was most of playback.
   const clipLayoutInputs = new WeakMap<Element, string>();
   const clipLayoutKey = (el: HTMLElement) =>
     [
@@ -971,7 +963,6 @@ export function initSandboxRuntimeModular(): void {
     for (const { el, priority } of displayNoneLiftedToMeasureShown) {
       el.style.setProperty("display", "none", priority);
     }
-    // Not while the page loads: a pass before its stylesheets apply reads computed sizes they will change.
     if (document.readyState === "complete")
       for (const el of clips) clipLayoutInputs.set(el, clipLayoutKey(el));
   };
@@ -1331,14 +1322,10 @@ export function initSandboxRuntimeModular(): void {
   // second cache checking for itself would be told nothing changed.
   let compositionTimingRevision = 0;
 
-  // Whole-film queries the transport makes every frame, kept for one timing revision: the timing
-  // observer sees every node added or removed and every data-start, so the answer cannot move
-  // without the revision moving. A render queries fresh.
   const queryCache = new Map<string, { revision: number; nodes: Element[] }>();
   const queryForTransport = (selector: string): Element[] => {
     if (!compositionTimingObserver || renderCaptureSeekStarted)
       return Array.from(document.querySelectorAll(selector));
-    // A node added earlier in this task has not reached the observer's callback yet.
     if (compositionTimingObserver.takeRecords().length > 0) invalidateCompositionTimingCaches();
     const cached = queryCache.get(selector);
     if (cached?.revision === compositionTimingRevision) return cached.nodes;
@@ -1378,18 +1365,12 @@ export function initSandboxRuntimeModular(): void {
     return signature;
   };
 
-  // A clip whose length is authored keeps its window whatever its media reports: an authored
-  // data-duration wins over the source's (resolveMediaDuration). The preview loads and releases such
-  // clips as the playhead nears and leaves them, and each load's events moved the revision, re-posting
-  // the whole timeline about twice a second on a long film.
   const invalidateOnMediaTimingEvent = (event: Event) => {
     const target = event.target;
-    if (target instanceof Element && isMediaElement(target) && lengthIsAuthored(target)) return;
+    if (isMediaElement(target) && lengthIsAuthored(target)) return;
     invalidateCompositionTimingCaches();
   };
 
-  /** Runs the runtime's own write to `el` (a release's src reset) without counting it as a timing
-   *  change; any other record, pending before or arriving with it, still counts. */
   const withoutOwnTimingRecords = (el: Element, write: () => void) => {
     const pending = compositionTimingObserver?.takeRecords() ?? [];
     write();
@@ -2445,7 +2426,6 @@ export function initSandboxRuntimeModular(): void {
   let metadataRebindApplied = false;
   const metadataBoundMedia = new Set<HTMLMediaElement>();
   const volumeKeyframeCache = new WeakMap<HTMLMediaElement, VolumeKeyframe[]>();
-  /** One walk of the captured timeline's tweens for a whole pass of probes, made only if one probes. */
   const passMovers = (): (() => VolumeMovers) => {
     let movers: VolumeMovers | undefined;
     return () => (movers ??= volumeMoversOf(state.capturedTimeline ?? {}));
@@ -2891,20 +2871,10 @@ export function initSandboxRuntimeModular(): void {
       (visibleAt(el, loopStartSeconds) ||
         dueSoon(el, visibleAt, loopStartSeconds, RELEASE_LOOKAHEAD_SECONDS)));
 
-  // What the last pass decided for each node: visible or not.
   const visibilityDecided = new WeakMap<Element, boolean>();
   const mediaWindows = new WeakMap<object, Map<Element, { start: number; end: number }>>();
-  // Farther from its own window than anything the pass reads ahead or holds behind (the release
-  // look-ahead plus the load look-ahead), with a second of slack.
   const VISIBILITY_REACH_SECONDS = RELEASE_LOOKAHEAD_SECONDS + LOOKAHEAD_SECONDS + 1;
   const PLAYED_STEP_MAX_SECONDS = 1;
-  /**
-   * During playback, the media clips a pass can skip: a root-level clip the last pass left hidden,
-   * not loading, not armed, and whose window (widened by every look-ahead the pass uses) is clear of
-   * the span played since the last pass and of the loop start. Nothing it decides can have changed.
-   * A film of thousands of clips otherwise resolves every one of them every frame. Null (visit
-   * everything) for a step longer than PLAYED_STEP_MAX_SECONDS, which is a jump, not playback.
-   */
   const unchangedSincePlayedFrom = (
     from: number,
     to: number,
@@ -3298,7 +3268,6 @@ export function initSandboxRuntimeModular(): void {
     document.removeEventListener("play", onMediaPlayWakeTransport, true);
   });
 
-  // The transport time of the last full-film visibility pass from the media sync.
   let lastVisibilityPassSeconds: number | null = null;
   const syncMediaForCurrentState = (timingRevision?: number) => {
     // Scope 1 of 3 (see `withTimingResolver`). Closes before `syncRuntimeMedia`,
@@ -3379,7 +3348,6 @@ export function initSandboxRuntimeModular(): void {
         mediaClipsInWindow = [];
       }
     }
-    // Steady playback only: a forced sync, a render and a paused seek visit every node.
     const playedFrom =
       indexed && state.isPlaying && !forceSync && lastVisibilityPassSeconds !== null
         ? lastVisibilityPassSeconds
@@ -4425,15 +4393,11 @@ export function initSandboxRuntimeModular(): void {
     }
   };
 
-  // Each registered timeline's host, kept while it stays in the page under that id: the transport asks
-  // for every one on every frame, and the query scans the whole film.
-  // A miss is kept for the timing revision it was found in: a registry entry with no host (one the
-  // runtime registers for itself) would otherwise be looked for every frame.
   const standaloneHosts = new Map<string, Element | { missingAt: number }>();
   const standaloneHostOf = (compositionId: string): Element | null => {
     const known = standaloneHosts.get(compositionId);
     if (!renderCaptureSeekStarted && known) {
-      if (!(known instanceof Element)) {
+      if (!isElementNode(known)) {
         if (known.missingAt === compositionTimingRevision) return null;
       } else if (known.isConnected && known.getAttribute("data-composition-id") === compositionId)
         return known;
@@ -4513,7 +4477,6 @@ export function initSandboxRuntimeModular(): void {
     }
   };
 
-  // The preview transport asks every frame; the answer moves only with the timeline's structure.
   const zeroDurationCallbackCache = new WeakMap<object, { version: string; value: boolean }>();
   const hasZeroDurationCallbackTween = (
     timeline: RuntimeTimelineLike,
@@ -4605,9 +4568,6 @@ export function initSandboxRuntimeModular(): void {
       try {
         if (typeof tl.totalTime === "function") {
           const redrawn = seekGsapTimeline(tl, tlSeekTime, suppressEvents);
-          // A render reads the structure fresh every frame, as the duration floors do. The timing
-          // revision moves with any registered timeline's length; the direct child count with a
-          // timeline nested into the root.
           const structure = renderCaptureSeekStarted
             ? undefined
             : {

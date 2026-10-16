@@ -249,7 +249,6 @@ function buildTimelineClipLabel(node: Element, kind: RuntimeTimelineClip["kind"]
 export function collectRuntimeTimelinePayload(params: {
   canonicalFps: number;
 }): RuntimeTimelineMessage {
-  // The payload reads the document without changing it, so siblings share one stacking answer.
   const stackingByParent = new Map<Element | null, string>();
   const runtimeWindow = window as Window & {
     __timelines?: Record<string, RuntimeTimelineLike | undefined>;

@@ -53,8 +53,6 @@ export function rerenderGsapTimelineAt(
 type GsapRenderState = { _initted?: number };
 
 function gsapNeverRendered(timeline: RuntimeTimelineLike): boolean {
-  // GSAP keeps the first child on the timeline: no array of every child, which a paused part of a
-  // long caption track was asked for every frame.
   const own = timeline as { _first?: { parent?: unknown } | null };
   const [child] =
     "_first" in own
@@ -130,25 +128,16 @@ function childrenWithLandingMarksIn(timeline: {
   }) as unknown as GsapLandingMarks[];
 }
 
-/**
- * Names a timeline's structure: the same `owner` at the same `version` has the same children. Lets a
- * caller that re-renders every frame skip the walk of every nested child, which on a film of a hundred
- * thousand tweens was most of a frame. Without one, every call walks.
- */
 export type GsapStructureKey = { owner: object; version: string };
 
 type PlacedMarks = {
   version: string;
-  /** Marks the re-render may touch at any time: nested timelines, and points it cannot place. */
   always: GsapLandingMarks[];
-  /** Zero-duration tweens by their time on the owner, ascending. */
   points: { at: number; mark: GsapLandingMarks }[];
 };
 
 const landingMarksCache = new WeakMap<object, PlacedMarks>();
 
-/** Past this distance from `t` a zero-duration tween renders the same at `t` and just below it: fifty
- *  REDRAW_STEPs, the step the re-render takes. */
 const LANDING_MARK_REACH = 0.05;
 
 type GsapPlaced = {
@@ -159,7 +148,6 @@ type GsapPlaced = {
   getChildren?: unknown;
 };
 
-/** A child's start on `owner`'s clock, or null when a repeating or stopped parent makes it ambiguous. */
 function startOnOwner(child: GsapPlaced, owner: object): number | null {
   let at = Number(child._start);
   for (let parent = child.parent; parent && parent !== owner; parent = parent.parent) {
@@ -185,7 +173,6 @@ function placeLandingMarks(
   return placed;
 }
 
-/** The first point at or after `time`. */
 function firstPointFrom(points: PlacedMarks["points"], time: number): number {
   let lo = 0;
   let hi = points.length;

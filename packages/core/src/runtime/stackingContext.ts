@@ -95,7 +95,6 @@ function cssStackingContextPath(element: Element): string {
  */
 export function resolveCssStackingContextId(
   node: Element,
-  /** Answers already found in one pass over an unchanging document, by parent: siblings share one. */
   byParent?: Map<Element | null, string>,
 ): string {
   const known = byParent?.get(node.parentElement);

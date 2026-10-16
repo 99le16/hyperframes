@@ -216,7 +216,6 @@ export interface VolumeProbeOptions {
    * Preview callers omit this option and retain live automation discovery.
    */
   allowLiveTimelineSeek?: boolean;
-  /** The timeline's volume movers, shared by every element of a pass; walked here when absent. */
   movers?: () => VolumeMovers;
 }
 
@@ -240,15 +239,6 @@ function hasSetter(target: unknown, key: string): boolean {
   return false;
 }
 
-/**
- * What seeking `timeline` can move the volume of, from one walk of its tweens: each element a tween names
- * `volume` on, and whether any tween on a non-DOM object tweens a setter (a gain proxy, which can move any
- * element's level). `unknown` when the timeline cannot list its tweens. Spacers, calls and counters skip.
- *
- * One walk serves every element probed in a pass: walking per element made a pass cost elements × tweens,
- * which on a long podcast episode (2,354 clips, ~100k caption tweens) held the preview's main thread for
- * seconds at a time, every pass.
- */
 export interface VolumeMovers {
   elements: Set<unknown>;
   anySetter: boolean;
@@ -276,7 +266,6 @@ export function volumeMoversOf(timeline: RuntimeTimelineRef): VolumeMovers {
   }
 }
 
-/** Whether seeking the timeline `movers` came from can move `el.volume`. */
 const canMoveVolume = (movers: VolumeMovers, el: HTMLMediaElement): boolean =>
   movers.unknown || movers.anySetter || movers.elements.has(el);
 
