@@ -309,14 +309,6 @@ export const AudioWaveform = memo(function AudioWaveform({
 
   useEffect(() => (near ? onThemeChange(draw) : undefined), [draw, near]);
 
-  useEffect(() => {
-    const clip = root?.closest(".timeline-clip");
-    if (!(clip instanceof HTMLElement)) return;
-    if (muted) clip.setAttribute("data-audio-muted", "true");
-    else clip.removeAttribute("data-audio-muted");
-    return () => clip.removeAttribute("data-audio-muted");
-  }, [muted, root]);
-
   return (
     <div ref={setRoot} className="absolute inset-0">
       <div

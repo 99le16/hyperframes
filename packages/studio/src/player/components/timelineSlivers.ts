@@ -24,7 +24,10 @@ export function withoutHiddenSlivers(
     const right = left + clipWidthPx(el, pps);
     const next = byStart[i + 1];
     const endsRun = !next || next.start * pps >= right;
-    if (left < edge && !endsRun && !keep(el)) {
+    // Only a sliver: a clip drawn wider than it is long. A real overlap (two clips an author labels one transition)
+    // stays, however it starts.
+    const sliver = el.duration * pps < right - left;
+    if (sliver && left < edge && !endsRun && !keep(el)) {
       hidden.add(el);
       continue;
     }

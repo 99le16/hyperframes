@@ -17,6 +17,7 @@ import { linkLabelColor } from "./linkLabelColor";
 import { OutOfSyncBadge } from "./OutOfSyncBadge";
 import { clipSpeedSuffix } from "./clipToolAttrs";
 import { ClipPeakTooltip } from "./ClipPeakTooltip";
+import { audioPillFlags } from "./audioClipLink";
 import { timeLayerPercent } from "./TimelineTimeLayer";
 
 interface TimelineClipProps {
@@ -152,6 +153,8 @@ export const TimelineClip = memo(function TimelineClip({
       data-clip-start={el.start}
       data-clip-end={el.start + el.duration}
       data-clip-hidden={el.hidden ? "true" : undefined}
+      // On the clip, not its waveform: a clip too narrow for one still greys out.
+      data-audio-muted={isAudioClip && audioPillFlags(el).muted ? "true" : undefined}
       data-link-color={linkColor ?? undefined}
       data-ladder={ladder}
       data-active={isActive ? "" : undefined}

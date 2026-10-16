@@ -475,6 +475,8 @@ function buildMissingCompositionEntry(params: {
   return attachCompositionSource(entry, element, compositionSrc);
 }
 
+const MEDIA_TAGS = new Set(["video", "audio", "img"]);
+
 /**
  * Scan the iframe DOM for composition hosts missing from the current
  * timeline elements and add them.  The CDN runtime often fails to resolve
@@ -482,8 +484,6 @@ function buildMissingCompositionEntry(params: {
  * are silently dropped from `__clipManifest`.  This pass reads the DOM +
  * GSAP timeline registry directly to fill the gaps.
  */
-const MEDIA_TAGS = new Set(["video", "audio", "img"]);
-
 export function buildMissingCompositionElements(
   doc: Document,
   iframeWin: IframeWindow,

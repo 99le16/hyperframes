@@ -292,32 +292,6 @@ describe("AudioWaveform", () => {
     act(() => root.unmount());
   });
 
-  it("greys the clip in place when muted", () => {
-    const host = document.createElement("div");
-    host.className = "timeline-clip is-audio";
-    document.body.append(host);
-    const root = createRoot(host);
-
-    act(() => {
-      root.render(
-        <AudioWaveform
-          audioUrl="/media/voice.wav"
-          label=""
-          labelColor="#fff"
-          projectId="project-a"
-          sessionEpoch={1}
-          priority="visible"
-          muted
-        />,
-      );
-    });
-
-    expect(host.getAttribute("data-audio-muted")).toBe("true");
-
-    act(() => root.unmount());
-    expect(host.hasAttribute("data-audio-muted")).toBe(false);
-  });
-
   it("fills a short sound strip when the label band is dropped", () => {
     const heights = [16, 0].map((labelInset) => {
       const host = document.createElement("div");

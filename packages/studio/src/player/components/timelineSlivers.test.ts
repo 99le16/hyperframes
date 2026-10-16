@@ -28,4 +28,9 @@ describe("withoutHiddenSlivers", () => {
     const run = [clip("late", 1, 0.5), clip("early", 0, 0.5), clip("mid", 0.5, 0.5)];
     expect(ids(withoutHiddenSlivers(run, 1, () => false))).toEqual(["late", "early"]);
   });
+
+  it("keeps a wide clip that starts inside another, as one an author's shared transition label overlaps", () => {
+    const overlapped = [clip("A", 0, 10), clip("B", 9, 10), clip("C", 18, 10)];
+    expect(withoutHiddenSlivers(overlapped, 100, () => false)).toBe(overlapped);
+  });
 });
